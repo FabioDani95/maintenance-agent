@@ -1,8 +1,8 @@
 {
-    "ontology_name": "BambuLab_MVP_Troubleshooting_KG",
+    "ontology_name": "Core_Ontology",
     "version": "2.0",
     "language": "en",
-    "description": "Minimal ontology for an MVP troubleshooting knowledge graph for a Bambu Lab printer, optimized for chatbot-based problem diagnosis and resolution before or during printing.",
+    "description": "Minimal ontology for an MVP troubleshooting knowledge graph for a product, optimized for chatbot-based problem diagnosis and resolution before or during printing.",
   
     "design_principles": [
       "Center the ontology on troubleshooting rather than full product modeling.",

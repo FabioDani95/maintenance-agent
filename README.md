@@ -229,6 +229,4 @@ ONTOLOGY_GRAPH_PORT=8080 python3 modify/modify_ontology.py
 | `modify/template.py` | HTML/CSS/JS embedded dell'editor |
 
 ## Note operative
-
-- La repo root si chiama `maintenance-agent`, non `APMS_2026`.
 - `troubleshooting_agent/spec.txt` descrive la specifica funzionale aggiornata dell'assistant.

@@ -362,6 +362,74 @@
         "related_measurements": ["belt_tension_freq_hz", "toolhead_speed_deviation_pct", "x_axis_motor_current_a"]
       }
     ],
+    "ErrorCode": [
+      {
+        "error_code_id": "err_0300_0900_0002_0001",
+        "name": "Extruder motor overloaded",
+        "description": "The extrusion motor is overloaded; the extruder may be clogged or the filament may be stuck in the tool head.",
+        "code": "0300-0900-0002-0001"
+      },
+      {
+        "error_code_id": "err_0300_0900_0002_0003",
+        "name": "Extruder extruding abnormally",
+        "description": "The extruder is extruding abnormally; it may be clogged, or the filament may be too thin, causing the extruder to slip.",
+        "code": "0300-0900-0002-0003"
+      },
+      {
+        "error_code_id": "err_0700_7000_0002_0003",
+        "name": "Failed to extrude filament",
+        "description": "Failed to extrude the filament; please check if the extruder or nozzle is clogged.",
+        "code": "0700-7000-0002-0003"
+      },
+      {
+        "error_code_id": "err_0700_7000_0002_0001",
+        "name": "Failed to pull out filament from extruder",
+        "description": "Failed to pull out the filament from the extruder; check whether extruder is clogged or filament is broken inside the extruder.",
+        "code": "0700-7000-0002-0001"
+      },
+      {
+        "error_code_id": "err_0700_4500_0002_0003",
+        "name": "Filament cutter handle not released",
+        "description": "The filament cutter handle has not been released; the handle or blade may be jammed, or there could be an issue with the filament sensor connection.",
+        "code": "0700-4500-0002-0003"
+      },
+      {
+        "error_code_id": "err_0700_4500_0002_0001",
+        "name": "Filament cutter sensor malfunctioning",
+        "description": "The filament cutter sensor is malfunctioning; the sensor may be disconnected or damaged.",
+        "code": "0700-4500-0002-0001"
+      },
+      {
+        "error_code_id": "err_0300_1000_0002_0001",
+        "name": "X-axis resonance frequency low",
+        "description": "The 1st order mechanical resonance mode of X axis is low; the timing belt may be loose.",
+        "code": "0300-1000-0002-0001"
+      },
+      {
+        "error_code_id": "err_0300_1000_0002_0002",
+        "name": "X-axis resonance frequency shifted",
+        "description": "The resonance frequency of the X axis differs greatly from last calibration; please clean the carbon rod and rerun calibration.",
+        "code": "0300-1000-0002-0002"
+      },
+      {
+        "error_code_id": "err_0300_1100_0002_0001",
+        "name": "Y-axis resonance frequency low",
+        "description": "The resonance frequency of the Y axis is low; the timing belt may be loose.",
+        "code": "0300-1100-0002-0001"
+      },
+      {
+        "error_code_id": "err_0300_1100_0002_0002",
+        "name": "Y-axis resonance frequency shifted",
+        "description": "The resonance frequency of the Y-axis differs greatly from the last calibration; please clean the Y-axis linear rod and conduct calibration.",
+        "code": "0300-1100-0002-0002"
+      },
+      {
+        "error_code_id": "err_0300_0300_0001_0001",
+        "name": "Hotend cooling fan too slow or stopped",
+        "description": "The hotend cooling fan speed is too slow or stopped. It may be stuck or the connector may not be plugged in properly.",
+        "code": "0300-0300-0001-0001"
+      }
+    ],
     "CorrectiveAction": [
       {
         "action_id": "act_clean_x_axis_carbon_rods_ipa",
@@ -643,6 +711,11 @@
       "type": "HAS_COMPONENT",
       "from_id": "prt_p1p",
       "to_id": "comp_belts"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_hotend_fan"
     },
     {
       "type": "RELATED_TO",
@@ -1053,6 +1126,141 @@
       "type": "RESOLVED_BY",
       "from_id": "fail_belts_greased_or_contaminated",
       "to_id": "act_clean_belts_and_pulleys"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_0900_0002_0001"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_0900_0002_0003"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0700_7000_0002_0003"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0700_7000_0002_0001"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0700_4500_0002_0003"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0700_4500_0002_0001"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_1000_0002_0001"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_1000_0002_0002"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_1100_0002_0001"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_1100_0002_0002"
+    },
+    {
+      "type": "GENERATES_ERROR",
+      "from_id": "prt_p1p",
+      "to_id": "err_0300_0300_0001_0001"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_0900_0002_0001",
+      "to_id": "fail_extruder_filament_dust_accumulation"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_0900_0002_0001",
+      "to_id": "fail_nozzle_residue_buildup"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_0900_0002_0003",
+      "to_id": "fail_extruder_filament_dust_accumulation"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_0900_0002_0003",
+      "to_id": "fail_ptfe_tube_worn_regular"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_7000_0002_0003",
+      "to_id": "fail_nozzle_residue_buildup"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_7000_0002_0003",
+      "to_id": "fail_extruder_filament_dust_accumulation"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_7000_0002_0001",
+      "to_id": "fail_nozzle_residue_buildup"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_7000_0002_0001",
+      "to_id": "fail_extruder_filament_dust_accumulation"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_4500_0002_0003",
+      "to_id": "fail_filament_cutter_blade_dull_regular"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_4500_0002_0003",
+      "to_id": "fail_filament_cutter_blade_dull_abrasive"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0700_4500_0002_0001",
+      "to_id": "fail_filament_cutter_blade_dull_regular"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_1000_0002_0001",
+      "to_id": "fail_belts_greased_or_contaminated"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_1000_0002_0002",
+      "to_id": "fail_grease_on_carbon_rods"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_1100_0002_0001",
+      "to_id": "fail_belts_greased_or_contaminated"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_1100_0002_0002",
+      "to_id": "fail_linear_rods_dust_buildup"
+    },
+    {
+      "type": "INDICATES",
+      "from_id": "err_0300_0300_0001_0001",
+      "to_id": "fail_fans_dust_debris"
     }
   ]
 }
