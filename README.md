@@ -4,7 +4,7 @@ Repository per un sistema di troubleshooting knowledge-grounded della stampante 
 
 - un **knowledge graph** in `ontology.json`
 - uno **schema ontologico** in `ontology_schema.JSON`
-- un **troubleshooting agent** web in `TroubleShootingAgent/`
+- un **troubleshooting agent** web in `troubleshooting_agent/`
 - un **editor grafico dell'ontologia** in `modify/`
 
 L'agente non genera soluzioni tecniche liberamente: interpreta il problema espresso in linguaggio naturale, lo collega ai sintomi noti tramite embedding, attraversa il grafo `Symptom -> FailureMode -> CorrectiveAction` e formula la risposta usando solo i dati presenti nell'ontologia.
@@ -20,7 +20,7 @@ APMS_2026/
 ├── sources.csv
 ├── oldVersion/
 │   └── ontology_v*.json
-├── TroubleShootingAgent/
+├── troubleshooting_agent/
 │   ├── agent.py
 │   ├── app_factory.py
 │   ├── api_routes.py
@@ -60,7 +60,7 @@ APMS_2026/
 
 ## Troubleshooting Agent
 
-L'applicazione in `TroubleShootingAgent/` espone una UI web con chat e visualizzazione del grafo. Il flusso implementato nel codice e nella specifica è:
+L'applicazione in `troubleshooting_agent/` espone una UI web con chat e visualizzazione del grafo. Il flusso implementato nel codice e nella specifica è:
 
 1. controllo di rilevanza del messaggio rispetto al dominio P1P
 2. embedding della query utente
@@ -88,21 +88,21 @@ Questa separazione non cambia l'utilizzo esterno dell'applicazione, ma rende pi�
 
 | File | Responsabilità |
 |---|---|
-| `TroubleShootingAgent/agent.py` | Entry point del server Flask, controllo porta, verifica ontologia/embeddings, apertura browser |
-| `TroubleShootingAgent/app_factory.py` | Crea l'app Flask e registra i blueprint |
-| `TroubleShootingAgent/frontend_routes.py` | Espone la route `/` e renderizza `templates/index.html` |
-| `TroubleShootingAgent/api_routes.py` | Espone gli endpoint backend JSON e il serving dei manuali |
-| `TroubleShootingAgent/routes.py` | Punto di compatibilità per import esistenti (`app = create_app()`) |
-| `TroubleShootingAgent/orchestrator.py` | Gestione conversazione multi-turno, ambiguità, trace del grafo |
-| `TroubleShootingAgent/ontology_loader.py` | Load di `ontology.json` e costruzione indici in memoria |
-| `TroubleShootingAgent/graph_traversal.py` | Traversal `Symptom -> FailureMode -> CorrectiveAction` |
-| `TroubleShootingAgent/embeddings.py` | Generazione/caricamento embedding dei sintomi |
-| `TroubleShootingAgent/similarity.py` | Cosine similarity e soglie di matching |
-| `TroubleShootingAgent/domain_check.py` | Classificazione `relevant / unclear / not_relevant` tramite LLM |
-| `TroubleShootingAgent/response_builder.py` | Formattazione risposta grounded e domande di chiarimento |
-| `TroubleShootingAgent/templates/index.html` | Template HTML della UI |
-| `TroubleShootingAgent/static/css/app.css` | CSS del frontend |
-| `TroubleShootingAgent/static/js/app.js` | JavaScript del frontend |
+| `troubleshooting_agent/agent.py` | Entry point del server Flask, controllo porta, verifica ontologia/embeddings, apertura browser |
+| `troubleshooting_agent/app_factory.py` | Crea l'app Flask e registra i blueprint |
+| `troubleshooting_agent/frontend_routes.py` | Espone la route `/` e renderizza `templates/index.html` |
+| `troubleshooting_agent/api_routes.py` | Espone gli endpoint backend JSON e il serving dei manuali |
+| `troubleshooting_agent/routes.py` | Punto di compatibilità per import esistenti (`app = create_app()`) |
+| `troubleshooting_agent/orchestrator.py` | Gestione conversazione multi-turno, ambiguità, trace del grafo |
+| `troubleshooting_agent/ontology_loader.py` | Load di `ontology.json` e costruzione indici in memoria |
+| `troubleshooting_agent/graph_traversal.py` | Traversal `Symptom -> FailureMode -> CorrectiveAction` |
+| `troubleshooting_agent/embeddings.py` | Generazione/caricamento embedding dei sintomi |
+| `troubleshooting_agent/similarity.py` | Cosine similarity e soglie di matching |
+| `troubleshooting_agent/domain_check.py` | Classificazione `relevant / unclear / not_relevant` tramite LLM |
+| `troubleshooting_agent/response_builder.py` | Formattazione risposta grounded e domande di chiarimento |
+| `troubleshooting_agent/templates/index.html` | Template HTML della UI |
+| `troubleshooting_agent/static/css/app.css` | CSS del frontend |
+| `troubleshooting_agent/static/js/app.js` | JavaScript del frontend |
 
 ### Avvio del troubleshooting agent
 
@@ -110,18 +110,18 @@ Prerequisiti:
 
 - `OPENAI_API_KEY` definita in `.env` o nell'ambiente
 - dipendenze installate da `requirements.txt`
-- `TroubleShootingAgent/symptom_embeddings.json` presente
+- `troubleshooting_agent/symptom_embeddings.json` presente
 
 Avvio:
 
 ```bash
-python3 TroubleShootingAgent/agent.py
+python3 troubleshooting_agent/agent.py
 ```
 
 Porta custom:
 
 ```bash
-AGENT_PORT=5002 python3 TroubleShootingAgent/agent.py
+AGENT_PORT=5002 python3 troubleshooting_agent/agent.py
 ```
 
 Di default il server gira su `http://127.0.0.1:5001/`.
@@ -149,7 +149,7 @@ Dal punto di vista del codice:
 
 Dal punto di vista dell'utente o di un'integrazione esistente, invece, non cambia nulla:
 
-- stessa entrypoint `python3 TroubleShootingAgent/agent.py`
+- stessa entrypoint `python3 troubleshooting_agent/agent.py`
 - stessi path pubblici
 - stessa UI
 - stessa logica conversazionale
@@ -228,14 +228,14 @@ Se una `CorrectiveAction` usa un manuale PDF locale, il frontend lo apre costrue
 
 Quindi, per funzionare correttamente:
 
-- `source_title` deve corrispondere **esattamente** al nome file del PDF in `TroubleShootingAgent/manuals/`, senza estensione
+- `source_title` deve corrispondere **esattamente** al nome file del PDF in `troubleshooting_agent/manuals/`, senza estensione
 - il file deve esistere realmente nella cartella `manuals/`
 - `source_reference` dovrebbe essere un **numero di pagina puro**, per esempio `4`, `6`, `15`
 
 Esempio valido:
 
 - `source_title`: `Bambu Lab P1 series manual`
-- file presente: `TroubleShootingAgent/manuals/Bambu Lab P1 series manual.pdf`
+- file presente: `troubleshooting_agent/manuals/Bambu Lab P1 series manual.pdf`
 - `source_reference`: `4`
 
 Se il nome non coincide, il bottone "Open manual" viene mostrato ma il PDF non si aprirà correttamente.
@@ -251,12 +251,12 @@ Esempio:
 
 #### 6. Dopo aver cambiato i sintomi, va rigenerato il file embedding
 
-Se modifichi i nodi `Symptom` in `ontology.json` aggiungendo, rinominando o rimuovendo sintomi, devi rigenerare `TroubleShootingAgent/symptom_embeddings.json`, altrimenti il matcher semantico lavorerà su dati incoerenti.
+Se modifichi i nodi `Symptom` in `ontology.json` aggiungendo, rinominando o rimuovendo sintomi, devi rigenerare `troubleshooting_agent/symptom_embeddings.json`, altrimenti il matcher semantico lavorerà su dati incoerenti.
 
 Comando:
 
 ```bash
-python3 TroubleShootingAgent/embeddings.py
+python3 troubleshooting_agent/embeddings.py
 ```
 
 #### 7. I conteggi in `metadata` dovrebbero restare coerenti
@@ -269,7 +269,7 @@ Checklist minima:
 
 - `ontology.json` valido e coerente con `ontology_schema.JSON`
 - tutti i `Symptom` rilevanti presenti anche in `symptom_embeddings.json`
-- tutti i PDF referenziati da `source_title` realmente presenti in `TroubleShootingAgent/manuals/`
+- tutti i PDF referenziati da `source_title` realmente presenti in `troubleshooting_agent/manuals/`
 - `source_reference` numerico per i PDF locali
 - catena `Symptom -> FailureMode -> CorrectiveAction` effettivamente attraversabile
 
@@ -361,7 +361,7 @@ Con questo record:
 
 - il chatbot può descrivere l'azione usando `instruction_text`
 - la UI mostrerà un bottone per aprire il manuale
-- il frontend proverà ad aprire `TroubleShootingAgent/manuals/Bambu Lab P1 series manual.pdf` alla pagina `4`
+- il frontend proverà ad aprire `troubleshooting_agent/manuals/Bambu Lab P1 series manual.pdf` alla pagina `4`
 
 ---
 

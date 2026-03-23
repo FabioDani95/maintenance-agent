@@ -1,7 +1,7 @@
 """
 Generate simulated telemetry data for the Bambu Lab P1P troubleshooting agent.
 
-Produces a wide-format CSV at TroubleShootingAgent/telemetry/telemetry_p1p.csv
+Produces a wide-format CSV at troubleshooting_agent/telemetry/telemetry_p1p.csv
 with 14 days of data at 5-minute intervals (~4032 rows, 22 columns).
 
 Usage:
@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "TroubleShootingAgent" / "telemetry" / "telemetry_p1p.csv"
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "troubleshooting_agent" / "telemetry" / "telemetry_p1p.csv"
 
 # ── Signal definitions ──
 # Each signal: baseline value, noise std, unit (for documentation), optional anomaly/trend config
