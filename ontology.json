@@ -1,0 +1,1058 @@
+{
+  "metadata": {
+    "ontology_name": "BambuLab_MVP_Troubleshooting_KG",
+    "version": "2.0-aligned",
+    "extraction_date": "2026-03-10",
+    "language": "en",
+    "sources_processed": 1,
+    "total_nodes": 73,
+    "total_relationships": 98,
+    "product_name": "Bambu Lab P1P",
+    "product_short_name": "P1P",
+    "product_type": "3D printer",
+    "domain_topics": [
+      "mechanical symptoms: noises, resistance, layer shifts, vibrations, grinding",
+      "extrusion issues: under-extrusion, filament not cut, filament not feeding",
+      "hotend/nozzle: clogging, residue, silicone sock wear",
+      "motion system: X/Y/Z axis problems, belt slip, lead screw, linear rods, bearings, idler pulleys",
+      "maintenance: lubrication, cleaning, worn parts replacement",
+      "sensors/optics: chamber camera blur or dirt",
+      "any physical symptom or component of a FDM 3D printer"
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "src_maintenance",
+      "type": "web_page",
+      "title": "Bambu Lab P1 series printer Maintenance Recommendation",
+      "reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+    }
+  ],
+  "nodes": {
+    "Printer": [
+      {
+        "printer_id": "prt_p1p",
+        "name": "Bambu Lab P1P",
+        "description": "CoreXY FDM 3D printer with a 256×256×256 mm build volume, high-speed motion system and optional multi-color AMS support.",
+        "brand": "Bambu Lab",
+        "model": "P1P"
+      }
+    ],
+    "Component": [
+      {
+        "component_id": "comp_x_axis_carbon_rods",
+        "name": "X-axis carbon rods",
+        "description": "Pair of carbon fiber guide rods supporting fast CoreXY motion of the toolhead along the X direction.",
+        "category": "motion system"
+      },
+      {
+        "component_id": "comp_z_axis_lead_screws",
+        "name": "Z-axis lead screws",
+        "description": "Vertical threaded screws that raise and lower the build plate for Z positioning and bed leveling.",
+        "category": "motion system"
+      },
+      {
+        "component_id": "comp_yz_linear_rods",
+        "name": "Y-axis and Z-axis linear rods",
+        "description": "Hardened steel rods providing smooth linear guidance for the bed and gantry on Y and Z axes.",
+        "category": "motion system"
+      },
+      {
+        "component_id": "comp_lmu8_bearings",
+        "name": "LMU8 bearings",
+        "description": "Linear ball bearings that slide on the steel rods to support low-friction movement of the bed and gantry.",
+        "category": "motion system"
+      },
+      {
+        "component_id": "comp_extruder_assembly",
+        "name": "Extruder assembly",
+        "description": "Direct-drive extruder on the toolhead with drive gears and motor that push filament into the hotend.",
+        "category": "extrusion system"
+      },
+      {
+        "component_id": "comp_filament_cutter_blade",
+        "name": "Filament cutter blade",
+        "description": "Integrated blade that cuts the 1.75 mm filament during unload or AMS operations.",
+        "category": "filament handling"
+      },
+      {
+        "component_id": "comp_silicone_sock",
+        "name": "Hotend silicone sock",
+        "description": "High-temperature silicone cover that surrounds the heater block and nozzle to improve insulation and keep them clean.",
+        "category": "hotend assembly"
+      },
+      {
+        "component_id": "comp_idler_pulleys",
+        "name": "Idler pulleys",
+        "description": "Belt idlers mounted on the frame that redirect and tension the CoreXY drive belts.",
+        "category": "motion system"
+      },
+      {
+        "component_id": "comp_chamber_camera",
+        "name": "Chamber camera",
+        "description": "Monitoring camera mounted in the chamber for remote viewing and timelapse capture.",
+        "category": "sensing and monitoring"
+      },
+      {
+        "component_id": "comp_hotend_fan",
+        "name": "Hotend fan",
+        "description": "Small high-speed fan dedicated to cooling the hotend’s heat break and heatsink.",
+        "category": "cooling system"
+      },
+      {
+        "component_id": "comp_front_cover_fan",
+        "name": "Front cover fan",
+        "description": "Part-cooling fan in the front cover that blows air onto the printed part to solidify extruded filament.",
+        "category": "cooling system"
+      },
+      {
+        "component_id": "comp_auxiliary_fan",
+        "name": "Auxiliary fan",
+        "description": "Optional auxiliary part-cooling fan mounted on the side of the chamber to improve cooling at high print speeds.",
+        "category": "cooling system"
+      },
+      {
+        "component_id": "comp_nozzle_wiper",
+        "name": "Nozzle wiper",
+        "description": "Wiping element at the rear of the build area that scrapes excess filament from the nozzle during purge routines.",
+        "category": "maintenance and cleaning"
+      },
+      {
+        "component_id": "comp_nozzle",
+        "name": "Nozzle",
+        "description": "Metal nozzle at the end of the hotend that shapes and deposits the molten filament.",
+        "category": "hotend assembly"
+      },
+      {
+        "component_id": "comp_ptfe_tube",
+        "name": "PTFE tube",
+        "description": "Polytetrafluoroethylene guide tube that routes filament from the spool holder or AMS into the extruder.",
+        "category": "filament handling"
+      },
+      {
+        "component_id": "comp_belts",
+        "name": "Belts",
+        "description": "CoreXY drive belts that connect the stepper motors to the toolhead carriages and transfer motion in X and Y.",
+        "category": "motion system"
+      }
+    ],
+    "Symptom": [
+      {
+        "symptom_id": "sym_abnormal_resistance_x_axis",
+        "name": "Abnormal resistance on X-axis movement",
+        "description": "When the print head moves along the X-axis, its motion feels or sounds uneven, with noticeable resistance, sticking, or sudden jerks instead of a smooth glide.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_difficulty_cleaning_x_axis_rods",
+        "name": "Difficulty cleaning X-axis carbon rods",
+        "description": "The X-axis carbon rods look visibly dirty or smeared, and when wiped with a cloth or paper they remain streaky, sticky, or leave noticeable residue instead of appearing clean and dry.",
+        "severity": "low"
+      },
+      {
+        "symptom_id": "sym_rough_z_bed_movement",
+        "name": "Rough or unsmooth Z-axis bed movement",
+        "description": "During homing or Z movement, the build plate moves up or down with visible or audible roughness, including jerky steps, grinding, or vibration instead of a continuous smooth motion.",
+        "severity": "high"
+      },
+      {
+        "symptom_id": "sym_abnormal_bearing_ball_noise",
+        "name": "Abnormal ball noise from bearing",
+        "description": "While axes move, a noisy rattling, clicking, or rolling sound from ball bearings can be heard, making the printer noticeably loud; this abnormal noise is different from the normal stepper and fan sounds and is localized near a bearing position.",
+        "severity": "low"
+      },
+      {
+        "symptom_id": "sym_squeaking_noises_xy_movement",
+        "name": "Squeaking noises during printing or XY axis movement",
+        "description": "When the toolhead moves in X or Y, especially at certain speeds or directions, a sharp squeak or squeal is clearly audible, repeating with each movement or oscillation.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_blurred_chamber_video",
+        "name": "Blurred or visibly dirty chamber camera video",
+        "description": "The chamber camera preview appears foggy, hazy, or out of focus, sometimes with visible smudges, spots, or streaks on the image that move together with the camera view.",
+        "severity": "low"
+      },
+      {
+        "symptom_id": "sym_fan_dust_debris_buildup",
+        "name": "Dust or debris buildup on fan blades",
+        "description": "Looking at the fans, the blades and surrounding grille show visible dust, filament hairs, or small particles, and the fan may look visibly dirty or unbalanced when spinning.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_nozzle_wiper_filament_debris",
+        "name": "Filament debris on nozzle wiper",
+        "description": "Around the nozzle wiper area there are visible strings, blobs, or hardened pieces of filament stuck on the wiper surface or accumulated in the wiping zone.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_nozzle_wiper_damaged",
+        "name": "Nozzle wiper PTFE side damaged or not horizontal",
+        "description": "The nozzle wiper appears bent, twisted, or deformed, with the PTFE edge not forming a straight horizontal line, or parts of the wiper visibly missing, torn, or sagging.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_nozzle_surface_dirty",
+        "name": "Nozzle surface dirty",
+        "description": "The nozzle and heater block have visible burned plastic, dark deposits, or attached blobs and strings that remain on the metal surfaces after prints finish.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_under_extrusion",
+        "name": "Under-extrusion during printing",
+        "description": "Printed lines appear thin or incomplete, with visible gaps, holes, or missing sections in walls or infill, and surfaces may show sparse or inconsistent filament coverage.",
+        "severity": "high"
+      },
+      {
+        "symptom_id": "sym_extruder_filament_dust_visible",
+        "name": "Visible filament dust on extruder yellow gear",
+        "description": "Looking at the yellow extruder gear and nearby housing, fine plastic dust, shavings, or colored particles matching the filament are clearly visible on or around the gear teeth.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_filament_not_cut_cleanly",
+        "name": "Filament not cut cleanly during filament swaps",
+        "description": "After an unload or filament change, the filament end coming out of the system is visibly frayed, angled, or irregular instead of a straight, clean-cut tip.",
+        "severity": "high"
+      },
+      {
+        "symptom_id": "sym_silicone_sock_worn_or_loose",
+        "name": "Silicone sock shows wear or does not remain attached securely",
+        "description": "The silicone sock around the hotend looks torn, stretched, discolored, or partially detached, and may visibly slip down or fall off instead of staying snugly around the heater block.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_ptfe_tube_visible_wear",
+        "name": "Visible wear signs on PTFE tube",
+        "description": "The PTFE filament tube shows clear marks such as grooves, flattened sections, discoloration, nicks, or visible dust traces along contact areas, and may look misshapen compared to a new smooth tube.",
+        "severity": "high"
+      },
+      {
+        "symptom_id": "sym_belt_contamination_layer_shift",
+        "name": "Layer shifts or unexpected belt slip during printing",
+        "description": "Printed layers appear shifted horizontally relative to each other, or the toolhead seems to skip or lose position during fast movements, suggesting belt slip or reduced belt grip due to grease or debris contamination on the belt teeth or pulleys.",
+        "severity": "high"
+      }
+    ],
+    "FailureMode": [
+      {
+        "failure_mode_id": "fail_grease_on_carbon_rods",
+        "name": "Grease applied to X-axis carbon rods",
+        "description": "Lubricating oil or grease has been applied to the X-axis carbon rods, forming a sticky film that traps dust and particles and increases sliding resistance.",
+        "material_context": "X-axis carbon fiber rods; lubricating oil or grease; airborne dust and filament particles.",
+        "related_measurements": ["x_axis_vibration_rms", "x_axis_motor_current_a"]
+      },
+      {
+        "failure_mode_id": "fail_z_lead_screws_insufficient_grease",
+        "name": "Z-axis lead screws insufficiently greased",
+        "description": "The Z-axis lead screws show a dry or nearly dry metal surface, with little or no visible grease along the threads, leading to rough metal-on-metal contact during bed movement.",
+        "material_context": "Steel Z-axis lead screws; lubricating grease film on screw threads.",
+        "related_measurements": ["z_axis_motor_current_a", "z_axis_vibration_rms"]
+      },
+      {
+        "failure_mode_id": "fail_z_lead_screws_dust_particles",
+        "name": "Dust or plastic particles on Z-axis lead screws",
+        "description": "Dust, plastic shavings, or other small particles are visibly attached to the Z-axis lead screw threads, sometimes mixed into the grease layer along the screws.",
+        "material_context": "Steel Z-axis lead screws; lubricating grease; environmental dust and plastic debris.",
+        "related_measurements": ["z_axis_motor_current_a", "z_axis_vibration_rms"]
+      },
+      {
+        "failure_mode_id": "fail_linear_rods_dust_buildup",
+        "name": "Dust and particle buildup on Y-axis and Z-axis linear rods",
+        "description": "The Y-axis and Z-axis steel linear rods have a noticeable film of dust, filament hairs, or fine particles on their surface instead of a clean metallic appearance.",
+        "material_context": "Steel linear rods on Y and Z axes; thin oil or grease layer; accumulated dust and filament particles.",
+        "related_measurements": ["y_axis_vibration_rms", "z_axis_vibration_rms"]
+      },
+      {
+        "failure_mode_id": "fail_linear_rods_rust",
+        "name": "Rust on Y-axis and Z-axis linear rods",
+        "description": "Brown or orange discoloration spots are visible on the Y-axis or Z-axis linear rods, indicating surface corrosion on areas that should appear shiny and metallic.",
+        "material_context": "Steel linear rods on Y and Z axes; surface oxidation (rust) in humid or unprotected areas.",
+        "related_measurements": ["y_axis_vibration_rms", "ambient_humidity_pct"]
+      },
+      {
+        "failure_mode_id": "fail_bearing_insufficient_internal_lubrication",
+        "name": "Bearing has insufficient internal lubrication",
+        "description": "A linear bearing emits pronounced rattling or metal-on-metal rolling noises during motion, and its movement along the rod looks or feels dry compared to a smoothly gliding bearing.",
+        "material_context": "LMU-type ball bearings; internal grease inside bearing; steel balls and races.",
+        "related_measurements": ["bearing_noise_db", "y_axis_vibration_rms"]
+      },
+      {
+        "failure_mode_id": "fail_idler_friction_without_oil",
+        "name": "High friction between idler flange and plastic holder",
+        "description": "An idler pulley rotates with noticeable resistance or squeaking where its flange meets the surrounding plastic holder, sometimes leaving visible wear marks on the plastic.",
+        "material_context": "Metal idler pulley and flange; surrounding plastic holder; small amount of lubricating oil on contact surfaces.",
+        "related_measurements": ["idler_noise_db", "belt_tension_freq_hz"]
+      },
+      {
+        "failure_mode_id": "fail_chamber_camera_lens_dirty",
+        "name": "Chamber camera lens dirty",
+        "description": "The chamber camera lens surface is visibly smudged, dusty, or fogged, showing fingerprints, haze, or spots when inspected closely through the printer window.",
+        "material_context": "Chamber camera protective glass or plastic lens; airborne dust; condensate and fingerprint oils.",
+        "related_measurements": ["camera_clarity_score"]
+      },
+      {
+        "failure_mode_id": "fail_fans_dust_debris",
+        "name": "Dust or debris buildup around fan blades",
+        "description": "The blades and housing of one or more fans have visible dust, filament fibers, or small debris stuck to them, sometimes forming uneven deposits on the leading edges.",
+        "material_context": "Plastic fan blades and frame; deposited dust, filament fibers, and fine particulate from the print chamber.",
+        "related_measurements": ["hotend_fan_rpm", "front_fan_rpm", "aux_fan_rpm"]
+      },
+      {
+        "failure_mode_id": "fail_nozzle_wiper_damaged_or_contaminated",
+        "name": "Nozzle wiper damaged or contaminated with filament debris",
+        "description": "The nozzle wiper body or PTFE edge appears bent, torn, or deformed, and is covered with stuck filament strings or blobs that prevent a clean wiping surface.",
+        "material_context": "Nozzle wiper structure (PP support and PTFE wiping edge); molten and solidified filament residues.",
+        "related_measurements": ["nozzle_temp_c", "first_layer_z_offset_mm"]
+      },
+      {
+        "failure_mode_id": "fail_nozzle_residue_buildup",
+        "name": "Residue or dirt buildup on nozzle surface and inner walls",
+        "description": "The outer nozzle and lower heater block surfaces, and sometimes the visible inner nozzle entrance, are covered by burned plastic, dark residue, or adhered material layers.",
+        "material_context": "Brass or hardened-steel nozzle; heater block; molten and charred filament residues on inner and outer nozzle walls.",
+        "related_measurements": ["nozzle_temp_c", "extrusion_pressure_pa"]
+      },
+      {
+        "failure_mode_id": "fail_extruder_filament_dust_accumulation",
+        "name": "Filament dust and debris accumulated inside extruder",
+        "description": "Inside the extruder housing, especially around the drive gears, there are visible piles or coatings of fine filament dust and shavings matching the colors of used filaments.",
+        "material_context": "Extruder drive gears (metal teeth) and housing; filament dust from PLA, PETG, ABS, or other materials.",
+        "related_measurements": ["extruder_motor_current_a", "filament_feed_rate_mm_s"]
+      },
+      {
+        "failure_mode_id": "fail_filament_cutter_blade_dull_regular",
+        "name": "Filament cutter blade dulled by regular filaments",
+        "description": "The filament cutter no longer produces a sharp, clean perpendicular cut on standard filaments, and the blade edge looks worn or slightly rounded when inspected.",
+        "material_context": "Metal filament cutter blade; repeated cutting of non-abrasive filaments such as PLA and PETG.",
+        "related_measurements": ["cutter_cycle_count", "filament_feed_rate_mm_s"]
+      },
+      {
+        "failure_mode_id": "fail_filament_cutter_blade_dull_abrasive",
+        "name": "Filament cutter blade dulled quickly by abrasive filaments",
+        "description": "After limited use with abrasive materials, the cutter blade edge shows visible wear or micro-chipping, and abrasive filaments come out with ragged or frayed ends.",
+        "material_context": "Hardened steel filament cutter blade; abrasive filaments containing carbon fiber, glass fiber, or mineral fillers.",
+        "related_measurements": ["cutter_cycle_count", "filament_feed_rate_mm_s"]
+      },
+      {
+        "failure_mode_id": "fail_silicone_sock_worn_or_loose",
+        "name": "Silicone sock worn or does not stay attached",
+        "description": "The silicone sock around the hotend is visibly torn, thinned, discolored, or frequently slips off the heater block, leaving parts of the metal block exposed.",
+        "material_context": "High-temperature silicone sock; metal hotend and heater block surfaces; repeated thermal cycling and contact with molten filament.",
+        "related_measurements": ["nozzle_temp_c", "heater_block_temp_delta_c"]
+      },
+      {
+        "failure_mode_id": "fail_ptfe_tube_worn_regular",
+        "name": "PTFE tube inner wear from regular filaments",
+        "description": "The PTFE tube shows smooth but visible wear marks or slight grooving on the inner path from long-term use with standard filaments, and may shed fine white dust at contact points.",
+        "material_context": "PTFE guide tube inner bore; repeated sliding of non-abrasive filaments such as PLA and PETG.",
+        "related_measurements": ["filament_feed_rate_mm_s", "extruder_motor_current_a"]
+      },
+      {
+        "failure_mode_id": "fail_ptfe_tube_worn_abrasive",
+        "name": "PTFE tube inner wear from abrasive filaments",
+        "description": "Sections of the PTFE tube that guide abrasive materials show pronounced grooves, roughened inner walls, or localized thinning, often accompanied by increased filament dust generation.",
+        "material_context": "PTFE guide tube inner bore; abrasive filaments containing carbon fiber, glass fiber, glitter, or wood particles.",
+        "related_measurements": ["filament_feed_rate_mm_s", "extruder_motor_current_a"]
+      },
+      {
+        "failure_mode_id": "fail_belts_greased_or_contaminated",
+        "name": "Belts greased or contaminated, causing slip or layer-shift risk",
+        "description": "Drive belts on the motion system have visible traces of grease, oil, or fine debris on the belt teeth or pulleys, and the belt surface looks shiny or contaminated instead of dry and clean.",
+        "material_context": "Reinforced rubber or polyurethane belts and metal pulleys; lubricating oil or grease overspray; accumulated dust and filament particles on belt surfaces.",
+        "related_measurements": ["belt_tension_freq_hz", "toolhead_speed_deviation_pct", "x_axis_motor_current_a"]
+      }
+    ],
+    "CorrectiveAction": [
+      {
+        "action_id": "act_clean_x_axis_carbon_rods_ipa",
+        "name": "Clean X-axis carbon rods with isopropyl alcohol and dust-free cloth",
+        "description": "Periodic cleaning of the X-axis carbon rods with isopropyl alcohol to remove dust and residue and keep motion smooth.",
+        "instruction_text": "Power off the printer or disable steppers so the toolhead can move freely. Spray a small amount of isopropyl alcohol onto a lint-free, dust-free cloth (do not spray directly on the rods). Gently wipe the full length of each X-axis carbon rod while slowly moving the toolhead by hand, until the cloth comes away clean. Allow the rods to dry completely before starting the next print.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      },
+      {
+        "action_id": "act_avoid_grease_on_carbon_rods",
+        "name": "Do not use grease on carbon rods",
+        "description": "Avoiding application of grease or oil on the X-axis carbon rods to prevent sticky buildup and abnormal resistance.",
+        "instruction_text": "Do not apply any grease, oil, or spray lubricant directly to the X-axis carbon rods. If grease has been used previously, clean the rods thoroughly with isopropyl alcohol and a dust-free cloth until no visible residue remains. Keep the rods dry and only repeat the alcohol cleaning as part of periodic maintenance.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      },
+      {
+        "action_id": "act_clean_z_lead_screws",
+        "name": "Clean Z-axis lead screws of dust and plastic particles",
+        "description": "Removing dust and plastic particles from the Z-axis lead screws before lubrication.",
+        "instruction_text": "Power off the printer and lower the bed to expose the full length of each Z-axis lead screw. Using a clean, dry, lint-free cloth or a soft brush, gently wipe or brush along the screw threads to remove loose dust and plastic particles. Move the bed up and down slowly if needed to access the full screw length, taking care not to bend or damage the screws.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "4"
+      },
+      {
+        "action_id": "act_grease_z_lead_screws_thin_coat",
+        "name": "Apply thin coat of lubricating grease to Z-axis lead screws and move bed to distribute",
+        "description": "Applying a thin, even film of suitable grease to the Z-axis lead screws and distributing it by moving the bed.",
+        "instruction_text": "After cleaning the Z-axis lead screws, apply a small bead of the recommended grease along a section of each screw thread. Using the printer controls, move the bed up and down several times through most of its travel so the nuts carry and spread the grease along the screws. Visually confirm that there is only a thin, uniform film on the threads and wipe away any excess or drips.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "4"
+      },
+      {
+        "action_id": "act_clean_yz_linear_rods_ipa",
+        "name": "Clean Y-axis and Z-axis linear rods with isopropyl alcohol and dust-free cloth",
+        "description": "Cleaning Y-axis and Z-axis linear rods with isopropyl alcohol to remove dust and prevent contamination.",
+        "instruction_text": "Power off the printer and move the bed or toolhead so the Y- and Z-axis linear rods are accessible. Apply a small amount of isopropyl alcohol to a lint-free cloth and gently wipe along each rod to remove visible dust and residue. Avoid saturating the cloth and ensure no liquid runs into the linear bearings. Let the rods dry fully before applying any lubricant or resuming printing.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "6"
+      },
+      {
+        "action_id": "act_apply_thin_oil_grease_after_ipa",
+        "name": "Apply uniform thin coat of oil or grease on rods after cleaning with IPA",
+        "description": "Restoring a light protective lubrication layer on steel rods after cleaning with isopropyl alcohol.",
+        "instruction_text": "Once the Y- and Z-axis steel rods are clean and dry, place a very small amount of the recommended light oil or grease on a clean cloth. Wipe the rod surfaces with the cloth to create a very thin, uniform film; the rods should look slightly sheened, not wet or dripping. Move the axes slowly through their travel to help distribute the lubricant and wipe away any visible excess.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "7"
+      },
+      {
+        "action_id": "act_apply_grease_to_bearing_and_slide",
+        "name": "Apply grease on bearing and slide bearing several times",
+        "description": "Applying grease to linear bearings and sliding them along the rods so the grease is worked inside.",
+        "instruction_text": "With the printer powered off, place a small amount of suitable grease on the rod near each linear bearing. Gently slide the bearing back and forth over the greased section multiple times so the grease is drawn into the bearing. Repeat as needed along the rod’s length, using minimal grease to avoid build-up on exposed areas of the rod.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "7"
+      },
+      {
+        "action_id": "act_apply_small_oil_to_idlers",
+        "name": "Apply small amount of lubricating oil between idler flange and plastic holder",
+        "description": "Using a small drop of light oil at the contact point between idler flange and plastic holder to reduce friction and squeaks.",
+        "instruction_text": "Identify the idler pulleys on the P1P motion system and locate the point where each metal flange touches the surrounding plastic holder. Using a precision oiler or needle bottle, place a tiny drop of recommended light oil at this contact point. Rotate the pulley by hand to distribute the oil and immediately wipe away any visible excess to avoid getting oil on belts or other parts.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      },
+      {
+        "action_id": "act_clean_chamber_camera_ipa",
+        "name": "Clean chamber camera lens with microfiber cloth or q-tip and isopropyl alcohol",
+        "description": "Cleaning the chamber camera lens with a microfiber cloth or cotton swab lightly moistened with isopropyl alcohol.",
+        "instruction_text": "Turn off the printer and allow the chamber to cool. Access the chamber camera and, using a microfiber cloth or cotton swab, apply a very small amount of isopropyl alcohol to the cloth or tip (not directly on the lens). Gently wipe the lens surface in small circles until smudges and haze are removed, taking care not to let liquid run into the camera housing. Let the lens dry before restarting the printer.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      },
+      {
+        "action_id": "act_clean_fans_compressed_air",
+        "name": "Use compressed air to clean dust and debris from fan blades with printer off",
+        "description": "Blowing accumulated dust and debris off the fan blades and housings using compressed air while the printer is powered off.",
+        "instruction_text": "Power off and unplug the printer. Hold the can of compressed air upright and, from a short distance, blow short bursts of air through the fan grills to dislodge dust from the blades and housing. If possible, gently prevent the fan from spinning freely while blowing air to avoid overspeeding the bearings. Repeat for all accessible fans and remove any remaining loose debris with a soft brush.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      },
+      {
+        "action_id": "act_check_nozzle_wiper_before_print",
+        "name": "Check nozzle wiper before printing and ensure it is free of filament debris and horizontal",
+        "description": "Inspecting the nozzle wiper before a print to confirm it is clean and correctly aligned.",
+        "instruction_text": "With the printer idle, visually inspect the nozzle wiper at the rear of the build plate. Confirm that the PTFE wiping edge is straight and approximately horizontal, and that there are no blobs or strings of filament stuck on the wiper or in the wiping area. If needed, carefully remove loose filament with tweezers and gently reposition the wiper so it sits level before starting the next print.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "14"
+      },
+      {
+        "action_id": "act_replace_damaged_nozzle_wiper",
+        "name": "Replace damaged nozzle wiper with spare",
+        "description": "Replacing a deformed or damaged nozzle wiper assembly with a new spare part.",
+        "instruction_text": "Power off the printer and move the toolhead and bed to expose the nozzle wiper area. Remove the existing wiper according to the P1P hotend/wiper replacement instructions (typically by releasing its clips or screws). Install the new wiper in the same orientation, ensuring the PTFE wiping edge is straight and positioned at the correct height. Perform a short purge and wipe cycle to confirm the nozzle wipes cleanly.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      },
+      {
+        "action_id": "act_nozzle_hot_cleaning",
+        "name": "Heat nozzle to 200°C and clean nozzle surface with tissue, cloth, or tweezers",
+        "description": "Heating the nozzle and wiping off external plastic residue while it is hot and soft.",
+        "instruction_text": "From the printer screen or software, set the nozzle temperature to roughly 200 °C for PLA-like materials. Once at temperature, use heat-resistant tweezers to carefully remove larger blobs or strings from the nozzle and heater block. Then, using a folded, lint-free tissue or cloth held with tweezers, gently wipe around the nozzle to remove softened residue. Avoid touching the hot metal directly with your fingers and keep the motion away from the nozzle orifice.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "15"
+      },
+      {
+        "action_id": "act_nozzle_cold_pull",
+        "name": "Perform cold pull to clear residue debris from hotend and inside nozzle",
+        "description": "Using a cold-pull procedure to extract embedded residue from inside the hotend and nozzle.",
+        "instruction_text": "Load a suitable filament for cold pulls (typically PLA) into the P1P. Heat the nozzle to the recommended cold-pull temperature (around normal PLA printing temperature as per the Bambu unclogging guide), then allow it to cool to the specified lower temperature range for the pull. At that point, manually pull the filament straight out in one firm motion so that solidified material and debris are removed from the nozzle interior. Repeat the heat-and-pull cycle if the extracted filament still shows embedded residue.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Nozzle/Hotend Unclogging Procedure for X1/P1",
+        "source_reference": "https://wiki.bambulab.com/en/x1/troubleshooting/nozzle-clog"
+      },
+      {
+        "action_id": "act_clean_extruder_with_compressed_air",
+        "name": "Use compressed air to blow filament dust from extruder yellow gear and underneath extruder",
+        "description": "Blowing accumulated filament dust out of the extruder gear area with compressed air.",
+        "instruction_text": "Power off and unplug the printer, then open the front cover to access the extruder assembly. Hold the can of compressed air upright and direct short bursts at the yellow drive gear and surrounding cavities to dislodge filament dust and shavings. Rotate the gear slowly by hand to expose all sides and repeat until loose debris is cleared. Avoid prolonged spinning of the gear with air and remove any remaining particles with a soft brush if needed.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "9"
+      },
+      {
+        "action_id": "act_check_and_replace_cutter_regular_filaments",
+        "name": "Check filament cutter blade every 3-5 rolls of regular filaments and replace if dull",
+        "description": "Periodic inspection and replacement of the filament cutter blade when mainly using non-abrasive filaments.",
+        "instruction_text": "Track roughly how many full rolls of standard filament (PLA, PETG, etc.) have been used through the AMS and cutter. After about 3–5 rolls, inspect the cut ends produced by the AMS: a sharp blade will leave a clean, perpendicular tip, while a dull blade leaves frayed or angled cuts. If cuts are no longer clean, follow the P1P cutter replacement procedure to swap in a new blade and verify clean cuts with a manual test unload/load.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "9"
+      },
+      {
+        "action_id": "act_check_and_replace_cutter_abrasive_filaments",
+        "name": "Check filament cutter blade after 1-2 rolls of abrasive filaments and replace if dull",
+        "description": "More frequent inspection and timely replacement of the cutter blade when using abrasive filaments.",
+        "instruction_text": "When printing with abrasive filaments such as CF- or GF-filled materials, monitor how many rolls have been run through the AMS. After about 1–2 rolls, examine the filament tips cut by the AMS for signs of tearing, rough edges, or incomplete cuts. If degradation is visible, follow the cutter replacement steps to install a new blade and confirm that test cuts on the same material are clean and square.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "9"
+      },
+      {
+        "action_id": "act_replace_worn_silicone_sock",
+        "name": "Replace silicone sock if worn or not attached securely",
+        "description": "Replacing the hotend silicone sock when it is torn, deformed, or no longer stays attached.",
+        "instruction_text": "Cool the hotend completely and power off the printer. Gently pull off the existing silicone sock from around the heater block and nozzle, noting its orientation. Inspect the sock for tears, hardening, or deformation; discard if any damage is present. Fit a new compatible silicone sock over the heater block and nozzle, ensuring it seats fully and grips firmly. Perform a short heating cycle and visual check to ensure the sock remains in place during temperature changes.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "10"
+      },
+      {
+        "action_id": "act_check_ptfe_tube_regular_filaments",
+        "name": "Check PTFE tube after about 10 rolls of regular material and replace if worn",
+        "description": "Periodic inspection of PTFE tubes for wear when mostly printing with standard, non-abrasive filaments.",
+        "instruction_text": "Estimate when roughly 10 rolls of standard filament have been run through the PTFE path for the P1P and AMS. At that point, power off the printer and visually inspect accessible PTFE tubes for grooves, flattening, discoloration, or dust accumulation. If wear is minor, continue to monitor at each subsequent roll; if inner wear or serious deformation is visible, schedule replacement of the affected tube.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "15"
+      },
+      {
+        "action_id": "act_check_ptfe_tube_abrasive_filaments",
+        "name": "Check PTFE tube after about 5 rolls of abrasive material and replace if worn",
+        "description": "More frequent inspection of PTFE tubes when using abrasive filaments that accelerate inner wear.",
+        "instruction_text": "When printing mainly with abrasive filaments (such as CF- or GF-filled materials), keep track of rolls used through each PTFE tube. After around 5 rolls, inspect the tubes for inner grooves, roughness, or areas where the wall appears thinned or damaged. If such wear is observed, plan to replace the affected PTFE section sooner rather than later to avoid feeding issues or broken tube fragments.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "15"
+      },
+      {
+        "action_id": "act_replace_ptfe_tube_if_worn",
+        "name": "Replace PTFE tube when clear wear signs are present",
+        "description": "Replacing PTFE tubes that show obvious wear, damage, or deformation along the filament path.",
+        "instruction_text": "Power off and unplug the printer, then relieve filament pressure by unloading any material from the affected path. Release the PTFE tube from its push-fit connectors or clips according to the P1P/PTFE routing instructions. Install a new tube of the recommended inner and outer diameter, cutting it to the same length and routing it along the original path without tight bends. Ensure each end is fully seated in its connector before reloading filament and running a test load/unload.",
+        "source_type": "PDF Manual",
+        "source_title": "Bambu Lab P1 series manual",
+        "source_reference": "15"
+      },
+      {
+        "action_id": "act_clean_belts_and_pulleys",
+        "name": "Clean contaminated drive belts and pulleys with isopropyl alcohol",
+        "description": "Removing grease, oil, or debris from CoreXY drive belts and pulleys to restore grip and prevent layer shifts.",
+        "instruction_text": "Power off the printer and move the toolhead to the center of the build area to give access to the belts. Using a lint-free cloth lightly moistened with isopropyl alcohol, carefully wipe both faces of each CoreXY belt along its full accessible length to remove any grease, oil, or contamination. Wipe the pulley teeth and idler surfaces with a cotton swab dipped in isopropyl alcohol, taking care not to saturate the cloth or let liquid reach bearings. Allow all surfaces to dry completely. Do not apply any lubricant to the belts or pulleys. After reassembly, run a short print or movement test to confirm the layer shift no longer occurs.",
+        "source_type": "P1 Series – Wiki",
+        "source_title": "Bambu Lab P1 series printer Maintenance Recommendation",
+        "source_reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+      }
+    ]
+  },
+  "relationships": [
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_x_axis_carbon_rods"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_z_axis_lead_screws"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_yz_linear_rods"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_lmu8_bearings"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_extruder_assembly"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_filament_cutter_blade"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_silicone_sock"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_idler_pulleys"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_chamber_camera"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_hotend_fan"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_front_cover_fan"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_auxiliary_fan"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_nozzle_wiper"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_nozzle"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_ptfe_tube"
+    },
+    {
+      "type": "HAS_COMPONENT",
+      "from_id": "prt_p1p",
+      "to_id": "comp_belts"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_abnormal_resistance_x_axis",
+      "to_id": "comp_x_axis_carbon_rods"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_difficulty_cleaning_x_axis_rods",
+      "to_id": "comp_x_axis_carbon_rods"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_rough_z_bed_movement",
+      "to_id": "comp_z_axis_lead_screws"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_abnormal_bearing_ball_noise",
+      "to_id": "comp_lmu8_bearings"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_squeaking_noises_xy_movement",
+      "to_id": "comp_idler_pulleys"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_blurred_chamber_video",
+      "to_id": "comp_chamber_camera"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_fan_dust_debris_buildup",
+      "to_id": "comp_hotend_fan"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_fan_dust_debris_buildup",
+      "to_id": "comp_front_cover_fan"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_fan_dust_debris_buildup",
+      "to_id": "comp_auxiliary_fan"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_nozzle_wiper_filament_debris",
+      "to_id": "comp_nozzle_wiper"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_nozzle_wiper_damaged",
+      "to_id": "comp_nozzle_wiper"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_nozzle_surface_dirty",
+      "to_id": "comp_nozzle"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_under_extrusion",
+      "to_id": "comp_nozzle"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_extruder_filament_dust_visible",
+      "to_id": "comp_extruder_assembly"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_filament_not_cut_cleanly",
+      "to_id": "comp_filament_cutter_blade"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_silicone_sock_worn_or_loose",
+      "to_id": "comp_silicone_sock"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_ptfe_tube_visible_wear",
+      "to_id": "comp_ptfe_tube"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_abnormal_resistance_x_axis",
+      "to_id": "fail_grease_on_carbon_rods"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_difficulty_cleaning_x_axis_rods",
+      "to_id": "fail_grease_on_carbon_rods"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_rough_z_bed_movement",
+      "to_id": "fail_z_lead_screws_insufficient_grease"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_abnormal_bearing_ball_noise",
+      "to_id": "fail_bearing_insufficient_internal_lubrication"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_squeaking_noises_xy_movement",
+      "to_id": "fail_idler_friction_without_oil"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_blurred_chamber_video",
+      "to_id": "fail_chamber_camera_lens_dirty"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_fan_dust_debris_buildup",
+      "to_id": "fail_fans_dust_debris"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_nozzle_wiper_filament_debris",
+      "to_id": "fail_nozzle_wiper_damaged_or_contaminated"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_nozzle_wiper_damaged",
+      "to_id": "fail_nozzle_wiper_damaged_or_contaminated"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_nozzle_surface_dirty",
+      "to_id": "fail_nozzle_residue_buildup"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_under_extrusion",
+      "to_id": "fail_nozzle_residue_buildup"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_extruder_filament_dust_visible",
+      "to_id": "fail_extruder_filament_dust_accumulation"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_filament_not_cut_cleanly",
+      "to_id": "fail_filament_cutter_blade_dull_regular"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_filament_not_cut_cleanly",
+      "to_id": "fail_filament_cutter_blade_dull_abrasive"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_silicone_sock_worn_or_loose",
+      "to_id": "fail_silicone_sock_worn_or_loose"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_ptfe_tube_visible_wear",
+      "to_id": "fail_ptfe_tube_worn_regular"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_ptfe_tube_visible_wear",
+      "to_id": "fail_ptfe_tube_worn_abrasive"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_grease_on_carbon_rods",
+      "to_id": "comp_x_axis_carbon_rods"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_z_lead_screws_insufficient_grease",
+      "to_id": "comp_z_axis_lead_screws"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_z_lead_screws_dust_particles",
+      "to_id": "comp_z_axis_lead_screws"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_linear_rods_dust_buildup",
+      "to_id": "comp_yz_linear_rods"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_linear_rods_rust",
+      "to_id": "comp_yz_linear_rods"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_bearing_insufficient_internal_lubrication",
+      "to_id": "comp_lmu8_bearings"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_idler_friction_without_oil",
+      "to_id": "comp_idler_pulleys"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_chamber_camera_lens_dirty",
+      "to_id": "comp_chamber_camera"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_fans_dust_debris",
+      "to_id": "comp_hotend_fan"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_fans_dust_debris",
+      "to_id": "comp_front_cover_fan"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_fans_dust_debris",
+      "to_id": "comp_auxiliary_fan"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+      "to_id": "comp_nozzle_wiper"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_nozzle_residue_buildup",
+      "to_id": "comp_nozzle"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_extruder_filament_dust_accumulation",
+      "to_id": "comp_extruder_assembly"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_filament_cutter_blade_dull_regular",
+      "to_id": "comp_filament_cutter_blade"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_filament_cutter_blade_dull_abrasive",
+      "to_id": "comp_filament_cutter_blade"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_silicone_sock_worn_or_loose",
+      "to_id": "comp_silicone_sock"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_ptfe_tube_worn_regular",
+      "to_id": "comp_ptfe_tube"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_ptfe_tube_worn_abrasive",
+      "to_id": "comp_ptfe_tube"
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "fail_belts_greased_or_contaminated",
+      "to_id": "comp_belts"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_grease_on_carbon_rods",
+      "to_id": "act_clean_x_axis_carbon_rods_ipa"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_grease_on_carbon_rods",
+      "to_id": "act_avoid_grease_on_carbon_rods"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_z_lead_screws_insufficient_grease",
+      "to_id": "act_grease_z_lead_screws_thin_coat"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_z_lead_screws_dust_particles",
+      "to_id": "act_clean_z_lead_screws"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_linear_rods_dust_buildup",
+      "to_id": "act_clean_yz_linear_rods_ipa"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_linear_rods_rust",
+      "to_id": "act_apply_thin_oil_grease_after_ipa"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_bearing_insufficient_internal_lubrication",
+      "to_id": "act_apply_grease_to_bearing_and_slide"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_idler_friction_without_oil",
+      "to_id": "act_apply_small_oil_to_idlers"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_chamber_camera_lens_dirty",
+      "to_id": "act_clean_chamber_camera_ipa"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_fans_dust_debris",
+      "to_id": "act_clean_fans_compressed_air"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+      "to_id": "act_check_nozzle_wiper_before_print"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+      "to_id": "act_replace_damaged_nozzle_wiper"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_nozzle_residue_buildup",
+      "to_id": "act_nozzle_hot_cleaning"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_nozzle_residue_buildup",
+      "to_id": "act_nozzle_cold_pull"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_extruder_filament_dust_accumulation",
+      "to_id": "act_clean_extruder_with_compressed_air"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_filament_cutter_blade_dull_regular",
+      "to_id": "act_check_and_replace_cutter_regular_filaments"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_filament_cutter_blade_dull_abrasive",
+      "to_id": "act_check_and_replace_cutter_abrasive_filaments"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_silicone_sock_worn_or_loose",
+      "to_id": "act_replace_worn_silicone_sock"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_ptfe_tube_worn_regular",
+      "to_id": "act_check_ptfe_tube_regular_filaments"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_ptfe_tube_worn_abrasive",
+      "to_id": "act_check_ptfe_tube_abrasive_filaments"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_ptfe_tube_worn_regular",
+      "to_id": "act_replace_ptfe_tube_if_worn"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_ptfe_tube_worn_abrasive",
+      "to_id": "act_replace_ptfe_tube_if_worn"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_rough_z_bed_movement",
+      "to_id": "fail_z_lead_screws_dust_particles"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_rough_z_bed_movement",
+      "to_id": "fail_linear_rods_dust_buildup"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_rough_z_bed_movement",
+      "to_id": "fail_linear_rods_rust"
+    },
+    {
+      "type": "MAY_INDICATE",
+      "from_id": "sym_belt_contamination_layer_shift",
+      "to_id": "fail_belts_greased_or_contaminated"
+    },
+    {
+      "type": "RELATED_TO",
+      "from_id": "sym_belt_contamination_layer_shift",
+      "to_id": "comp_belts"
+    },
+    {
+      "type": "RESOLVED_BY",
+      "from_id": "fail_belts_greased_or_contaminated",
+      "to_id": "act_clean_belts_and_pulleys"
+    }
+  ]
+}

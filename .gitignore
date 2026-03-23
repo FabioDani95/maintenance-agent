@@ -1,0 +1,30 @@
+# Esclude: .env, data/, __pycache__, .venv/
+
+# Variabili d'ambiente segrete
+.env
+.env.*
+
+# Dati locali (PDF, cropped, output)
+data/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ambiente virtuale
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage

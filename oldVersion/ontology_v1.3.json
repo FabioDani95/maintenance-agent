@@ -1,0 +1,1252 @@
+{
+    "metadata": {
+        "ontology_name": "BambuLab_MVP_Troubleshooting_KG",
+        "version": "1.3",
+        "extraction_date": "2026-03-10",
+        "language": "en",
+        "sources_processed": 1,
+        "total_nodes": 89,
+        "total_relationships": 171
+    },
+    "sources": [
+        {
+            "source_id": "src_maintenance",
+            "type": "web_page",
+            "title": "Bambu Lab P1 series printer Maintenance Recommendation",
+            "reference": "https://wiki.bambulab.com/en/p1/maintenance/p1p-maintenance"
+        }
+    ],
+    "nodes": {
+        "Printer": [
+            {
+                "printer_id": "prt_p1p",
+                "name": "Bambu Lab P1P"
+            }
+        ],
+        "Component": [
+            {
+                "component_id": "comp_x_axis_carbon_rods",
+                "name": "X-axis carbon rods"
+            },
+            {
+                "component_id": "comp_z_axis_lead_screws",
+                "name": "Z-axis lead screws"
+            },
+            {
+                "component_id": "comp_yz_linear_rods",
+                "name": "Y-axis and Z-axis linear rods"
+            },
+            {
+                "component_id": "comp_lmu8_bearings",
+                "name": "LMU8 bearings"
+            },
+            {
+                "component_id": "comp_extruder_assembly",
+                "name": "Extruder assembly"
+            },
+            {
+                "component_id": "comp_filament_cutter_blade",
+                "name": "Filament cutter blade"
+            },
+            {
+                "component_id": "comp_silicone_sock",
+                "name": "Hotend silicone sock"
+            },
+            {
+                "component_id": "comp_idler_pulleys",
+                "name": "Idler pulleys"
+            },
+            {
+                "component_id": "comp_chamber_camera",
+                "name": "Chamber camera"
+            },
+            {
+                "component_id": "comp_hotend_fan",
+                "name": "Hotend fan"
+            },
+            {
+                "component_id": "comp_front_cover_fan",
+                "name": "Front cover fan"
+            },
+            {
+                "component_id": "comp_auxiliary_fan",
+                "name": "Auxiliary fan"
+            },
+            {
+                "component_id": "comp_nozzle_wiper",
+                "name": "Nozzle wiper"
+            },
+            {
+                "component_id": "comp_nozzle",
+                "name": "Nozzle"
+            },
+            {
+                "component_id": "comp_ptfe_tube",
+                "name": "PTFE tube"
+            },
+            {
+                "component_id": "comp_belts",
+                "name": "Belts"
+            }
+        ],
+        "Symptom": [
+            {
+                "symptom_id": "sym_abnormal_resistance_x_axis",
+                "name": "Abnormal resistance on X-axis movement"
+            },
+            {
+                "symptom_id": "sym_difficulty_cleaning_x_axis_rods",
+                "name": "Difficulty cleaning X-axis carbon rods"
+            },
+            {
+                "symptom_id": "sym_rough_z_bed_movement",
+                "name": "Rough or unsmooth Z-axis bed movement"
+            },
+            {
+                "symptom_id": "sym_abnormal_bearing_ball_noise",
+                "name": "Abnormal ball noise from bearing"
+            },
+            {
+                "symptom_id": "sym_squeaking_noises_xy_movement",
+                "name": "Squeaking noises during printing or XY axis movement"
+            },
+            {
+                "symptom_id": "sym_blurred_chamber_video",
+                "name": "Blurred or visibly dirty chamber camera video"
+            },
+            {
+                "symptom_id": "sym_fan_dust_debris_buildup",
+                "name": "Dust or debris buildup on fan blades"
+            },
+            {
+                "symptom_id": "sym_nozzle_wiper_filament_debris",
+                "name": "Filament debris on nozzle wiper"
+            },
+            {
+                "symptom_id": "sym_nozzle_wiper_damaged",
+                "name": "Nozzle wiper PTFE side damaged or not horizontal"
+            },
+            {
+                "symptom_id": "sym_nozzle_surface_dirty",
+                "name": "Nozzle surface dirty"
+            },
+            {
+                "symptom_id": "sym_under_extrusion",
+                "name": "Under-extrusion during printing"
+            },
+            {
+                "symptom_id": "sym_extruder_filament_dust_visible",
+                "name": "Visible filament dust on extruder yellow gear"
+            },
+            {
+                "symptom_id": "sym_filament_not_cut_cleanly",
+                "name": "Filament not cut cleanly during filament swaps"
+            },
+            {
+                "symptom_id": "sym_silicone_sock_worn_or_loose",
+                "name": "Silicone sock shows wear or does not remain attached securely"
+            },
+            {
+                "symptom_id": "sym_ptfe_tube_visible_wear",
+                "name": "Visible wear signs on PTFE tube"
+            }
+        ],
+        "FailureMode": [
+            {
+                "failure_mode_id": "fail_grease_on_carbon_rods",
+                "name": "Grease applied to X-axis carbon rods"
+            },
+            {
+                "failure_mode_id": "fail_z_lead_screws_insufficient_grease",
+                "name": "Z-axis lead screws insufficiently greased"
+            },
+            {
+                "failure_mode_id": "fail_z_lead_screws_dust_particles",
+                "name": "Dust or plastic particles on Z-axis lead screws"
+            },
+            {
+                "failure_mode_id": "fail_linear_rods_dust_buildup",
+                "name": "Dust and particle buildup on Y-axis and Z-axis linear rods"
+            },
+            {
+                "failure_mode_id": "fail_linear_rods_rust",
+                "name": "Rust on Y-axis and Z-axis linear rods"
+            },
+            {
+                "failure_mode_id": "fail_bearing_insufficient_internal_lubrication",
+                "name": "Bearing has insufficient internal lubrication"
+            },
+            {
+                "failure_mode_id": "fail_idler_friction_without_oil",
+                "name": "High friction between idler flange and plastic holder"
+            },
+            {
+                "failure_mode_id": "fail_chamber_camera_lens_dirty",
+                "name": "Chamber camera lens dirty"
+            },
+            {
+                "failure_mode_id": "fail_fans_dust_debris",
+                "name": "Dust or debris buildup around fan blades"
+            },
+            {
+                "failure_mode_id": "fail_nozzle_wiper_damaged_or_contaminated",
+                "name": "Nozzle wiper damaged or contaminated with filament debris"
+            },
+            {
+                "failure_mode_id": "fail_nozzle_residue_buildup",
+                "name": "Residue or dirt buildup on nozzle surface and inner walls"
+            },
+            {
+                "failure_mode_id": "fail_extruder_filament_dust_accumulation",
+                "name": "Filament dust and debris accumulated inside extruder"
+            },
+            {
+                "failure_mode_id": "fail_filament_cutter_blade_dull_regular",
+                "name": "Filament cutter blade dulled by regular filaments"
+            },
+            {
+                "failure_mode_id": "fail_filament_cutter_blade_dull_abrasive",
+                "name": "Filament cutter blade dulled quickly by abrasive filaments"
+            },
+            {
+                "failure_mode_id": "fail_silicone_sock_worn_or_loose",
+                "name": "Silicone sock worn or does not stay attached"
+            },
+            {
+                "failure_mode_id": "fail_ptfe_tube_worn_regular",
+                "name": "PTFE tube inner wear from regular filaments"
+            },
+            {
+                "failure_mode_id": "fail_ptfe_tube_worn_abrasive",
+                "name": "PTFE tube inner wear from abrasive filaments"
+            },
+            {
+                "failure_mode_id": "fail_belts_greased_or_contaminated",
+                "name": "Belts greased or contaminated, causing slip or layer-shift risk"
+            }
+        ],
+        "CorrectiveAction": [
+            {
+                "action_id": "act_clean_x_axis_carbon_rods_ipa",
+                "name": "Clean X-axis carbon rods with isopropyl alcohol and dust-free cloth"
+            },
+            {
+                "action_id": "act_avoid_grease_on_carbon_rods",
+                "name": "Do not use grease on carbon rods"
+            },
+            {
+                "action_id": "act_clean_z_lead_screws",
+                "name": "Clean Z-axis lead screws of dust and plastic particles"
+            },
+            {
+                "action_id": "act_grease_z_lead_screws_thin_coat",
+                "name": "Apply thin coat of lubricating grease to Z-axis lead screws and move bed to distribute"
+            },
+            {
+                "action_id": "act_clean_yz_linear_rods_ipa",
+                "name": "Clean Y-axis and Z-axis linear rods with isopropyl alcohol and dust-free cloth"
+            },
+            {
+                "action_id": "act_apply_thin_oil_grease_after_ipa",
+                "name": "Apply uniform thin coat of oil or grease on rods after cleaning with IPA"
+            },
+            {
+                "action_id": "act_apply_grease_to_bearing_and_slide",
+                "name": "Apply grease on bearing and slide bearing several times"
+            },
+            {
+                "action_id": "act_apply_small_oil_to_idlers",
+                "name": "Apply small amount of lubricating oil between idler flange and plastic holder"
+            },
+            {
+                "action_id": "act_clean_chamber_camera_ipa",
+                "name": "Clean chamber camera lens with microfiber cloth or q-tip and isopropyl alcohol"
+            },
+            {
+                "action_id": "act_clean_fans_compressed_air",
+                "name": "Use compressed air to clean dust and debris from fan blades with printer off"
+            },
+            {
+                "action_id": "act_check_nozzle_wiper_before_print",
+                "name": "Check nozzle wiper before printing and ensure it is free of filament debris and horizontal"
+            },
+            {
+                "action_id": "act_replace_damaged_nozzle_wiper",
+                "name": "Replace damaged nozzle wiper with spare"
+            },
+            {
+                "action_id": "act_nozzle_hot_cleaning",
+                "name": "Heat nozzle to 200°C and clean nozzle surface with tissue, cloth, or tweezers"
+            },
+            {
+                "action_id": "act_nozzle_cold_pull",
+                "name": "Perform cold pull to clear residue debris from hotend and inside nozzle"
+            },
+            {
+                "action_id": "act_clean_extruder_with_compressed_air",
+                "name": "Use compressed air to blow filament dust from extruder yellow gear and underneath extruder"
+            },
+            {
+                "action_id": "act_check_and_replace_cutter_regular_filaments",
+                "name": "Check filament cutter blade every 3-5 rolls of regular filaments and replace if dull"
+            },
+            {
+                "action_id": "act_check_and_replace_cutter_abrasive_filaments",
+                "name": "Check filament cutter blade after 1-2 rolls of abrasive filaments and replace if dull"
+            },
+            {
+                "action_id": "act_replace_worn_silicone_sock",
+                "name": "Replace silicone sock if worn or not attached securely"
+            },
+            {
+                "action_id": "act_check_ptfe_tube_regular_filaments",
+                "name": "Check PTFE tube after about 10 rolls of regular material and replace if worn"
+            },
+            {
+                "action_id": "act_check_ptfe_tube_abrasive_filaments",
+                "name": "Check PTFE tube after about 5 rolls of abrasive material and replace if worn"
+            },
+            {
+                "action_id": "act_replace_ptfe_tube_if_worn",
+                "name": "Replace PTFE tube when clear wear signs are present"
+            },
+            {
+                "action_id": "act_inspect_yz_linear_rods_monthly",
+                "name": "Inspect Y-axis and Z-axis linear rods monthly for dust and particles"
+            },
+            {
+                "action_id": "act_antirust_yz_linear_rods_every_3_months",
+                "name": "Apply anti-rust protection to Y-axis and Z-axis linear rods every three months"
+            },
+            {
+                "action_id": "act_check_z_lead_screws_every_3_months",
+                "name": "Check Z-axis lead screws every three months"
+            },
+            {
+                "action_id": "act_check_fans_weekly",
+                "name": "Inspect fans weekly for dust and debris buildup"
+            }
+        ],
+        "ErrorCode": [],
+        "Material": [],
+        "Parameter": [],
+        "Firmware": [],
+        "MaintenanceInterval": [],
+        "Warning": [],
+        "Evidence": [
+            {
+                "evidence_id": "ev_1",
+                "locator": "Paragraph 'While the Carbon rods used on the X-axis don't require lubrication or maintenance... Please do not use grease on the carbon rods, as it will cause abnormal resistance and difficulty in cleaning.'"
+            },
+            {
+                "evidence_id": "ev_2",
+                "locator": "Paragraphs 'Three Z-axis lead screws require regular greasing... The z-axis lead screws should be checked and greased every three months... Before greasing the z-axis lead screws, the first step...'"
+            },
+            {
+                "evidence_id": "ev_3",
+                "locator": "Paragraphs 'Y-axis and Z-axis linear rods should be checked once a month... Y-axis and Z-axis rods should be anti-rust every three months... Y-axis and Z-axis linear rods can be cleaned with isopropyl alcohol...'"
+            },
+            {
+                "evidence_id": "ev_4",
+                "locator": "Paragraphs 'Please note that if you clean the rods with IPA, you need to add a uniform thin coat of oil/grease on the rods, to prevent rust... If the bearing has abnormal ball noise due to insufficient internal lubrication, you can also try to apply some grease on the bearing and slide the bearing several times...'"
+            },
+            {
+                "evidence_id": "ev_5",
+                "locator": "Paragraphs 'There are multiple idler pulleys installed on the printer... DO NOT add grease to the belts... When squeaking noises are present during printing, or during the XY axis movement... A small amount of lubricating oil should be applied on top and on the bottom of the idler...'"
+            },
+            {
+                "evidence_id": "ev_6",
+                "locator": "Paragraphs 'The chamber camera lens should be cleaned regularly, to ensure a clear view. We recommend cleaning the camera lens when the video is blurred or visibly dirty... Using a microfiber cloth and some isopropyl alcohol, gently rub the chamber camera. A q-tip can also be used...'"
+            },
+            {
+                "evidence_id": "ev_7",
+                "locator": "Paragraphs 'There are three fans that should be regularly checked for any dust and debris build-up... We recommend checking the fans every week to clean any debris or dust that might have built up around the blades... With the printer off, we recommend using a can of compressed air...'"
+            },
+            {
+                "evidence_id": "ev_8",
+                "locator": "Paragraphs 'The nozzle wiper is an important part that needs to be checked from time to time... The nozzle wiper needs to be checked before starting any print, to ensure it is free of any filament debris and the PTFE side is not damaged. The wiper should also stay in a horizontal position... If the nozzle wiper is damaged, we recommend replacing it with a spare...'"
+            },
+            {
+                "evidence_id": "ev_9",
+                "locator": "Paragraphs 'After prolonged use, the nozzle may accumulate residue or dirt on its surface and inner walls... If the nozzle surface is dirty or there is under-extrusion during printing, we recommend nozzle maintenance. Especially when printing carbon fiber materials... Remove the extruder front cover, disassemble the hotend silicone sock, heat the nozzle to 200°C... clean the nozzle surface... Refer to the video guide below for cold pulling...'"
+            },
+            {
+                "evidence_id": "ev_10",
+                "locator": "Paragraphs 'The P1P Extruder assembly can get filament dust and debris inside after using the printer for a long time... You should clean the dust inside the extruder when you can see small amounts of dust on the yellow gear... The fastest way to clean it... use a can of compressed air and blow air over the yellow gear... You can also remove the hotend and blow some compressed air underneath the extruder...'"
+            },
+            {
+                "evidence_id": "ev_11",
+                "locator": "Paragraphs 'The filament cutter used in the extruder cuts the filament regularly, during filament swaps. The blade of the cutter can get dull after a few rolls of filament are printed so it should be checked regularly... For regular filaments like PLA/PETG/ABS/PC, the blade should be checked every 3-5 rolls. If the blade is dull, replace it. For abrasive filaments like PA+CF/PA+GF, the cutter blade can get dull much quicker...'"
+            },
+            {
+                "evidence_id": "ev_12",
+                "locator": "Paragraphs 'The silicone sock around the hotend helps maintain a consistent temperature while also protecting the hotend from plastic buildup during printing. The silicone sock should be replaced if wear signs are present on it, or if the silicone sock doesn't remain attached securely to the hotend. Simply remove the old silicone sock from the hotend, and install a new one.'"
+            },
+            {
+                "evidence_id": "ev_13",
+                "locator": "Paragraphs 'The P1P uses different PTFE tubes for guiding the filament from the AMS to the extruder... The PTFE tube should be replaced when clear signs of wear are shown on it. Most of the time, the inside of the PTFE tube can wear out quickly when printing abrasive filaments, so we recommend checking after printing about 5 rolls of abrasive materials. When printing regular filaments, we recommend checking the tubes after about 10 rolls of material.'"
+            },
+            {
+                "evidence_id": "ev_14",
+                "locator": "Paragraph 'If volatile filaments such as ABS\\ASA are used, it is recommended to clean the rods every 5 rolls.'"
+            }
+        ]
+    },
+    "relationships": [
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_x_axis_carbon_rods"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_z_axis_lead_screws"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_yz_linear_rods"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_lmu8_bearings"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_extruder_assembly"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_filament_cutter_blade"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_silicone_sock"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_idler_pulleys"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_chamber_camera"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_hotend_fan"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_front_cover_fan"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_auxiliary_fan"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_nozzle_wiper"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_nozzle"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_ptfe_tube"
+        },
+        {
+            "type": "HAS_COMPONENT",
+            "from_id": "prt_p1p",
+            "to_id": "comp_belts"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_abnormal_resistance_x_axis",
+            "to_id": "comp_x_axis_carbon_rods"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_difficulty_cleaning_x_axis_rods",
+            "to_id": "comp_x_axis_carbon_rods"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_rough_z_bed_movement",
+            "to_id": "comp_z_axis_lead_screws"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_abnormal_bearing_ball_noise",
+            "to_id": "comp_lmu8_bearings"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_squeaking_noises_xy_movement",
+            "to_id": "comp_idler_pulleys"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_blurred_chamber_video",
+            "to_id": "comp_chamber_camera"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_fan_dust_debris_buildup",
+            "to_id": "comp_hotend_fan"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_fan_dust_debris_buildup",
+            "to_id": "comp_front_cover_fan"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_fan_dust_debris_buildup",
+            "to_id": "comp_auxiliary_fan"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_nozzle_wiper_filament_debris",
+            "to_id": "comp_nozzle_wiper"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_nozzle_wiper_damaged",
+            "to_id": "comp_nozzle_wiper"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_nozzle_surface_dirty",
+            "to_id": "comp_nozzle"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_under_extrusion",
+            "to_id": "comp_nozzle"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_extruder_filament_dust_visible",
+            "to_id": "comp_extruder_assembly"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_filament_not_cut_cleanly",
+            "to_id": "comp_filament_cutter_blade"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_silicone_sock_worn_or_loose",
+            "to_id": "comp_silicone_sock"
+        },
+        {
+            "type": "RELATED_TO",
+            "from_id": "sym_ptfe_tube_visible_wear",
+            "to_id": "comp_ptfe_tube"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_abnormal_resistance_x_axis",
+            "to_id": "fail_grease_on_carbon_rods"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_difficulty_cleaning_x_axis_rods",
+            "to_id": "fail_grease_on_carbon_rods"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_rough_z_bed_movement",
+            "to_id": "fail_z_lead_screws_insufficient_grease"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_abnormal_bearing_ball_noise",
+            "to_id": "fail_bearing_insufficient_internal_lubrication"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_squeaking_noises_xy_movement",
+            "to_id": "fail_idler_friction_without_oil"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_blurred_chamber_video",
+            "to_id": "fail_chamber_camera_lens_dirty"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_fan_dust_debris_buildup",
+            "to_id": "fail_fans_dust_debris"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_nozzle_wiper_filament_debris",
+            "to_id": "fail_nozzle_wiper_damaged_or_contaminated"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_nozzle_wiper_damaged",
+            "to_id": "fail_nozzle_wiper_damaged_or_contaminated"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_nozzle_surface_dirty",
+            "to_id": "fail_nozzle_residue_buildup"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_under_extrusion",
+            "to_id": "fail_nozzle_residue_buildup"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_extruder_filament_dust_visible",
+            "to_id": "fail_extruder_filament_dust_accumulation"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_filament_not_cut_cleanly",
+            "to_id": "fail_filament_cutter_blade_dull_regular"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_filament_not_cut_cleanly",
+            "to_id": "fail_filament_cutter_blade_dull_abrasive"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_silicone_sock_worn_or_loose",
+            "to_id": "fail_silicone_sock_worn_or_loose"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_ptfe_tube_visible_wear",
+            "to_id": "fail_ptfe_tube_worn_regular"
+        },
+        {
+            "type": "MAY_INDICATE",
+            "from_id": "sym_ptfe_tube_visible_wear",
+            "to_id": "fail_ptfe_tube_worn_abrasive"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_grease_on_carbon_rods",
+            "to_id": "comp_x_axis_carbon_rods"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_z_lead_screws_insufficient_grease",
+            "to_id": "comp_z_axis_lead_screws"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_z_lead_screws_dust_particles",
+            "to_id": "comp_z_axis_lead_screws"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_linear_rods_dust_buildup",
+            "to_id": "comp_yz_linear_rods"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_linear_rods_rust",
+            "to_id": "comp_yz_linear_rods"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_bearing_insufficient_internal_lubrication",
+            "to_id": "comp_lmu8_bearings"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_idler_friction_without_oil",
+            "to_id": "comp_idler_pulleys"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_chamber_camera_lens_dirty",
+            "to_id": "comp_chamber_camera"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_fans_dust_debris",
+            "to_id": "comp_hotend_fan"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_fans_dust_debris",
+            "to_id": "comp_front_cover_fan"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_fans_dust_debris",
+            "to_id": "comp_auxiliary_fan"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+            "to_id": "comp_nozzle_wiper"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_nozzle_residue_buildup",
+            "to_id": "comp_nozzle"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_extruder_filament_dust_accumulation",
+            "to_id": "comp_extruder_assembly"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_filament_cutter_blade_dull_regular",
+            "to_id": "comp_filament_cutter_blade"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_filament_cutter_blade_dull_abrasive",
+            "to_id": "comp_filament_cutter_blade"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_silicone_sock_worn_or_loose",
+            "to_id": "comp_silicone_sock"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_ptfe_tube_worn_regular",
+            "to_id": "comp_ptfe_tube"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_ptfe_tube_worn_abrasive",
+            "to_id": "comp_ptfe_tube"
+        },
+        {
+            "type": "AFFECTS",
+            "from_id": "fail_belts_greased_or_contaminated",
+            "to_id": "comp_belts"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_grease_on_carbon_rods",
+            "to_id": "act_clean_x_axis_carbon_rods_ipa"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_grease_on_carbon_rods",
+            "to_id": "act_avoid_grease_on_carbon_rods"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_z_lead_screws_insufficient_grease",
+            "to_id": "act_grease_z_lead_screws_thin_coat"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_z_lead_screws_dust_particles",
+            "to_id": "act_clean_z_lead_screws"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_linear_rods_dust_buildup",
+            "to_id": "act_clean_yz_linear_rods_ipa"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_linear_rods_rust",
+            "to_id": "act_apply_thin_oil_grease_after_ipa"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_bearing_insufficient_internal_lubrication",
+            "to_id": "act_apply_grease_to_bearing_and_slide"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_idler_friction_without_oil",
+            "to_id": "act_apply_small_oil_to_idlers"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_chamber_camera_lens_dirty",
+            "to_id": "act_clean_chamber_camera_ipa"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_fans_dust_debris",
+            "to_id": "act_clean_fans_compressed_air"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+            "to_id": "act_check_nozzle_wiper_before_print"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+            "to_id": "act_replace_damaged_nozzle_wiper"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_nozzle_residue_buildup",
+            "to_id": "act_nozzle_hot_cleaning"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_nozzle_residue_buildup",
+            "to_id": "act_nozzle_cold_pull"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_extruder_filament_dust_accumulation",
+            "to_id": "act_clean_extruder_with_compressed_air"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_filament_cutter_blade_dull_regular",
+            "to_id": "act_check_and_replace_cutter_regular_filaments"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_filament_cutter_blade_dull_abrasive",
+            "to_id": "act_check_and_replace_cutter_abrasive_filaments"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_silicone_sock_worn_or_loose",
+            "to_id": "act_replace_worn_silicone_sock"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_ptfe_tube_worn_regular",
+            "to_id": "act_check_ptfe_tube_regular_filaments"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_ptfe_tube_worn_abrasive",
+            "to_id": "act_check_ptfe_tube_abrasive_filaments"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_ptfe_tube_worn_regular",
+            "to_id": "act_replace_ptfe_tube_if_worn"
+        },
+        {
+            "type": "RESOLVED_BY",
+            "from_id": "fail_ptfe_tube_worn_abrasive",
+            "to_id": "act_replace_ptfe_tube_if_worn"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_abnormal_resistance_x_axis",
+            "to_id": "ev_1"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_difficulty_cleaning_x_axis_rods",
+            "to_id": "ev_1"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_grease_on_carbon_rods",
+            "to_id": "ev_1"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_x_axis_carbon_rods_ipa",
+            "to_id": "ev_1"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_avoid_grease_on_carbon_rods",
+            "to_id": "ev_1"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_rough_z_bed_movement",
+            "to_id": "ev_2"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_z_lead_screws_insufficient_grease",
+            "to_id": "ev_2"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_z_lead_screws_dust_particles",
+            "to_id": "ev_2"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_z_lead_screws",
+            "to_id": "ev_2"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_grease_z_lead_screws_thin_coat",
+            "to_id": "ev_2"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_linear_rods_dust_buildup",
+            "to_id": "ev_3"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_linear_rods_rust",
+            "to_id": "ev_3"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_yz_linear_rods_ipa",
+            "to_id": "ev_3"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_apply_thin_oil_grease_after_ipa",
+            "to_id": "ev_3"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_abnormal_bearing_ball_noise",
+            "to_id": "ev_4"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_bearing_insufficient_internal_lubrication",
+            "to_id": "ev_4"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_apply_grease_to_bearing_and_slide",
+            "to_id": "ev_4"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_squeaking_noises_xy_movement",
+            "to_id": "ev_5"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_idler_friction_without_oil",
+            "to_id": "ev_5"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_apply_small_oil_to_idlers",
+            "to_id": "ev_5"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_blurred_chamber_video",
+            "to_id": "ev_6"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_chamber_camera_lens_dirty",
+            "to_id": "ev_6"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_chamber_camera_ipa",
+            "to_id": "ev_6"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_fan_dust_debris_buildup",
+            "to_id": "ev_7"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_fans_dust_debris",
+            "to_id": "ev_7"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_fans_compressed_air",
+            "to_id": "ev_7"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_nozzle_wiper_filament_debris",
+            "to_id": "ev_8"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_nozzle_wiper_damaged",
+            "to_id": "ev_8"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_nozzle_wiper_damaged_or_contaminated",
+            "to_id": "ev_8"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_nozzle_wiper_before_print",
+            "to_id": "ev_8"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_replace_damaged_nozzle_wiper",
+            "to_id": "ev_8"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_nozzle_surface_dirty",
+            "to_id": "ev_9"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_under_extrusion",
+            "to_id": "ev_9"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_nozzle_residue_buildup",
+            "to_id": "ev_9"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_nozzle_hot_cleaning",
+            "to_id": "ev_9"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_nozzle_cold_pull",
+            "to_id": "ev_9"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_extruder_filament_dust_visible",
+            "to_id": "ev_10"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_extruder_filament_dust_accumulation",
+            "to_id": "ev_10"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_extruder_with_compressed_air",
+            "to_id": "ev_10"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_filament_not_cut_cleanly",
+            "to_id": "ev_11"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_filament_cutter_blade_dull_regular",
+            "to_id": "ev_11"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_filament_cutter_blade_dull_abrasive",
+            "to_id": "ev_11"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_and_replace_cutter_regular_filaments",
+            "to_id": "ev_11"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_and_replace_cutter_abrasive_filaments",
+            "to_id": "ev_11"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_silicone_sock_worn_or_loose",
+            "to_id": "ev_12"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_silicone_sock_worn_or_loose",
+            "to_id": "ev_12"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_replace_worn_silicone_sock",
+            "to_id": "ev_12"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_ptfe_tube_worn_regular",
+            "to_id": "ev_13"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_ptfe_tube_worn_abrasive",
+            "to_id": "ev_13"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_ptfe_tube_regular_filaments",
+            "to_id": "ev_13"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_ptfe_tube_abrasive_filaments",
+            "to_id": "ev_13"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "sym_ptfe_tube_visible_wear",
+            "to_id": "ev_13"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "fail_belts_greased_or_contaminated",
+            "to_id": "ev_5"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_replace_ptfe_tube_if_worn",
+            "to_id": "ev_13"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_inspect_yz_linear_rods_monthly",
+            "to_id": "ev_3"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_antirust_yz_linear_rods_every_3_months",
+            "to_id": "ev_3"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_z_lead_screws_every_3_months",
+            "to_id": "ev_2"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_check_fans_weekly",
+            "to_id": "ev_7"
+        },
+        {
+            "type": "SUPPORTED_BY",
+            "from_id": "act_clean_yz_linear_rods_ipa",
+            "to_id": "ev_14"
+        },
+        {
+            "type": "APPLIES_TO",
+            "from_id": "act_inspect_yz_linear_rods_monthly",
+            "to_id": "comp_yz_linear_rods"
+        },
+        {
+            "type": "APPLIES_TO",
+            "from_id": "act_antirust_yz_linear_rods_every_3_months",
+            "to_id": "comp_yz_linear_rods"
+        },
+        {
+            "type": "APPLIES_TO",
+            "from_id": "act_check_z_lead_screws_every_3_months",
+            "to_id": "comp_z_axis_lead_screws"
+        },
+        {
+            "type": "APPLIES_TO",
+            "from_id": "act_check_fans_weekly",
+            "to_id": "comp_hotend_fan"
+        },
+        {
+            "type": "APPLIES_TO",
+            "from_id": "act_check_fans_weekly",
+            "to_id": "comp_front_cover_fan"
+        },
+        {
+            "type": "APPLIES_TO",
+            "from_id": "act_check_fans_weekly",
+            "to_id": "comp_auxiliary_fan"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_1",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_2",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_3",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_4",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_5",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_6",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_7",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_8",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_9",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_10",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_11",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_12",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_13",
+            "to_id": "src_maintenance"
+        },
+        {
+            "type": "FROM_SOURCE",
+            "from_id": "ev_14",
+            "to_id": "src_maintenance"
+        }
+    ]
+}

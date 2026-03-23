@@ -1,0 +1,2 @@
+print("generate a KG")
+

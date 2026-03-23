@@ -1,0 +1,127 @@
+{
+    "ontology_name": "BambuLab_MVP_Troubleshooting_KG",
+    "version": "2.0",
+    "language": "en",
+    "description": "Minimal ontology for an MVP troubleshooting knowledge graph for a Bambu Lab printer, optimized for chatbot-based problem diagnosis and resolution before or during printing.",
+  
+    "design_principles": [
+      "Center the ontology on troubleshooting rather than full product modeling.",
+      "Separate observed symptoms from underlying failure modes.",
+      "Represent corrective actions as operational remediation steps.",
+      "Keep the schema minimal, connected, and non-redundant.",
+      "Store provenance as node attributes when sufficient for the application."
+    ],
+  
+    "nodes": [
+      {
+        "name": "Printer",
+        "description": "The printer or printer model that is the subject of troubleshooting knowledge.",
+        "properties": [
+          { "name": "printer_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "brand", "type": "string", "required": true },
+          { "name": "model", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "Component",
+        "description": "A physical component or subsystem of the printer involved in troubleshooting.",
+        "properties": [
+          { "name": "component_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "category", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "Symptom",
+        "description": "An observed issue, anomaly, or visible manifestation detected by the user or system.",
+        "properties": [
+          { "name": "symptom_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "severity", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "FailureMode",
+        "description": "The underlying technical cause or failure mechanism that may explain one or more symptoms.",
+        "properties": [
+          { "name": "failure_mode_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "material_context", "type": "string", "required": true },
+          { "name": "related_measurements", "type": "array", "items": "string", "required": false }
+        ]
+      },
+      {
+        "name": "CorrectiveAction",
+        "description": "An action, procedure, or remediation step intended to resolve a failure mode.",
+        "properties": [
+          { "name": "action_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "instruction_text", "type": "string", "required": true },
+          { "name": "source_type", "type": "string", "required": true },
+          { "name": "source_title", "type": "string", "required": true },
+          { "name": "source_reference", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "ErrorCode",
+        "description": "A machine-generated error code or alert code produced by the printer and linked to troubleshooting knowledge.",
+        "properties": [
+          { "name": "error_code_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "code", "type": "string", "required": true }
+        ]
+      }
+    ],
+  
+    "relations": [
+      {
+        "name": "HAS_COMPONENT",
+        "domain": "Printer",
+        "range": "Component",
+        "description": "The printer includes the specified component."
+      },
+      {
+        "name": "RELATED_TO",
+        "domain": "Symptom",
+        "range": "Component",
+        "description": "The symptom is associated with the specified component."
+      },
+      {
+        "name": "MAY_INDICATE",
+        "domain": "Symptom",
+        "range": "FailureMode",
+        "description": "The symptom may indicate the specified failure mode."
+      },
+      {
+        "name": "AFFECTS",
+        "domain": "FailureMode",
+        "range": "Component",
+        "description": "The failure mode affects the specified component."
+      },
+      {
+        "name": "RESOLVED_BY",
+        "domain": "FailureMode",
+        "range": "CorrectiveAction",
+        "description": "The failure mode may be resolved by the specified corrective action."
+      },
+      {
+        "name": "GENERATES_ERROR",
+        "domain": "Printer",
+        "range": "ErrorCode",
+        "description": "The printer may generate the specified error code."
+      },
+      {
+        "name": "INDICATES",
+        "domain": "ErrorCode",
+        "range": "FailureMode",
+        "description": "The error code indicates the specified failure mode."
+      }
+    ]
+  }
