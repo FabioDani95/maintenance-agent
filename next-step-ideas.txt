@@ -1,0 +1,89 @@
+Maintenance Agent – Enhanced MVP Technical Roadmap
+Goal: Evolve the current demonstrable MVP into an enhanced MVP that OEMs can pilot on real machines with clear value in reducing on-site support calls, faster resolution times, and basic ROI visibility — without requiring full production integrations yet.
+Focus areas: closed-loop learning from field usage, spare parts simulation, OEM-facing analytics, mobile usability, multi-language basics, and edge/on-prem readiness.
+Current foundation (recap):
+
+Knowledge graph (Symptom → FailureMode → CorrectiveAction)
+Semantic symptom retrieval + graph traversal
+Grounded LLM responses
+Telemetry overlay (CSV-based)
+Graphical ontology editor
+Local PDF manual serving
+
+All paths below are designed to be additive with minimal breaking changes to the existing Flask apps.
+1. Closed-Loop Intervention Logging & Success Metrics
+Why: OEMs immediately ask for evidence that the tool actually works in the field (success rates per failure mode/path).
+Implementation steps
+
+Persistent log storage
+Use interventions_log.jsonl (append-only, simple & fast) or lightweight SQLite (interventions.db)
+Fields to capture per session (on /chat or new /log-outcome endpoint):JSON{
+  "session_id": "uuid",
+  "start_ts": "ISO datetime",
+  "end_ts": "ISO datetime",
+  "machine_model": "string (optional)",
+  "machine_serial": "string (optional)",
+  "user_queries": ["array of strings"],
+  "symptom_ids": ["array"],
+  "final_failure_mode_id": "string",
+  "final_path": ["array of node ids"],
+  "selected_action_id": "string",
+  "outcome": "resolved | partially_resolved | not_resolved | escalated",
+  "user_feedback": "string (optional)",
+  "duration_sec": int
+}
+Aggregate stats into FailureMode nodes (update on save or via cron-like endpoint):JSON"stats": {
+  "total_uses": 156,
+  "success_count": 129,
+  "success_rate_pct": 82.7,
+  "avg_duration_min": 11.3,
+  "last_updated": "2026-03-23T21:00:00Z"
+}
+UI enhancements
+After suggesting an action: show inline “Resolved in 83% of 156 similar cases”
+New protected route /oem/intervention-stats showing top failure modes table + success rates
+
+2. Spare Parts / ERP Simulation Layer
+Why: Turns troubleshooting into “fix + order part” flow — very high perceived value for OEMs.
+Implementation steps
+
+New node type in ontology:JSON{
+  "type": "SparePart",
+  "part_id": "string (e.g. NP-0.4-H)",
+  "name": "Hardened Nozzle 0.4 mm",
+  "description": "...",
+  "stock_qty": 12,
+  "warehouse": "Milan",
+  "lead_time_days": 3,
+  "price_eur": 28.90,
+  "supplier_ref": "ABC-456"
+}
+New relationship: CorrectiveAction → REQUIRES → SparePart (1:N)
+Data source: spare_parts_mock.json or erp_simulation.csv
+UI behavior
+When action requires parts → side panel / modal with table:
+Part ID | Name | Stock | Lead time | “Order placeholder” button (alert or dummy link)
+
+
+Future hook: placeholder endpoint /erp/part-status/{part_id} for real API switch later
+
+3. OEM Dashboard (Read-only Analytics View)
+Why: 30-second “wow” moment in demos — aggregated metrics without per-user noise.
+Implementation
+
+Option A: new Flask blueprint /oem with basic auth (API key header for MVP)
+Option B: separate lightweight Flask app (oem_dashboard/) same structure
+
+Core sections / widgets
+
+KPI cards
+Active machines (distinct serials last 30d)
+Total sessions
+First-contact resolution rate (% resolved outcome)
+Estimated hours saved (sessions × avg duration × assumed hourly cost)
+
+Top 10 failure modes table
+Failure Mode | Uses | Success % | Avg min
+Simple line chart (sessions over time or resolution rate trend) — Chart.js
+Export button: CSV of last 30/90 days interventions
+
