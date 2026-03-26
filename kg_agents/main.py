@@ -49,6 +49,7 @@ app.include_router(chat.router)
 app.include_router(graph.router)
 app.include_router(devices.router)
 
+
 # Mount static files from troubleshooting_agent
 _STATIC_DIR = _TS_DIR / "static"
 if _STATIC_DIR.exists():
