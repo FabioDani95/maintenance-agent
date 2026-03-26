@@ -7,10 +7,23 @@ from kg_agents.services import instance_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["graph"])
 
-COLOR_PALETTE = [
-    "#6b8cba", "#7aab82", "#c47e5a", "#9b79b8",
-    "#5fa8a0", "#b87a7a", "#a0a052", "#6b9eb8",
-    "#b8906b", "#7a8fb8", "#88a87a",
+# Node type colors aligned with the platform color system (colors.js)
+NODE_TYPE_COLORS: dict[str, str] = {
+    "Symptom":          "#EF4444",  # red-500
+    "FailureMode":      "#F97316",  # orange-500
+    "CorrectiveAction": "#10B981",  # emerald-500
+    "Action":           "#10B981",  # emerald-500
+    "Component":        "#3B82F6",  # blue-500
+    "ErrorCode":        "#F59E0B",  # yellow-500
+}
+
+# Fallback palette for any other node types
+_FALLBACK_PALETTE = [
+    "#64748B",  # slate-500
+    "#0891B2",  # cyan-600
+    "#7C3AED",  # violet-600
+    "#DB2777",  # pink-600
+    "#0D9488",  # teal-600
 ]
 
 
@@ -39,7 +52,14 @@ async def graph_data(instance_id: str):
     relationships = ont.get("relationships", [])
 
     type_list = sorted(nodes_by_type.keys())
-    color_map = {t: COLOR_PALETTE[i % len(COLOR_PALETTE)] for i, t in enumerate(type_list)}
+    fallback_idx = 0
+    color_map = {}
+    for t in type_list:
+        if t in NODE_TYPE_COLORS:
+            color_map[t] = NODE_TYPE_COLORS[t]
+        else:
+            color_map[t] = _FALLBACK_PALETTE[fallback_idx % len(_FALLBACK_PALETTE)]
+            fallback_idx += 1
 
     vis_nodes = []
     for ntype, node_list in nodes_by_type.items():

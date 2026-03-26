@@ -58,8 +58,9 @@ class InstanceResponse(BaseModel):
 class DeviceLinkCreate(BaseModel):
     device_id: str
     device_name: str
-    source: str = "manual"  # "platform" or "manual"
+    source: str = "device"  # "device" (platform device) or "equipment" (manual entry)
     platform_device_id: str | None = None
+    category: str = "Device"  # "Device" or "Equipment"
 
 
 class MeasurementMapping(BaseModel):
@@ -72,8 +73,9 @@ class MeasurementMapping(BaseModel):
 class DeviceLink(BaseModel):
     device_id: str
     device_name: str
-    source: str = "manual"
+    source: str = "device"
     platform_device_id: str | None = None
+    category: str = "Device"
     measurement_mappings: list[MeasurementMapping] = Field(default_factory=list)
 
 

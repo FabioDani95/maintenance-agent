@@ -55,7 +55,7 @@ if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # Serve manuals
-_MANUALS_DIR = _TS_DIR / "manuals"
+_MANUALS_DIR = Path(__file__).resolve().parent.parent / "data" / "manuals"
 if _MANUALS_DIR.exists():
     app.mount("/manuals", StaticFiles(directory=str(_MANUALS_DIR)), name="manuals")
 

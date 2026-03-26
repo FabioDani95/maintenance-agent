@@ -90,7 +90,7 @@ def _render_answer(grouped: list[dict[str, Any]]) -> str:
             src_ref = act.get("source_reference", "")
             if src_title and (src_title, src_ref) != last_source:
                 if src_ref and src_ref.startswith("http"):
-                    lines.append(f"   **Source:** {src_title} – {src_ref}")
+                    lines.append(f"   **Source:** [{src_title}]({src_ref})")
                 elif src_ref:
                     lines.append(f"   **Source:** [MANUAL:{src_title}:{src_ref}]")
                 else:

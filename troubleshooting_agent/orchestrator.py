@@ -122,6 +122,8 @@ def _build_trace(paths: list[dict[str, Any]], top_symptoms: list[tuple[str, floa
             entry["component"] = p["component_name"]
         if p.get("source_title"):
             entry["source"] = p["source_title"]
+            if p.get("source_reference"):
+                entry["source_reference"] = p["source_reference"]
         if scores.get(p["symptom_id"]):
             entry["score"] = scores[p["symptom_id"]]
         reasoning.append(entry)

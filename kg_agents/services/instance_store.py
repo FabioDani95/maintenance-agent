@@ -170,8 +170,9 @@ def link_device(instance_id: str, device_data: dict[str, Any]) -> dict[str, Any]
     device = {
         "device_id": device_data["device_id"],
         "device_name": device_data["device_name"],
-        "source": device_data.get("source", "manual"),
+        "source": device_data.get("source", "device"),
         "platform_device_id": device_data.get("platform_device_id"),
+        "category": device_data.get("category", "Device"),
         "measurement_mappings": device_data.get("measurement_mappings", []),
     }
     devices.append(device)
