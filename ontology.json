@@ -29,9 +29,9 @@
     }
   ],
   "nodes": {
-    "Printer": [
+    "Asset": [
       {
-        "printer_id": "prt_p1p",
+        "asset_id": "prt_p1p",
         "name": "Bambu Lab P1P",
         "description": "CoreXY FDM 3D printer with a 256×256×256 mm build volume, high-speed motion system and optional multi-color AMS support.",
         "brand": "Bambu Lab",

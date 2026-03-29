@@ -29,7 +29,7 @@ _FALLBACK_PALETTE = [
 
 def _node_id(node: dict) -> str | None:
     for key in ("symptom_id", "failure_mode_id", "action_id",
-                "component_id", "printer_id", "asset_id", "error_code_id"):
+                "component_id", "asset_id", "error_code_id"):
         if key in node:
             return node[key]
     return None

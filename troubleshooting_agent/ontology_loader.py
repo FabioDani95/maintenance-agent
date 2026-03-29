@@ -51,7 +51,7 @@ class OntologyIndex:
     @staticmethod
     def _node_id(node: dict[str, Any]) -> str | None:
         for key in ("symptom_id", "failure_mode_id", "action_id",
-                    "component_id", "printer_id", "error_code_id"):
+                    "component_id", "asset_id", "error_code_id"):
             if key in node:
                 return node[key]
         return None

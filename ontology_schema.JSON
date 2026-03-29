@@ -14,10 +14,10 @@
   
     "nodes": [
       {
-        "name": "Printer",
-        "description": "The printer or printer model that is the subject of troubleshooting knowledge.",
+        "name": "Asset",
+        "description": "The physical asset (machine, device, or equipment) that is the subject of troubleshooting knowledge.",
         "properties": [
-          { "name": "printer_id", "type": "string", "required": true, "unique": true },
+          { "name": "asset_id", "type": "string", "required": true, "unique": true },
           { "name": "name", "type": "string", "required": true },
           { "name": "description", "type": "string", "required": true },
           { "name": "brand", "type": "string", "required": true },
@@ -83,9 +83,9 @@
     "relations": [
       {
         "name": "HAS_COMPONENT",
-        "domain": "Printer",
+        "domain": "Asset",
         "range": "Component",
-        "description": "The printer includes the specified component."
+        "description": "The asset includes the specified component."
       },
       {
         "name": "RELATED_TO",
@@ -113,9 +113,9 @@
       },
       {
         "name": "GENERATES_ERROR",
-        "domain": "Printer",
+        "domain": "Asset",
         "range": "ErrorCode",
-        "description": "The printer may generate the specified error code."
+        "description": "The asset may generate the specified error code."
       },
       {
         "name": "INDICATES",
