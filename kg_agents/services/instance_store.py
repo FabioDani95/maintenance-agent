@@ -13,6 +13,75 @@ from kg_agents.config import DATA_DIR, BASE_DIR, SEED_DIR
 INSTANCES_DIR = DATA_DIR / "instances"
 
 
+def validate_ontology_data(ontology_data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
+    """Validate ontology_data against the agent's ontology_schema.
+
+    Returns a list of error messages. Empty list means valid.
+    """
+    errors: list[str] = []
+    if not schema or not schema.get("nodes"):
+        return errors  # no schema to validate against
+
+    # Build allowed node types and their id field names from schema
+    schema_node_types: dict[str, str] = {}  # name -> id_field
+    for node_def in schema.get("nodes", []):
+        name = node_def["name"]
+        props = node_def.get("properties", [])
+        id_field = next((p["name"] for p in props if p.get("unique")), None)
+        schema_node_types[name] = id_field or ""
+
+    # Build allowed relationship types with domain/range
+    schema_relations: dict[str, tuple[str, str]] = {}  # name -> (domain, range)
+    for rel_def in schema.get("relations", []):
+        schema_relations[rel_def["name"]] = (rel_def["domain"], rel_def["range"])
+
+    nodes = ontology_data.get("nodes", {})
+    relationships = ontology_data.get("relationships", [])
+
+    # Validate node types
+    for node_type in nodes:
+        if node_type not in schema_node_types:
+            errors.append(f"Unknown node type '{node_type}'. Allowed: {sorted(schema_node_types.keys())}")
+
+    # Collect all node IDs and their types for relationship validation
+    node_id_to_type: dict[str, str] = {}
+    for node_type, node_list in nodes.items():
+        if node_type not in schema_node_types:
+            continue
+        id_field = schema_node_types[node_type]
+        for node in node_list:
+            nid = node.get(id_field)
+            if not nid:
+                errors.append(f"Node in '{node_type}' missing required id field '{id_field}'")
+            else:
+                node_id_to_type[nid] = node_type
+
+    # Validate relationships
+    for i, rel in enumerate(relationships):
+        rel_type = rel.get("type", "")
+        from_id = rel.get("from_id", "")
+        to_id = rel.get("to_id", "")
+
+        if rel_type not in schema_relations:
+            errors.append(f"Relationship[{i}]: unknown type '{rel_type}'. Allowed: {sorted(schema_relations.keys())}")
+            continue
+
+        expected_domain, expected_range = schema_relations[rel_type]
+        from_type = node_id_to_type.get(from_id)
+        to_type = node_id_to_type.get(to_id)
+
+        if from_id and from_type and from_type != expected_domain:
+            errors.append(
+                f"Relationship[{i}] '{rel_type}': from_id '{from_id}' is type '{from_type}', expected '{expected_domain}'"
+            )
+        if to_id and to_type and to_type != expected_range:
+            errors.append(
+                f"Relationship[{i}] '{rel_type}': to_id '{to_id}' is type '{to_type}', expected '{expected_range}'"
+            )
+
+    return errors
+
+
 def _instance_dir(instance_id: str) -> Path:
     return INSTANCES_DIR / instance_id
 

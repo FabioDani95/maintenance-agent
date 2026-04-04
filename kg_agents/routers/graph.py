@@ -15,6 +15,11 @@ NODE_TYPE_COLORS: dict[str, str] = {
     "Action":           "#10B981",  # emerald-500
     "Component":        "#3B82F6",  # blue-500
     "ErrorCode":        "#F59E0B",  # yellow-500
+    "Asset":            "#8B5CF6",  # violet-500
+    "Process":          "#0891B2",  # cyan-600
+    "Defect":           "#EF4444",  # red-500
+    "RootCause":        "#F97316",  # orange-500
+    "Inspection":       "#F59E0B",  # yellow-500
 }
 
 # Fallback palette for any other node types
@@ -28,10 +33,9 @@ _FALLBACK_PALETTE = [
 
 
 def _node_id(node: dict) -> str | None:
-    for key in ("symptom_id", "failure_mode_id", "action_id",
-                "component_id", "printer_id", "asset_id", "error_code_id"):
-        if key in node:
-            return node[key]
+    for key, value in node.items():
+        if key.endswith("_id") and isinstance(value, str):
+            return value
     return None
 
 

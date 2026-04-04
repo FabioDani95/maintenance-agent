@@ -1,6 +1,6 @@
 # Knowledge Agents API
 
-FastAPI backend for the Knowledge Agents platform — a multi-agent knowledge graph system for troubleshooting and diagnostics.
+FastAPI backend for the Knowledge Agents platform — a multi-agent knowledge graph system for diagnostics, troubleshooting, and quality analysis.
 
 ## Quick Start
 
@@ -20,10 +20,6 @@ Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=sk-...
-NEO4J_URI=neo4j+s://...
-NEO4J_USERNAME=...
-NEO4J_PASSWORD=...
-NEO4J_DATABASE=neo4j
 AGENT_PORT=8030          # optional, defaults to 8030
 ```
 
@@ -42,7 +38,7 @@ kg_agents/
     devices.py         # Device linking and measurement mappings
   services/
     agent_store.py     # JSON-file persistence for agents
-    instance_store.py  # Per-instance directory management, device links, seeding
+    instance_store.py  # Per-instance directory management, device links, seeding, schema validation
 ```
 
 The chat pipeline reuses the existing `troubleshooting_agent/` modules (orchestrator, embeddings, similarity, graph traversal, response builder) via `sys.path`, scoped per-instance at runtime.
@@ -61,7 +57,28 @@ data/
       telemetry/                       # Optional CSV telemetry data
 ```
 
-On first startup, the app seeds a **Maintenance Troubleshooting Agent** with a **Bambu Lab P1P** instance (73 nodes, 98 relationships, 16 symptom embeddings).
+On first startup, the app seeds a **Maintenance Troubleshooting Agent** with a **Bambu Lab P1P** instance (73 nodes, 126 relationships, 16 symptom embeddings).
+
+## Example Agents
+
+### 1. Maintenance Troubleshooting Agent
+
+Diagnoses mechanical/electrical symptoms on industrial equipment.
+
+**Schema:** Asset, Component, Symptom, FailureMode, ErrorCode, CorrectiveAction
+
+**Instances:**
+- **Bambu Lab P1P** — 3D printer (73 nodes, 126 rels). Covers extrusion, motion system, hotend, sensors.
+- **ABB IRC5** — Industrial robot controller (16 nodes, 26 rels). Covers joint faults, encoder, brake, SMB battery.
+
+### 2. Production Quality Agent
+
+Traces product quality defects back to root causes through process steps and inspections.
+
+**Schema:** Asset, Process, Defect, RootCause, Inspection, CorrectiveAction
+
+**Instances:**
+- **Haas VF-2 CNC Mill** — Vertical machining center (25 nodes, 34 rels). Covers surface finish, dimensional errors, tool wear, spindle vibration.
 
 ## API Endpoints
 
@@ -139,10 +156,16 @@ All responses are grounded in the knowledge graph — zero LLM-generated facts.
 
 ## Ontology Schema
 
-The default schema (`ontology_schema.JSON`) defines:
+Each agent defines its own ontology schema (node types, properties, relationship types with domain/range). Instances are instantiations of that schema with concrete, asset-specific data. Ontology data is validated against the agent's schema on create and update — unknown node types, relationship types, or domain/range mismatches return a 422 with specific errors.
+
+### Maintenance Troubleshooting schema (`ontology_schema.JSON`)
 
 **Node types:** Asset, Component, Symptom, FailureMode, CorrectiveAction, ErrorCode
 
 **Relationships:** HAS_COMPONENT, RELATED_TO, MAY_INDICATE, AFFECTS, RESOLVED_BY, GENERATES_ERROR, INDICATES
 
-Each agent can define its own ontology schema. Instances are instantiations of that schema with concrete data.
+### Production Quality schema (embedded in agent)
+
+**Node types:** Asset, Process, Defect, RootCause, Inspection, CorrectiveAction
+
+**Relationships:** HAS_PROCESS, PRODUCES_DEFECT, MAY_INDICATE, AFFECTS, DETECTED_BY, RESOLVED_BY
