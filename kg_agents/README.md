@@ -1,6 +1,6 @@
 # Knowledge Agents API
 
-FastAPI backend for the Knowledge Agents platform: a multi-agent, multi-instance troubleshooting system backed by a knowledge graph.
+FastAPI backend for the Knowledge Agents platform — a multi-agent knowledge graph system for diagnostics, troubleshooting, and quality analysis. It supports multi-instance troubleshooting backed by a knowledge graph.
 
 This is the primary application for the current branch.
 
@@ -24,7 +24,7 @@ Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=sk-...
-AGENT_PORT=8030
+AGENT_PORT=8030          # optional, defaults to 8030
 ```
 
 Notes:
@@ -55,8 +55,8 @@ kg_agents/
     graph.py           # vis-network graph payload
     devices.py         # device linking and measurement mappings
   services/
-    agent_store.py     # JSON persistence for agents
-    instance_store.py  # per-instance directories, metadata, devices, seeding
+    agent_store.py     # JSON-file persistence for agents
+    instance_store.py  # Per-instance directory management, device links, seeding, schema validation
 ```
 
 The service reuses the troubleshooting engine from `troubleshooting_agent/` at runtime:
@@ -94,6 +94,8 @@ The seeded instance is copied from the repository defaults:
 - root `ontology.json`
 - `troubleshooting_agent/symptom_embeddings.json`
 - optional telemetry from `troubleshooting_agent/telemetry/`
+
+Node and relationship counts for the default instance follow the checked-in root `ontology.json`. Create additional agents and instances via `/v1/kg-agents/agents` and `/v1/kg-agents/agents/{agent_id}/instances`.
 
 ## API Endpoints
 
@@ -165,6 +167,10 @@ Current behavior:
 - returned facts come from the ontology and linked telemetry/manual metadata
 
 ## Ontology Expectations
+
+Each agent defines its own ontology schema (node types, properties, relationship types with domain/range). Instances are instantiations of that schema with concrete, asset-specific data. Ontology data is validated against the agent's schema on create and update — unknown node types, relationship types, or domain/range mismatches return a 422 with specific errors.
+
+### Maintenance Troubleshooting schema (`ontology_schema.JSON`)
 
 The default flow expects:
 
