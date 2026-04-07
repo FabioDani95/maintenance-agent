@@ -2,10 +2,27 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from kg_agents.models import Instance, InstanceCreate, InstanceUpdate, InstanceResponse
+from kg_agents.models import (
+    Instance, InstanceCreate, InstanceUpdate, InstanceResponse,
+    AllInstancesResponse, ExtractionSummary,
+)
 from kg_agents.services import agent_store, instance_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["instances"])
+
+
+@router.get("/instances", response_model=AllInstancesResponse)
+async def list_all_instances():
+    instances = instance_store.list_all_instances()
+    return {"instances": instances}
+
+
+@router.get("/instances/{instance_id}/extraction-summary", response_model=ExtractionSummary)
+async def get_extraction_summary(instance_id: str):
+    summary = instance_store.get_extraction_summary(instance_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Extraction summary not found")
+    return summary
 
 
 @router.get("/agents/{agent_id}/instances", response_model=InstanceResponse)

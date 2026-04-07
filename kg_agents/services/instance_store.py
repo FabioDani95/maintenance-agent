@@ -11,6 +11,7 @@ from kg_agents.config import DATA_DIR, BASE_DIR, SEED_DIR
 
 
 INSTANCES_DIR = DATA_DIR / "instances"
+SUMMARIES_DIR = DATA_DIR / "extraction_summaries"
 
 
 def validate_ontology_data(ontology_data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
@@ -202,6 +203,42 @@ def get_embeddings_path(instance_id: str) -> Path:
 
 def get_telemetry_dir(instance_id: str) -> Path:
     return _instance_dir(instance_id) / "telemetry"
+
+
+# ── Cross-agent queries ──
+
+def list_all_instances() -> list[dict[str, Any]]:
+    """Return every instance across all agents, with agent_name attached."""
+    from kg_agents.services.agent_store import list_agents
+
+    agent_map: dict[str, str] = {}
+    for agent in list_agents():
+        agent_map[agent["id"]] = agent["name"]
+
+    result = []
+    if not INSTANCES_DIR.exists():
+        return result
+    for p in sorted(INSTANCES_DIR.iterdir()):
+        if not p.is_dir():
+            continue
+        meta = _load_meta(p.name)
+        if not meta:
+            continue
+        nc, rc = _count_ontology(p.name)
+        meta["node_count"] = nc
+        meta["relationship_count"] = rc
+        meta["agent_name"] = agent_map.get(meta.get("agent_id", ""), "")
+        result.append(meta)
+    return result
+
+
+def get_extraction_summary(instance_id: str) -> dict[str, Any] | None:
+    """Read the extraction summary for an instance, or None if it doesn't exist."""
+    summary_file = SUMMARIES_DIR / f"{instance_id}.json"
+    if not summary_file.exists():
+        return None
+    with summary_file.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ── Device Links ──

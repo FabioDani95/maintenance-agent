@@ -55,7 +55,20 @@ data/
       symptom_embeddings.json          # OpenAI embeddings for symptom matching
       devices.json                     # Linked devices and measurement mappings
       telemetry/                       # Optional CSV telemetry data
+  extraction_summaries/
+    <instance_id>.json                 # Extraction metadata (1:1 with instance)
 ```
+
+### Extraction Summaries
+
+Each time a knowledge graph is extracted from source documents, an extraction summary is generated alongside it. Summaries are stored as `data/extraction_summaries/<instance_id>.json` and contain:
+
+- **context** — KG ID, version (linear: v1 → v2 → v3), ontology reference name, extraction timestamp
+- **extraction_performance** — status, triplets validated, automation time, estimated cost, LLM token usage
+- **model_usage** — primary and secondary models used during extraction
+- **file_links** — relative paths to the instance's meta.json and ontology.json
+
+Summaries are 1:1 with instances. The `version` field supports linear versioning for tracking changes when knowledge graphs are manually edited in the future.
 
 On first startup, the app seeds a **Maintenance Troubleshooting Agent** with a **Bambu Lab P1P** instance (73 nodes, 126 relationships, 16 symptom embeddings).
 
@@ -96,11 +109,13 @@ Traces product quality defects back to root causes through process steps and ins
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/v1/kg-agents/instances` | List all instances across agents |
 | GET | `/v1/kg-agents/agents/{agent_id}/instances` | List instances for agent |
 | POST | `/v1/kg-agents/agents/{agent_id}/instances` | Create instance |
 | GET | `/v1/kg-agents/instances/{instance_id}` | Get instance |
 | PUT | `/v1/kg-agents/instances/{instance_id}` | Update instance |
 | DELETE | `/v1/kg-agents/instances/{instance_id}` | Delete instance |
+| GET | `/v1/kg-agents/instances/{instance_id}/extraction-summary` | Get extraction summary |
 
 ### Chat
 

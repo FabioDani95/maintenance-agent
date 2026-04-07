@@ -151,3 +151,53 @@ class StatusResponse(BaseModel):
     ontology_version: str | None = None
     total_nodes: int | None = None
     total_relationships: int | None = None
+
+
+# ── Extraction Summary ──
+class ExtractionContext(BaseModel):
+    kg_id: str
+    version: str = ""
+    ontology_ref: str = ""
+    extraction_timestamp: str = ""
+
+
+class ExtractionPerformance(BaseModel):
+    status: str = ""
+    triplets_validated: int = 0
+    total_automation_time: str = ""
+    estimated_cost_usd: float = 0.0
+    llm_tokens: int = 0
+
+
+class ExtractionModelUsage(BaseModel):
+    primary_model: str = ""
+    secondary_model: str = ""
+
+
+class ExtractionFileLinks(BaseModel):
+    meta: str = ""
+    ontology: str = ""
+
+
+class ExtractionSummary(BaseModel):
+    context: ExtractionContext
+    extraction_performance: ExtractionPerformance = Field(default_factory=ExtractionPerformance)
+    model_usage: ExtractionModelUsage = Field(default_factory=ExtractionModelUsage)
+    file_links: ExtractionFileLinks = Field(default_factory=ExtractionFileLinks)
+
+
+# ── All Instances (cross-agent) ──
+class InstanceWithAgent(BaseModel):
+    id: str
+    agent_id: str
+    agent_name: str = ""
+    name: str
+    description: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    node_count: int = 0
+    relationship_count: int = 0
+
+
+class AllInstancesResponse(BaseModel):
+    instances: list[InstanceWithAgent]

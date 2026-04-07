@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+KG_DIR = Path(__file__).resolve().parent
+DATA_DIR = KG_DIR / "data"
 SEED_DIR = BASE_DIR / "troubleshooting_agent"
 
 # Ensure data directories exist
