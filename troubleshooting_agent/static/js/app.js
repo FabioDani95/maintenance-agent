@@ -549,9 +549,7 @@ async function initGraph() {
 
   network.once('stabilizationIterationsDone', () => {
     network.fit({ animation: { duration: 500, easingFunction: "easeInOutQuad" } });
-    const nCount = visNodes.length;
-    const eCount = visEdges.length;
-    document.getElementById('graph-status').textContent = `${nCount} nodes · ${eCount} edges`;
+    document.getElementById('graph-status').textContent = '';
   });
 }
 
