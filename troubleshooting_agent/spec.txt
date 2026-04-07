@@ -436,7 +436,7 @@ Symptom -> FailureMode -> CorrectiveAction
 
 then updating `ontology.json` and its linked assets is usually sufficient.
 
-If the new product requires new node classes, new relation types, or a different troubleshooting flow, then `ontology_schema.JSON` should also be updated and the `modify/` editor should be reviewed against the new schema.
+If the new product requires new node classes, new relation types, or a different troubleshooting flow, then `ontology_schema.JSON` should also be updated and any external ontology editing workflow should be reviewed against the new schema.
 
 ### 10.7 Cases that require code changes
 
