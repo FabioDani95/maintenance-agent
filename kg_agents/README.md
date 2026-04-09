@@ -82,7 +82,20 @@ data/
       symptom_embeddings.json          # OpenAI embeddings for symptom matching
       devices.json                     # Linked devices and measurement mappings
       telemetry/                       # Optional CSV telemetry data
+  extraction_summaries/
+    <instance_id>.json                 # Extraction metadata (1:1 with instance)
 ```
+
+### Extraction Summaries
+
+Each time a knowledge graph is extracted from source documents, an extraction summary is stored as `data/extraction_summaries/<instance_id>.json`. It contains:
+
+- **context** — KG ID, version (linear: v1, v2, ...), ontology reference name, extraction timestamp
+- **extraction_performance** — status, triplets validated, automation time, estimated cost, LLM token usage
+- **model_usage** — primary and secondary models used during extraction
+- **file_links** — relative paths to the instance's meta.json and ontology.json
+
+Summaries are 1:1 with instances. The `version` field supports linear versioning for tracking changes when knowledge graphs are manually edited.
 
 On first startup the app seeds:
 
@@ -114,7 +127,6 @@ Node and relationship counts for the default instance follow the checked-in root
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/v1/kg-agents/instances` | List all instances across agents |
-| GET | `/v1/kg-agents/agents/{agent_id}/instances` | List instances for agent |
 | GET | `/v1/kg-agents/agents/{agent_id}/instances` | List instances for an agent |
 | POST | `/v1/kg-agents/agents/{agent_id}/instances` | Create instance |
 | GET | `/v1/kg-agents/instances/{instance_id}` | Get instance metadata |
