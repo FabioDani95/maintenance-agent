@@ -307,31 +307,33 @@ def save_measurement_mappings(instance_id: str, device_id: str, mappings: list[d
 
 # ── Seed ──
 def seed_default_instance(agent_id: str) -> str:
-    """Create the default P1P instance if not already present. Returns instance_id."""
+    """Create the default IRC5 instance if not already present. Returns instance_id."""
     # Check if already exists
     for p in INSTANCES_DIR.iterdir() if INSTANCES_DIR.exists() else []:
         if not p.is_dir():
             continue
         meta = _load_meta(p.name)
-        if meta and meta.get("agent_id") == agent_id and meta.get("name") == "Bambu Lab P1P":
+        if meta and meta.get("id") == "irc5-default-instance":
             return meta["id"]
 
-    instance_id = "p1p-default-instance"
+    instance_id = "irc5-default-instance"
     d = _instance_dir(instance_id)
     d.mkdir(parents=True, exist_ok=True)
 
     meta = {
         "id": instance_id,
         "agent_id": agent_id,
-        "name": "Bambu Lab P1P",
-        "description": "Troubleshooting knowledge graph for the Bambu Lab P1P 3D printer. Covers mechanical symptoms, extrusion issues, hotend/nozzle problems, motion system, maintenance, and sensors.",
+        "name": "IRC5",
+        "description": "Troubleshooting knowledge graph for the ABB IRC5 robot controller. Covers controller power, FlexPendant, control modules, drive modules, motors, gearboxes, and related maintenance diagnostics.",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     _save_meta(instance_id, meta)
 
-    # Copy ontology.json from root
-    src_ont = BASE_DIR / "ontology.json"
+    # Copy ontology seed, preferring the dedicated IRC5 source when available.
+    src_ont = BASE_DIR / "irc5_abb_robotics_V0.json"
+    if not src_ont.exists():
+        src_ont = BASE_DIR / "ontology.json"
     if src_ont.exists():
         shutil.copy2(src_ont, d / "ontology.json")
 

@@ -11,7 +11,7 @@ const DIM_EDGE_COLOR = "#161b22";
 const DIM_FONT_COLOR = "#30363d";
 const ACTIVE_FONT_COLOR = "#f0f6fc";
 const API_ROOT = "/v1/kg-agents";
-const DEFAULT_INSTANCE_ID = "p1p-default-instance";
+const DEFAULT_INSTANCE_ID = "irc5-default-instance";
 
 // ── State ──
 let network = null;

@@ -585,8 +585,8 @@
       },
       {
         "symptom_id": "sym_controller_cannot_be_started",
-        "name": "Joystick on FlexPendant does not work",
-        "description": "The system can be started but the joystick on the FlexPendant does not work.",
+        "name": "Controller cannot be started",
+        "description": "The system cannot be started. The joystick on the FlexPendant does not work.",
         "severity": "High"
       },
       {
@@ -675,8 +675,8 @@
       },
       {
         "symptom_id": "sym_dsqc_662_status_led_pulsing_green",
-        "name": "Status LED pulsing red-green on DSQC 662",
-        "description": "Indicator LED DCOK on DSQC 604 is pulsing green.",
+        "name": "Status LED pulsing green on DSQC 662",
+        "description": "The Status LED on DSQC 662 is pulsing green, indicating a USB communication error.",
         "severity": "High"
       },
       {
@@ -752,7 +752,11 @@
         "name": "holding brakes disconnected, faulty, worn or non-operational",
         "description": "The holding brakes are disconnected, faulty, worn or in any way rendered non-operational.",
         "material_context": "holding brakes on the robot arm system",
-        "related_measurements": []
+        "related_measurements": [
+          "brake_release_voltage_vdc",
+          "brake_coil_resistance_ohm",
+          "axis_drop_motors_off_mm"
+        ]
       },
       {
         "failure_mode_id": "fm_live_voltage_present_at_drive_module_terminals",
@@ -760,7 +764,7 @@
         "description": "Live voltage is present at transformer terminals and Motors ON terminals even if the main power switches have been switched off.",
         "material_context": "Drive Module terminals",
         "related_measurements": [
-          "voltage between terminals"
+          "drive_module_terminal_voltage_vac"
         ]
       },
       {
@@ -776,7 +780,11 @@
         "description": "Manipulator parts such as drive motors and gears, and drive parts in the cabinet, become hot during normal operation or due to higher environment temperature.",
         "material_context": "drive motors, gears, drive parts in the cabinet, Bleeder",
         "related_measurements": [
-          "Bleeder up to 80 degrees"
+          "bleeder_temp_c",
+          "drive_motor_temp_c",
+          "gearbox_surface_temp_c",
+          "cabinet_ambient_temp_c",
+          "cooling_fan_ok"
         ]
       },
       {
@@ -784,7 +792,9 @@
         "name": "left behind service tools",
         "description": "Special tools left behind after repair or maintenance work may cause erratic robot behavior.",
         "material_context": "robot equipment and service tools",
-        "related_measurements": []
+        "related_measurements": [
+          "tcp_position_error_mm"
+        ]
       },
       {
         "failure_mode_id": "fm_loss_of_power_supply",
@@ -792,9 +802,9 @@
         "description": "Start-up failure may be due to a loss of power supply in many stages.",
         "material_context": "Control Module service outlet",
         "related_measurements": [
-          "main power supply within specified limits",
-          "power supply to Control module within specified limits",
-          "power supply to Drive module within specified limits"
+          "mains_voltage_vac",
+          "control_module_supply_vdc",
+          "drive_module_supply_vdc"
         ]
       },
       {
@@ -802,35 +812,50 @@
         "name": "main transformer incorrectly connected to mains voltage levels",
         "description": "The main transformer in the Drive module is not correctly connected to the mains voltage levels at hand.",
         "material_context": "main transformer in the Drive module",
-        "related_measurements": []
+        "related_measurements": [
+          "mains_voltage_vac",
+          "transformer_secondary_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_main_switches_switched_off",
         "name": "main switches switched off",
         "description": "The main switches are switched off during start-up troubleshooting.",
         "material_context": "main switches",
-        "related_measurements": []
+        "related_measurements": [
+          "main_switch_on",
+          "voltage_after_main_switch_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_controller_not_connected_to_mains_power_supply",
         "name": "Controller not connected to the mains power supply",
         "description": "Controller is not connected to the mains power supply.",
         "material_context": "FlexPendant/controller connection",
-        "related_measurements": []
+        "related_measurements": [
+          "mains_voltage_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_main_transformer_malfunctioning_or_not_connected_correctly",
         "name": "Main transformer malfunctioning or not connected correctly",
         "description": "Main transformer is malfunctioning or not connected correctly.",
         "material_context": "main transformer",
-        "related_measurements": []
+        "related_measurements": [
+          "transformer_primary_vac",
+          "transformer_secondary_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_main_fuse_q1_tripped",
         "name": "Main fuse (Q1) tripped",
         "description": "Main fuse (Q1) inside the Drive Module might have tripped.",
         "material_context": "main fuse (Q1) in Drive Module",
-        "related_measurements": []
+        "related_measurements": [
+          "fuse_q1_ok",
+          "voltage_before_q1_vac",
+          "voltage_after_q1_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_connection_missing_between_control_and_drive_modules",
@@ -844,91 +869,138 @@
         "name": "Programs with too fast loops overload the processor",
         "description": "Programs containing too high a degree of logical instructions only cause too fast program loops and overload the processor.",
         "material_context": "controller software execution",
-        "related_measurements": []
+        "related_measurements": [
+          "cpu_load_pct",
+          "program_cycle_time_ms",
+          "rapid_instruction_count"
+        ]
       },
       {
         "failure_mode_id": "fm_io_update_interval_too_low",
         "name": "I/O update interval set too low",
         "description": "The I/O update interval is set to a low value, causing frequent updates and a high I/O load.",
         "material_context": "I/O boards",
-        "related_measurements": []
+        "related_measurements": [
+          "io_update_interval_ms",
+          "io_bus_load_pct",
+          "cpu_load_pct"
+        ]
       },
       {
         "failure_mode_id": "fm_external_plc_addresses_system_too_frequently",
         "name": "External PLC or supervisory computer addresses the system too frequently",
         "description": "An external PLC, or other supervisory computer, is addressing the system too frequently, overloading the system.",
         "material_context": "PLC or supervisory computer communication",
-        "related_measurements": []
+        "related_measurements": [
+          "fieldbus_msg_rate",
+          "cpu_load_pct",
+          "io_bus_load_pct"
+        ]
       },
       {
         "failure_mode_id": "fm_system_not_supplied_with_power",
         "name": "Drive Module power supply failure",
         "description": "If the power supply incoming voltage is correct (230 VAC) but the LEDs still do not work, the Drive Module power supply must be replaced.",
         "material_context": "Drive Module power supply",
-        "related_measurements": []
+        "related_measurements": [
+          "drive_module_x1_input_vac",
+          "drive_module_psu_output_vdc",
+          "drive_module_led_ok"
+        ]
       },
       {
         "failure_mode_id": "fm_main_transformer_not_connected_for_correct_mains_voltage",
         "name": "Main transformer not connected for the correct mains voltage",
         "description": "The main transformer is not connected for the correct mains voltage.",
         "material_context": "main transformer",
-        "related_measurements": []
+        "related_measurements": [
+          "mains_voltage_vac",
+          "transformer_secondary_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_circuit_breaker_f6_malfunctioning_or_open",
         "name": "Circuit breaker F6 malfunctioning or open",
         "description": "Circuit breaker F6 (if used) is malfunctioning or open for any other reason.",
         "material_context": "circuit breaker F6",
-        "related_measurements": []
+        "related_measurements": [
+          "voltage_before_f6_vac",
+          "voltage_after_f6_vac",
+          "breaker_f6_ok"
+        ]
       },
       {
         "failure_mode_id": "fm_contactor_k41_malfunctioning_or_open",
         "name": "Contactor K41 malfunctioning or open",
         "description": "Contactor K41 is malfunctioning or open for any other reason.",
         "material_context": "contactor K41",
-        "related_measurements": []
+        "related_measurements": [
+          "contactor_k41_coil_vdc",
+          "contactor_k41_resistance_ohm",
+          "contactor_k41_contact_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_tripped_circuit_breaker_f5",
         "name": "Tripped circuit breaker (F5)",
         "description": "Circuit breaker F5 has tripped.",
         "material_context": "Control Module service outlet protection",
-        "related_measurements": []
+        "related_measurements": [
+          "breaker_f5_ok",
+          "service_outlet_current_a",
+          "service_outlet_voltage_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_tripped_earth_fault_protection_f4",
         "name": "Tripped earth fault protection (F4)",
         "description": "Earth fault protection F4 has tripped.",
         "material_context": "service outlet earth fault protection",
-        "related_measurements": []
+        "related_measurements": [
+          "earth_fault_current_ma",
+          "earth_fault_f4_ok"
+        ]
       },
       {
         "failure_mode_id": "fm_mains_power_supply_loss",
         "name": "Mains power supply loss",
         "description": "Mains power supply is lost.",
         "material_context": "controller mains supply",
-        "related_measurements": []
+        "related_measurements": [
+          "mains_voltage_vac",
+          "mains_phase_ok",
+          "mains_frequency_hz"
+        ]
       },
       {
         "failure_mode_id": "fm_transformers_incorrectly_connected",
         "name": "Transformers incorrectly connected",
         "description": "Transformers are incorrectly connected.",
         "material_context": "service outlet transformer supply",
-        "related_measurements": []
+        "related_measurements": [
+          "transformer_primary_vac",
+          "transformer_secondary_vac"
+        ]
       },
       {
         "failure_mode_id": "fm_system_not_switched_on",
         "name": "System not switched on",
         "description": "The system has not been switched on.",
         "material_context": "controller system state",
-        "related_measurements": []
+        "related_measurements": [
+          "main_switch_on",
+          "system_power_led_ok"
+        ]
       },
       {
         "failure_mode_id": "fm_flexpendant_not_connected_to_controller",
         "name": "FlexPendant not connected to the controller",
         "description": "The FlexPendant is not connected to the controller.",
         "material_context": "FlexPendant connection",
-        "related_measurements": []
+        "related_measurements": [
+          "flexpendant_connected",
+          "flexpendant_power_led_ok"
+        ]
       },
       {
         "failure_mode_id": "fm_flexpendant_cable_damaged",
@@ -949,28 +1021,43 @@
         "name": "FlexPendant power supply from controller faulty",
         "description": "FlexPendant power supply from controller is faulty.",
         "material_context": "FlexPendant power supply from controller",
-        "related_measurements": []
+        "related_measurements": [
+          "flexpendant_supply_vdc",
+          "flexpendant_current_a"
+        ]
       },
       {
         "failure_mode_id": "fm_ethernet_network_has_problems",
         "name": "Ethernet network has problems",
         "description": "The Ethernet network has problems.",
         "material_context": "Ethernet network",
-        "related_measurements": []
+        "related_measurements": [
+          "ethernet_link_ok",
+          "ethernet_axc_led_ok",
+          "ethernet_ping_ms",
+          "ethernet_packet_loss_pct"
+        ]
       },
       {
         "failure_mode_id": "fm_main_computer_has_problems",
         "name": "Main computer has problems",
         "description": "The main computer has problems.",
         "material_context": "main computer",
-        "related_measurements": []
+        "related_measurements": [
+          "main_computer_supply_vdc",
+          "cpu_led_ok",
+          "event_log_error_count"
+        ]
       },
       {
         "failure_mode_id": "fm_internal_manipulator_cabling_not_correctly_performed",
         "name": "Internal manipulator cabling not correctly performed",
         "description": "Internal manipulator cabling not correctly performed. Causes may be: faulty connection of connectors, cable loops too tight causing the cabling to get strained during manipulator movements, cable insulation chafed or damaged by rubbing short-circuiting signals to earth.",
         "material_context": "internal manipulator cabling",
-        "related_measurements": []
+        "related_measurements": [
+          "cable_insulation_resistance_mohm",
+          "event_log_error_count"
+        ]
       },
       {
         "failure_mode_id": "fm_joystick_malfunctioning",
@@ -988,38 +1075,54 @@
       },
       {
         "failure_mode_id": "fm_robot_not_calibrated_correctly",
-        "name": "Robot TCP not correctly defined",
-        "description": "Robot is not calibrated correctly.",
+        "name": "Robot not calibrated correctly",
+        "description": "Robot is not calibrated correctly. Revolution counters may be off or axes positions incorrect.",
         "material_context": "Robot TCP definition",
-        "related_measurements": []
+        "related_measurements": [
+          "axis_calib_position_deg",
+          "tcp_position_error_mm"
+        ]
       },
       {
         "failure_mode_id": "fm_robot_tcp_not_correctly_defined",
         "name": "Robot TCP not correctly defined",
         "description": "Robot TCP is not correctly defined.",
         "material_context": "robot TCP definition",
-        "related_measurements": []
+        "related_measurements": [
+          "tcp_position_error_mm",
+          "tcp_orientation_error_deg",
+          "tool_load_kg"
+        ]
       },
       {
         "failure_mode_id": "fm_parallel_bar_damaged",
         "name": "Parallel bar damaged",
         "description": "Parallel bar is damaged.",
         "material_context": "parallel bar",
-        "related_measurements": []
+        "related_measurements": [
+          "parallel_bar_deviation_mm"
+        ]
       },
       {
         "failure_mode_id": "fm_mechanical_joint_between_motor_and_gearbox_damaged",
         "name": "Mechanical joint between motor and gearbox damaged",
         "description": "Mechanical joint between motor and gearbox is damaged.",
         "material_context": "motor and gearbox joint",
-        "related_measurements": []
+        "related_measurements": [
+          "joint_backlash_arcmin",
+          "vibration_rms_mm_s"
+        ]
       },
       {
         "failure_mode_id": "fm_bearings_damaged_or_worn",
         "name": "Bearings damaged or worn",
         "description": "Bearings are damaged or worn.",
         "material_context": "Motors, gearboxes, bearings",
-        "related_measurements": []
+        "related_measurements": [
+          "vibration_rms_mm_s",
+          "acoustic_noise_db",
+          "bearing_temp_c"
+        ]
       },
       {
         "failure_mode_id": "fm_wrong_robot_type_connected_to_controller",
@@ -1033,42 +1136,62 @@
         "name": "Leaking seal between gearbox and motor",
         "description": "Seal between gearbox and motor is leaking.",
         "material_context": "seal between gearbox and motor",
-        "related_measurements": []
+        "related_measurements": [
+          "gearbox_oil_level_mm",
+          "oil_stain_area_cm2"
+        ]
       },
       {
         "failure_mode_id": "fm_gearbox_overfilled_with_oil",
         "name": "Gearbox overfilled with oil",
         "description": "Gearbox is overfilled with oil.",
         "material_context": "Gearbox oil fill",
-        "related_measurements": []
+        "related_measurements": [
+          "gearbox_oil_level_mm"
+        ]
       },
       {
         "failure_mode_id": "fm_gearbox_oil_too_hot",
         "name": "Gearbox oil too hot",
         "description": "Gearbox oil is too hot.",
         "material_context": "gearbox oil",
-        "related_measurements": []
+        "related_measurements": [
+          "gearbox_oil_temp_c",
+          "gearbox_surface_temp_c",
+          "ambient_temp_c"
+        ]
       },
       {
         "failure_mode_id": "fm_loose_connections_or_dry_joints",
         "name": "loose connections or dry joints",
         "description": "Intermittent errors may be due to loose connections or dry joints, for example incorrectly connected cable screen connections.",
         "material_context": "Robot system cabling and joints",
-        "related_measurements": []
+        "related_measurements": [
+          "connector_torque_nm",
+          "joint_contact_resistance_ohm",
+          "intermittent_error_rate"
+        ]
       },
       {
         "failure_mode_id": "fm_wrong_input_voltage_to_cabinet",
         "name": "incorrect cabinet input voltage",
         "description": "The input voltage to the cabinet may be incorrect for that particular cabinet.",
         "material_context": "cabinet power input",
-        "related_measurements": []
+        "related_measurements": [
+          "cabinet_input_voltage_vac",
+          "cabinet_rated_voltage_vac",
+          "voltage_deviation_pct"
+        ]
       },
       {
         "failure_mode_id": "fm_usb_communication_error",
         "name": "DSQC 662 USB communication fault",
         "description": "A pulsing green Status LED on DSQC 662 indicates a USB communication error has occurred.",
         "material_context": "USB connection between power supply and computer",
-        "related_measurements": []
+        "related_measurements": [
+          "usb_connected",
+          "dsqc662_status_led"
+        ]
       },
       {
         "failure_mode_id": "fm_low_input_output_voltage_or_acok_n_high",
@@ -1076,159 +1199,270 @@
         "description": "A red Status LED on DSQC 662 indicates the input/output voltage is low and/or the logic signal ACOK_N is high.",
         "material_context": "DSQC 662 input, output, and ACOK_N signal",
         "related_measurements": [
-          "24 < U < 27V",
-          "ACOK_N should be 0V"
+          "dsqc662_input_vdc",
+          "acok_n_signal_vdc"
         ]
       },
       {
         "failure_mode_id": "FM-012",
         "name": "Excessive logical instructions causing fast program loops",
         "description": "Programs containing too high a degree of logical instructions only, causing too fast program loops and in turn, overloads the processor.",
-        "material_context": "Controller computer system"
+        "material_context": "Controller computer system",
+        "related_measurements": [
+          "cpu_load_pct",
+          "program_cycle_time_ms",
+          "rapid_instruction_count"
+        ]
       },
       {
         "failure_mode_id": "FM-014",
         "name": "Excessive internal cross connections and logical functions",
         "description": "Internal system cross connections and logical functions are used too frequently.",
-        "material_context": "Internal system"
+        "material_context": "Internal system",
+        "related_measurements": [
+          "cpu_load_pct",
+          "io_bus_load_pct",
+          "cross_connection_count"
+        ]
       },
       {
         "failure_mode_id": "FM-024",
         "name": "No power supplied to system",
         "description": "The system is not supplied with power.",
-        "material_context": "Controller power supply"
+        "material_context": "Controller power supply",
+        "related_measurements": [
+          "mains_voltage_vac",
+          "control_module_supply_vdc",
+          "drive_module_supply_vdc",
+          "system_power_led_ok"
+        ]
       },
       {
         "failure_mode_id": "FM-045",
         "name": "Hardware and software incompatibility",
         "description": "This fault usually occurs due to a lack of compatibility between hardware and software.",
-        "material_context": "Hardware/software combination during firmware reflashing"
+        "material_context": "Hardware/software combination during firmware reflashing",
+        "related_measurements": []
       },
       {
         "failure_mode_id": "FM-051",
         "name": "Brakes not releasing correctly",
         "description": "The brakes may not be releasing correctly.",
-        "material_context": "Robot brakes"
+        "material_context": "Robot brakes",
+        "related_measurements": [
+          "brake_release_voltage_vdc",
+          "brake_coil_current_a",
+          "brake_release_ok"
+        ]
       },
       {
         "failure_mode_id": "FM-055",
         "name": "Contamination in bearing races",
         "description": "Contaminations have entered the bearing races.",
-        "material_context": "Bearings"
+        "material_context": "Bearings",
+        "related_measurements": [
+          "vibration_rms_mm_s",
+          "acoustic_noise_db",
+          "bearing_temp_c"
+        ]
       },
       {
         "failure_mode_id": "FM-056",
         "name": "Loss of lubrication in bearings",
         "description": "Loss of lubrication in bearings.",
-        "material_context": "Bearings"
+        "material_context": "Bearings",
+        "related_measurements": [
+          "vibration_rms_mm_s",
+          "acoustic_noise_db",
+          "bearing_grease_interval_h"
+        ]
       },
       {
         "failure_mode_id": "FM-057",
         "name": "Overheating in gearbox",
-        "description": "Overheating.",
-        "material_context": "Gearbox"
+        "description": "Gearbox is overheating during operation.",
+        "material_context": "Gearbox",
+        "related_measurements": [
+          "gearbox_surface_temp_c",
+          "gearbox_oil_temp_c",
+          "ambient_temp_c",
+          "duty_cycle_pct"
+        ]
       },
       {
         "failure_mode_id": "FM-059",
         "name": "Faulty brake",
         "description": "The holding brake, integral to each motor, is not able to hold the weight of the manipulator arm.",
-        "material_context": "Manipulator motor holding brake"
+        "material_context": "Manipulator motor holding brake",
+        "related_measurements": [
+          "brake_holding_torque_nm",
+          "brake_coil_resistance_ohm",
+          "axis_drop_motors_off_mm"
+        ]
       },
       {
         "failure_mode_id": "FM-060",
         "name": "External interference in robot system",
         "description": "External interference may cause intermittent errors anywhere in the robot system.",
-        "material_context": "Robot system"
+        "material_context": "Robot system",
+        "related_measurements": [
+          "emi_level_dbuvm",
+          "intermittent_error_rate"
+        ]
       },
       {
         "failure_mode_id": "FM-062",
         "name": "Thermal phenomena",
         "description": "Thermal phenomena, for example major temperature changes within the workshop area.",
-        "material_context": "Workshop area / robot system environment"
+        "material_context": "Workshop area / robot system environment",
+        "related_measurements": [
+          "ambient_temp_c",
+          "temp_variation_rate_c_h",
+          "cabinet_ambient_temp_c"
+        ]
       },
       {
         "failure_mode_id": "FM-063",
         "name": "Faulty or missing DC output connections",
         "description": "DC outputs are not connected to proper units, or connections are faulty.",
-        "material_context": "DSQC 604 power supply DC outputs and connected units"
+        "material_context": "DSQC 604 power supply DC outputs and connected units",
+        "related_measurements": [
+          "dsqc604_output_vdc",
+          "dsqc604_output_current_a"
+        ]
       },
       {
         "failure_mode_id": "FM-064",
-        "name": "Short circuit on DSQC 661 output",
+        "name": "Short circuit on DSQC 604 DC output",
         "description": "Short circuit is present on a DC output on DSQC 604.",
-        "material_context": "DSQC 604 DC outputs"
+        "material_context": "DSQC 604 DC outputs",
+        "related_measurements": [
+          "dsqc604_output_vdc",
+          "dsqc604_output_current_a",
+          "load_insulation_resistance_mohm"
+        ]
       },
       {
         "failure_mode_id": "FM-065",
-        "name": "Faulty DSQC 604 power supply",
+        "name": "Faulty DC output connection on DSQC 661 or missing DSQC 662 connection",
         "description": "Connection between DSQC 661 DC output and connected unit is faulty or the power supply is not connected to DSQC 662.",
-        "material_context": "DSQC 661 power supply unit and DSQC 662 connection"
+        "material_context": "DSQC 661 power supply unit and DSQC 662 connection",
+        "related_measurements": [
+          "dsqc661_output_vdc",
+          "dsqc662_connected"
+        ]
       },
       {
         "failure_mode_id": "FM-066",
         "name": "Insufficient input voltage to DSQC 604",
         "description": "DSQC 604 does not have sufficient input voltage.",
-        "material_context": "DSQC 661 power supply unit"
+        "material_context": "DSQC 661 power supply unit",
+        "related_measurements": [
+          "dsqc604_input_vac",
+          "dsqc604_dcok_led_ok",
+          "switch_q12_closed"
+        ]
       },
       {
         "failure_mode_id": "FM-067",
         "name": "Short circuit on DSQC 662",
         "description": "Short circuit is found on DSQC 662 input.",
-        "material_context": "DSQC 662 input"
+        "material_context": "DSQC 662 input",
+        "related_measurements": [
+          "dsqc662_input_vdc",
+          "dsqc662_status_led"
+        ]
       },
       {
         "failure_mode_id": "FM-068",
         "name": "USB connection problem on DSQC 662",
         "description": "Problem with USB connection.",
-        "material_context": "DSQC 662"
+        "material_context": "DSQC 662",
+        "related_measurements": [
+          "usb_connected",
+          "dsqc662_status_led"
+        ]
       },
       {
         "failure_mode_id": "FM-069",
         "name": "Firmware upgrade error on DSQC 662",
         "description": "Firmware upgrade error on DSQC 662.",
-        "material_context": "DSQC 662"
+        "material_context": "DSQC 662",
+        "related_measurements": [
+          "dsqc662_status_led"
+        ]
       },
       {
         "failure_mode_id": "FM-071",
         "name": "Switches Q1-2 open",
         "description": "Switches Q1-2 are open.",
-        "material_context": "Cabinet power supply switches Q1-2"
+        "material_context": "Cabinet power supply switches Q1-2",
+        "related_measurements": [
+          "switch_q12_closed",
+          "voltage_after_q12_vac"
+        ]
       },
       {
         "failure_mode_id": "FM-072",
-        "name": "Fuse F2 or F6 closed",
-        "description": "Main fuse F2 or optional fuse F6 is closed.",
-        "material_context": "Cabinet fuses F2/F6"
+        "name": "Fuse F2 or F6 open (blown)",
+        "description": "Main fuse F2 or optional fuse F6 is open (blown).",
+        "material_context": "Cabinet fuses F2/F6",
+        "related_measurements": [
+          "fuse_f2_ok",
+          "fuse_f6_ok",
+          "voltage_before_fuse_vac"
+        ]
       },
       {
         "failure_mode_id": "FM-074",
         "name": "Faulty or unconnected cabling",
         "description": "Cabling is unconnected or faulty.",
-        "material_context": "Cabinet cabling"
+        "material_context": "Cabinet cabling",
+        "related_measurements": [
+          "cable_insulation_resistance_mohm"
+        ]
       },
       {
         "failure_mode_id": "FM-075",
         "name": "Transformer T1 or input filter malfunction",
         "description": "Problem is likely to be the transformer T1 or the input filter.",
-        "material_context": "Power supply transformer T1 or input filter"
+        "material_context": "Power supply transformer T1 or input filter",
+        "related_measurements": [
+          "transformer_t1_primary_vac",
+          "transformer_t1_secondary_vac",
+          "input_filter_output_vac"
+        ]
       },
       {
         "failure_mode_id": "FM-076",
         "name": "Output connection fault on DSQC 661",
         "description": "Connections not ok on output connection.",
-        "material_context": "DSQC 661"
+        "material_context": "DSQC 661",
+        "related_measurements": [
+          "dsqc661_dcok_led_ok"
+        ]
       },
       {
         "failure_mode_id": "FM-079",
         "name": "Open fuses F2 (F6)",
         "description": "Fuses F2 (F6) open.",
-        "material_context": "DSQC 661"
+        "material_context": "DSQC 661",
+        "related_measurements": [
+          "fuse_f2_ok",
+          "fuse_f6_ok",
+          "voltage_before_fuse_vac"
+        ]
       },
       {
         "failure_mode_id": "FM-081",
         "name": "Transformer T1 or filter probable dysfunction",
         "description": "Probable cause of dysfunction: transformer T1 or filter.",
-        "material_context": "DSQC 661"
+        "material_context": "DSQC 661",
+        "related_measurements": [
+          "transformer_t1_secondary_vac",
+          "input_filter_output_vac",
+          "dsqc661_input_vac"
+        ]
       }
     ],
     "CorrectiveAction": [
@@ -5511,6 +5745,168 @@
       "type": "AFFECTS",
       "from_id": "FM-074",
       "to_id": "comp_cabling",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-012",
+      "to_id": "comp_controller",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-014",
+      "to_id": "comp_controller",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-024",
+      "to_id": "comp_control_module",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-024",
+      "to_id": "comp_drive_module",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-045",
+      "to_id": "comp_firmware",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-051",
+      "to_id": "comp_robot_brake",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-057",
+      "to_id": "comp_gearbox",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-059",
+      "to_id": "comp_robot_brake",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-060",
+      "to_id": "comp_cabling",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-062",
+      "to_id": "comp_controller",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-063",
+      "to_id": "comp_dsqc_604",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-065",
+      "to_id": "comp_dsqc_661",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-065",
+      "to_id": "comp_dsqc_662",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-066",
+      "to_id": "comp_dsqc_604",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-067",
+      "to_id": "comp_dsqc_662",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-068",
+      "to_id": "comp_usb_connection",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-069",
+      "to_id": "comp_dsqc_662",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-071",
+      "to_id": "comp_switches_q1_2",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-072",
+      "to_id": "comp_main_fuse_f2",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-072",
+      "to_id": "comp_optional_fuse_f6",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-075",
+      "to_id": "comp_transformer_t1",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-075",
+      "to_id": "comp_input_filter",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-076",
+      "to_id": "comp_dsqc_661",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-079",
+      "to_id": "comp_main_fuse_f2",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-079",
+      "to_id": "comp_optional_fuse_f6",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-081",
+      "to_id": "comp_transformer_t1",
+      "evidence": []
+    },
+    {
+      "type": "AFFECTS",
+      "from_id": "FM-081",
+      "to_id": "comp_input_filter",
       "evidence": []
     }
   ]

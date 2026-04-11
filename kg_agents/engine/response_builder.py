@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from kg_agents.config import OPENAI_CHAT_MODEL
@@ -7,8 +8,23 @@ from kg_agents.config import OPENAI_CHAT_MODEL
 from .ontology_loader import get_product_metadata
 
 
+_PAGE_REF_RE = re.compile(r"\b(\d+)\b")
+
+
 def _meta(product_meta: dict[str, Any] | None = None) -> dict[str, Any]:
     return product_meta or get_product_metadata()
+
+
+def _manual_page_reference(source_reference: str) -> str | None:
+    stripped = (source_reference or "").strip()
+    if not stripped or stripped.startswith("http"):
+        return None
+    if stripped.isdigit():
+        return stripped
+    match = _PAGE_REF_RE.search(stripped)
+    if match:
+        return match.group(1)
+    return None
 
 
 def out_of_domain_response(product_meta: dict[str, Any] | None = None) -> str:
@@ -89,7 +105,11 @@ def _render_answer(grouped: list[dict[str, Any]]) -> str:
                 if src_ref and src_ref.startswith("http"):
                     lines.append(f"   **Source:** [{src_title}]({src_ref})")
                 elif src_ref:
-                    lines.append(f"   **Source:** [MANUAL:{src_title}:{src_ref}]")
+                    page_ref = _manual_page_reference(src_ref)
+                    if page_ref:
+                        lines.append(f"   **Source:** [MANUAL:{src_title}:{page_ref}]")
+                    else:
+                        lines.append(f"   **Source:** {src_title} ({src_ref})")
                 else:
                     lines.append(f"   **Source:** {src_title}")
                 last_source = (src_title, src_ref)

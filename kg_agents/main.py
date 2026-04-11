@@ -66,6 +66,26 @@ async def serve_dev_ui():
 
 
 if __name__ == "__main__":
+    import os
+    import signal
+    import subprocess
     import uvicorn
+
+    # Kill any process already listening on the port before starting
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f"tcp:{AGENT_PORT}"],
+            capture_output=True, text=True
+        )
+        pids = result.stdout.strip().split()
+        for pid in pids:
+            if pid:
+                os.kill(int(pid), signal.SIGKILL)
+                print(f"Killed existing process on port {AGENT_PORT} (PID {pid})")
+        if pids:
+            import time
+            time.sleep(1)
+    except Exception:
+        pass
 
     uvicorn.run("kg_agents.main:app", host="0.0.0.0", port=AGENT_PORT, reload=True)
