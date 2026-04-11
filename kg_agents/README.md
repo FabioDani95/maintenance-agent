@@ -17,6 +17,7 @@ API docs:
 
 - `http://localhost:8030/docs`
 - `http://localhost:8030/redoc`
+- `http://localhost:8030/dev-ui`
 
 ## Environment Variables
 
@@ -30,11 +31,12 @@ AGENT_PORT=8030          # optional, defaults to 8030
 Notes:
 
 - `OPENAI_API_KEY` is required because query matching uses OpenAI embeddings.
-- Neo4j is not used by the current implementation. Persistence is file-based under `data/`.
+- Neo4j is not used by the current implementation. Persistence is file-based under the repository root `data/`.
 
 ## What This Service Does
 
 - exposes versioned APIs under `/v1/kg-agents/*`
+- serves a local dev UI from the same FastAPI process at `/dev-ui`
 - manages agent definitions and per-agent ontology instances
 - runs troubleshooting chat for a specific instance
 - returns graph payloads for visualization
@@ -48,6 +50,8 @@ kg_agents/
   main.py              # FastAPI app entry point, CORS, static files, lifespan seeding
   config.py            # Environment variables, paths, model thresholds
   models.py            # Pydantic models (Agent, Instance, DeviceLink, Chat, Graph, etc.)
+  engine/              # Shared troubleshooting engine (retrieval, traversal, response building, telemetry)
+  dev_ui/              # Local development UI served by FastAPI
   routers/
     agents.py          # CRUD for agents
     instances.py       # CRUD for ontology instances
@@ -59,16 +63,16 @@ kg_agents/
     instance_store.py  # Per-instance directory management, device links, seeding, schema validation
 ```
 
-The service reuses the troubleshooting engine from `troubleshooting_agent/` at runtime:
+The shared troubleshooting engine now lives inside `kg_agents/engine/`:
 
-- ontology loading
-- symptom embedding lookup
+- ontology loading and indexing
+- query embedding generation
 - similarity scoring
 - graph traversal
 - deterministic response formatting
 - telemetry payload building
 
-`kg_agents/main.py` also mounts static assets from `troubleshooting_agent/` and serves a legacy HTML shell at `/`, but the supported integration contract is the versioned REST API.
+`troubleshooting_agent/` remains in the repository as a legacy compatibility layer. The supported integration contract is still the versioned REST API under `/v1/kg-agents/*`.
 
 ## Data Layout
 
@@ -160,6 +164,19 @@ Node and relationship counts for the default instance follow the checked-in root
 | POST | `/v1/kg-agents/instances/{instance_id}/devices/{device_id}/measurement-mappings` | Save measurement mappings for a device |
 | GET | `/v1/kg-agents/instances/{instance_id}/failure-modes-measurements` | List failure modes that expose `related_measurements` |
 
+## Local Development UI
+
+`kg_agents` serves a lightweight development UI at `/dev-ui`. It is intended for local testing of the same API contract consumed by the external frontend.
+
+Characteristics:
+
+- uses the versioned instance-scoped routes under `/v1/kg-agents/*`
+- runs against the same seeded or user-created instances exposed by the API
+- does not require running the external frontend repository
+- supports chat, next-issue navigation, graph highlighting, manuals, and telemetry
+
+The root path `/` redirects to `/dev-ui` for convenience.
+
 ## Chat Pipeline
 
 ```text
@@ -180,6 +197,7 @@ Current behavior:
 - domain relevance is deterministic
 - response formatting is deterministic
 - returned facts come from the ontology and linked telemetry/manual metadata
+- telemetry is resolved per instance when a telemetry CSV is present under `data/instances/<instance_id>/telemetry/`
 
 ## Ontology Expectations
 

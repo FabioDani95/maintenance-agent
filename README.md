@@ -6,8 +6,9 @@ In this branch, the primary application is `kg_agents/`: a FastAPI backend that 
 
 `troubleshooting_agent/` is still kept in the repo because:
 
-- it contains the domain logic reused by `kg_agents`
-- it contains the legacy standalone UI and local single-instance app, useful to inspect the troubleshooting flow while working in this repository
+- it contains the legacy Flask compatibility app
+- it still holds legacy assets such as manuals and the old standalone UI shell
+- its engine-facing Python modules now act as compatibility wrappers around `kg_agents/engine`
 
 The old ontology editor under `modify/` has been removed from this branch.
 
@@ -18,8 +19,10 @@ maintenance-agent/
 ├── data/                     # JSON persistence for kg_agents
 ├── device/                   # auxiliary assets / experiments
 ├── kg_agents/                # primary FastAPI application for this branch
+│   ├── engine/               # shared troubleshooting engine used by the API
+│   └── dev_ui/               # local development UI served by FastAPI
 ├── scripts/                  # support scripts
-├── troubleshooting_agent/    # shared troubleshooting engine + legacy Flask UI
+├── troubleshooting_agent/    # legacy Flask compatibility layer
 ├── ontology.json             # default seeded ontology instance
 ├── ontology_schema.JSON      # default ontology schema
 ├── sources.csv               # source material used to build the ontology
@@ -43,9 +46,10 @@ What it does:
 Main characteristics:
 
 - FastAPI app with Swagger at `/docs` and ReDoc at `/redoc`
+- local development UI served by the same backend at `/dev-ui` with `/` redirecting there
 - persistence on local JSON files under `data/`
 - chat pipeline based on symptom embeddings, graph traversal, and deterministic grounded responses
-- reuses the troubleshooting modules from `troubleshooting_agent/`
+- shared troubleshooting engine lives in `kg_agents/engine`
 
 Run it with:
 
@@ -59,7 +63,7 @@ Full API and architecture details: [kg_agents/README.md](/Users/fabio.daniele/Co
 
 ## Secondary Application: `troubleshooting_agent`
 
-`troubleshooting_agent` is the older single-instance Flask app. It is not the main integration target for this branch, but it remains useful for local inspection because it ships the standalone UI, graph view, PDF manual overlay, and telemetry panel.
+`troubleshooting_agent` is the older single-instance Flask app. It is no longer the recommended local run path because the same repository now exposes the dev UI from `kg_agents` itself.
 
 Run it with:
 
@@ -100,3 +104,4 @@ The repository root still contains the default seed ontology and schema used to 
 - `OPENAI_API_KEY` is required to generate query embeddings.
 - If you change `Symptom` nodes, regenerate embeddings before using the updated instance.
 - The versioned API under `/v1/kg-agents/*` is the contract to consume from other applications.
+- The preferred local workflow is a single process: start `kg_agents`, use `/docs` for the API and `/dev-ui` to test the same instance-scoped routes the external frontend consumes.

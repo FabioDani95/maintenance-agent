@@ -1,11 +1,14 @@
 # Troubleshooting Agent
 
-Standalone Flask troubleshooting app for a single ontology instance.
+Legacy Flask troubleshooting app for a single ontology instance.
 
-In this branch it is no longer the main backend surface. The primary application is `kg_agents/`, but this folder is still important because it provides:
+In this branch it is no longer the main backend surface. The primary application is `kg_agents/`, which now also serves the local development UI from the same FastAPI process.
 
-- the shared troubleshooting engine reused by `kg_agents`
-- the local standalone UI used to inspect chat, graph highlighting, manuals, and telemetry while developing in this repository
+This folder is still important because it provides:
+
+- a compatibility Flask app for older local flows
+- legacy UI assets and manuals
+- compatibility wrappers that forward engine imports to `kg_agents/engine`
 
 ## What Is Here
 
@@ -15,19 +18,32 @@ troubleshooting_agent/
   app_factory.py           # Flask app factory
   frontend_routes.py       # route for the HTML UI
   api_routes.py            # unversioned JSON endpoints
-  ontology_loader.py       # ontology parsing and indexing
-  embeddings.py            # symptom embedding generation and query embedding
-  similarity.py            # cosine similarity ranking
-  graph_traversal.py       # graph traversal for troubleshooting paths
+  ontology_loader.py       # compatibility wrapper to kg_agents.engine
+  embeddings.py            # compatibility wrapper to kg_agents.engine
+  similarity.py            # compatibility wrapper to kg_agents.engine
+  graph_traversal.py       # compatibility wrapper to kg_agents.engine
   orchestrator.py          # multi-turn session handling
-  response_builder.py      # deterministic grounded response formatting
-  telemetry_loader.py      # CSV telemetry loading and stats
+  response_builder.py      # compatibility wrapper to kg_agents.engine
+  telemetry_loader.py      # compatibility wrapper to kg_agents.engine
   templates/index.html     # UI shell
   static/css/app.css       # UI styles
   static/js/app.js         # UI behavior
 ```
 
-## Quick Start
+## Recommended Local Flow
+
+Use `kg_agents` for day-to-day development:
+
+```bash
+python3 -m kg_agents.main
+```
+
+Then open:
+
+- `http://localhost:8030/docs`
+- `http://localhost:8030/dev-ui`
+
+## Legacy Quick Start
 
 ```bash
 python3 troubleshooting_agent/agent.py
@@ -65,7 +81,9 @@ These are the standalone Flask endpoints used by the legacy UI:
 
 ## Relationship With `kg_agents`
 
-`kg_agents` imports these modules at runtime and reuses them per instance:
+The actual shared troubleshooting engine now lives in `kg_agents/engine/`.
+
+This folder keeps thin compatibility wrappers for:
 
 - ontology loading
 - query embeddings
@@ -74,10 +92,12 @@ These are the standalone Flask endpoints used by the legacy UI:
 - response formatting
 - telemetry payload assembly
 
-That means changes in this folder can affect both:
+That means runtime logic changes should now be made in `kg_agents/engine/`, not here.
+
+Changes in this folder mainly affect:
 
 - the standalone Flask app
-- the FastAPI APIs in `kg_agents`
+- legacy compatibility behavior
 
 ## Data Assumptions
 
@@ -102,4 +122,5 @@ python3 troubleshooting_agent/embeddings.py
 ## Current Role In This Branch
 
 - use `kg_agents` when you need the supported API surface
-- use `troubleshooting_agent` when you want to inspect the local UI or debug the shared troubleshooting engine directly
+- use the dev UI under `kg_agents` when you want to inspect chat, graph highlighting, manuals, and telemetry against the real versioned API
+- use `troubleshooting_agent` only when you explicitly need the old Flask compatibility flow
