@@ -1,11 +1,13 @@
-# Esclude: .env, data/, __pycache__, .venv/
+# Esclude: .env, __pycache__, .venv/
 
 # Variabili d'ambiente segrete
 .env
 .env.*
 
-# Dati locali (PDF, cropped, output)
-data/
+# Database runtime (locale, non versionato)
+kg_agents/data/interventions.db
+kg_agents/data/interventions.db-shm
+kg_agents/data/interventions.db-wal
 
 # Cache Python
 __pycache__/

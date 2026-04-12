@@ -1,0 +1,8 @@
+{
+  "id": "p1p-default-instance",
+  "agent_id": "maintenance-agent-default",
+  "name": "Bambu Lab P1P",
+  "description": "Troubleshooting knowledge graph for the Bambu Lab P1P 3D printer. Covers mechanical symptoms, extrusion issues, hotend/nozzle problems, motion system, maintenance, and sensors.",
+  "created_at": "2026-03-26T16:59:13.637846+00:00",
+  "updated_at": "2026-03-26T16:59:13.637850+00:00"
+}
