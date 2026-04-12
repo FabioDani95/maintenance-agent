@@ -9,7 +9,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 KG_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = KG_DIR / "data"
 LEGACY_APP_DIR = BASE_DIR / "troubleshooting_agent"
 SEED_DIR = LEGACY_APP_DIR
 ENGINE_DIR = KG_DIR / "engine"

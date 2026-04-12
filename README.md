@@ -16,9 +16,9 @@ The old ontology editor under `modify/` has been removed from this branch.
 
 ```text
 maintenance-agent/
-├── data/                     # JSON persistence for kg_agents
 ├── device/                   # auxiliary assets / experiments
 ├── kg_agents/                # primary FastAPI application for this branch
+│   ├── data/                 # JSON persistence for kg_agents (source of truth)
 │   ├── engine/               # shared troubleshooting engine used by the API
 │   └── dev_ui/               # local development UI served by FastAPI
 ├── scripts/                  # support scripts
@@ -41,13 +41,13 @@ What it does:
 - runs troubleshooting chat over a knowledge graph
 - returns graph payloads for visualization
 - stores linked devices and measurement mappings
-- seeds a default maintenance agent and a default Bambu Lab P1P instance on startup
+- seeds a default maintenance agent and a default IRC5 instance on startup (idempotent)
 
 Main characteristics:
 
 - FastAPI app with Swagger at `/docs` and ReDoc at `/redoc`
 - local development UI served by the same backend at `/dev-ui` with `/` redirecting there
-- persistence on local JSON files under `data/`
+- persistence on local JSON files under `kg_agents/data/`
 - chat pipeline based on symptom embeddings, graph traversal, and deterministic grounded responses
 - shared troubleshooting engine lives in `kg_agents/engine`
 
@@ -59,7 +59,7 @@ python3 -m kg_agents.main
 
 Default port: `8030`
 
-Full API and architecture details: [kg_agents/README.md](/Users/fabio.daniele/Coding/maintenance-agent/kg_agents/README.md)
+Full API and architecture details: [kg_agents/README.md](kg_agents/README.md)
 
 ## Secondary Application: `troubleshooting_agent`
 
@@ -73,7 +73,7 @@ python3 troubleshooting_agent/agent.py
 
 Default port: `5001`
 
-Details and local endpoints: [troubleshooting_agent/README.md](/Users/fabio.daniele/Coding/maintenance-agent/troubleshooting_agent/README.md)
+Details and local endpoints: [troubleshooting_agent/README.md](troubleshooting_agent/README.md)
 
 ## Data Model
 
@@ -89,7 +89,7 @@ and operational relationships such as:
 - `RESOLVED_BY`
 - `AFFECTS`
 
-`kg_agents` stores concrete data per instance under `data/instances/<instance_id>/`, including:
+`kg_agents` stores concrete data per instance under `kg_agents/data/instances/<instance_id>/`, including:
 
 - `meta.json`
 - `ontology.json`

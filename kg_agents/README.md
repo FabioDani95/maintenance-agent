@@ -31,7 +31,7 @@ AGENT_PORT=8030          # optional, defaults to 8030
 Notes:
 
 - `OPENAI_API_KEY` is required because query matching uses OpenAI embeddings.
-- Neo4j is not used by the current implementation. Persistence is file-based under the repository root `data/`.
+- Neo4j is not used by the current implementation. Persistence is file-based under `kg_agents/data/`.
 
 ## What This Service Does
 
@@ -41,7 +41,7 @@ Notes:
 - runs troubleshooting chat for a specific instance
 - returns graph payloads for visualization
 - stores linked devices and failure-mode measurement mappings
-- seeds a default `Maintenance Troubleshooting Agent` and a default `Bambu Lab P1P` instance on startup
+- seeds a default `Maintenance Troubleshooting Agent` and a default `IRC5` instance on startup (idempotent; skipped if already present)
 
 ## Architecture
 
@@ -77,7 +77,7 @@ The shared troubleshooting engine now lives inside `kg_agents/engine/`:
 ## Data Layout
 
 ```
-data/
+kg_agents/data/
   agents.json                          # Agent registry
   instances/
     <instance_id>/
@@ -92,7 +92,7 @@ data/
 
 ### Extraction Summaries
 
-Each time a knowledge graph is extracted from source documents, an extraction summary is stored as `data/extraction_summaries/<instance_id>.json`. It contains:
+Each time a knowledge graph is extracted from source documents, an extraction summary is stored as `kg_agents/data/extraction_summaries/<instance_id>.json`. It contains:
 
 - **context** — KG ID, version (linear: v1, v2, ...), ontology reference name, extraction timestamp
 - **extraction_performance** — status, triplets validated, automation time, estimated cost, LLM token usage
@@ -104,15 +104,15 @@ Summaries are 1:1 with instances. The `version` field supports linear versioning
 On first startup the app seeds:
 
 - agent: `maintenance-agent-default`
-- instance: `p1p-default-instance`
+- instance: `irc5-default-instance`
 
 The seeded instance is copied from the repository defaults:
 
-- root `ontology.json`
+- root `irc5_abb_robotics_V0.json` (falls back to `ontology.json` if missing)
 - `troubleshooting_agent/symptom_embeddings.json`
 - optional telemetry from `troubleshooting_agent/telemetry/`
 
-Node and relationship counts for the default instance follow the checked-in root `ontology.json`. Create additional agents and instances via `/v1/kg-agents/agents` and `/v1/kg-agents/agents/{agent_id}/instances`.
+Node and relationship counts for the default instance follow the checked-in `irc5_abb_robotics_V0.json`. Create additional agents and instances via `/v1/kg-agents/agents` and `/v1/kg-agents/agents/{agent_id}/instances`.
 
 ## API Endpoints
 
@@ -197,7 +197,7 @@ Current behavior:
 - domain relevance is deterministic
 - response formatting is deterministic
 - returned facts come from the ontology and linked telemetry/manual metadata
-- telemetry is resolved per instance when a telemetry CSV is present under `data/instances/<instance_id>/telemetry/`
+- telemetry is resolved per instance when a telemetry CSV is present under `kg_agents/data/instances/<instance_id>/telemetry/`
 
 ## Ontology Expectations
 
