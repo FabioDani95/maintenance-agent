@@ -23,9 +23,11 @@ maintenance-agent/
 │   └── dev_ui/               # local development UI served by FastAPI
 ├── scripts/                  # support scripts
 ├── troubleshooting_agent/    # legacy Flask compatibility layer
-├── ontology.json             # default seeded ontology instance
-├── ontology_schema.JSON      # default ontology schema
-├── sources.csv               # source material used to build the ontology
+├── irc5_abb_robotics_V0.json          # ABB IRC5 ontology (seeded as default instance)
+├── irc5_abb_robotics_telemetry.csv   # 7-day simulated telemetry for IRC5 (102 signals)
+├── ontology.json                      # legacy Bambu Lab P1P ontology (kept for reference)
+├── ontology_schema.JSON               # default ontology schema
+├── sources.csv                        # source material used to build the ontology
 ├── requirements.txt
 └── README.md
 ```
@@ -41,7 +43,7 @@ What it does:
 - runs troubleshooting chat over a knowledge graph
 - returns graph payloads for visualization
 - stores linked devices and measurement mappings
-- seeds a default maintenance agent and a default Bambu Lab P1P instance on startup
+- seeds a default maintenance agent and a default ABB IRC5 instance on startup
 
 Main characteristics:
 
@@ -97,7 +99,12 @@ and operational relationships such as:
 - `devices.json`
 - optional telemetry files
 
-The repository root still contains the default seed ontology and schema used to initialize the first instance.
+The repository root contains the seed ontology and telemetry used to initialise the default IRC5 instance:
+
+- `irc5_abb_robotics_V0.json` — knowledge graph for the ABB IRC5 robot controller
+- `irc5_abb_robotics_telemetry.csv` — 7-day simulated timeseries at 5-minute resolution (102 signal columns matching `related_measurements` in the ontology)
+
+The legacy `ontology.json` (Bambu Lab P1P) is kept for reference.
 
 ## Notes
 

@@ -15,6 +15,7 @@ from kg_agents.engine.graph_traversal import (
     get_troubleshooting_paths_from_error_code,
 )
 from kg_agents.engine.ontology_loader import OntologyIndex, build_product_metadata
+from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
     format_answer_single_group,
     low_confidence_response,
@@ -51,6 +52,13 @@ _product_metadata: dict[str, dict] = {}
 
 # Session store (instance_id + session_id).
 _sessions: dict[str, dict] = {}
+
+
+def evict_instance_cache(instance_id: str) -> None:
+    """Remove all in-memory caches for a given instance (ontology, embeddings, product metadata)."""
+    _ontology_indexes.pop(instance_id, None)
+    _symptom_embeddings.pop(instance_id, None)
+    _product_metadata.pop(instance_id, None)
 
 
 def _session_key(instance_id: str, session_id: str) -> str:
@@ -288,6 +296,17 @@ async def product_info(instance_id: str):
         code = ec.get("code", "")
         chips.append({"label": code, "query": code})
     return {**meta, "suggested_symptoms": chips}
+
+
+@router.post("/instances/{instance_id}/reload", include_in_schema=True)
+async def reload_instance(instance_id: str):
+    """Evict the in-memory ontology and embeddings cache for this instance so it reloads from disk."""
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    evict_instance_cache(instance_id)
+    evict_telemetry_cache(telemetry_dir=_telemetry_dir(instance_id))
+    return {"ok": True, "instance_id": instance_id}
 
 
 @router.get("/instances/{instance_id}/status", response_model=StatusResponse)

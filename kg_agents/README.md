@@ -41,7 +41,7 @@ Notes:
 - runs troubleshooting chat for a specific instance
 - returns graph payloads for visualization
 - stores linked devices and failure-mode measurement mappings
-- seeds a default `Maintenance Troubleshooting Agent` and a default `Bambu Lab P1P` instance on startup
+- seeds a default `Maintenance Troubleshooting Agent` and a default `IRC5 ABB Robotics` instance on startup
 
 ## Architecture
 
@@ -104,15 +104,37 @@ Summaries are 1:1 with instances. The `version` field supports linear versioning
 On first startup the app seeds:
 
 - agent: `maintenance-agent-default`
-- instance: `p1p-default-instance`
+- instance: `irc5-default-instance` — ABB IRC5 robot controller
 
-The seeded instance is copied from the repository defaults:
+The seeded instance is initialised from:
 
-- root `ontology.json`
-- `troubleshooting_agent/symptom_embeddings.json`
-- optional telemetry from `troubleshooting_agent/telemetry/`
+- `irc5_abb_robotics_V0.json` (root of the repo) — knowledge graph for the ABB IRC5 controller covering power supply, FlexPendant, control modules, drive modules, axis motors, gearboxes, and related maintenance diagnostics
+- `troubleshooting_agent/symptom_embeddings.json` — OpenAI embeddings for symptom matching
+- `troubleshooting_agent/telemetry/` — first `.csv` found is used as the telemetry source; for IRC5 this should be `irc5_abb_robotics_telemetry.csv`
 
-Node and relationship counts for the default instance follow the checked-in root `ontology.json`. Create additional agents and instances via `/v1/kg-agents/agents` and `/v1/kg-agents/agents/{agent_id}/instances`.
+Create additional agents and instances via `/v1/kg-agents/agents` and `/v1/kg-agents/agents/{agent_id}/instances`.
+
+## Included Ontologies
+
+### ABB IRC5 Robot Controller (`irc5_abb_robotics_V0.json`)
+
+Knowledge graph for the ABB IRC5 industrial robot controller. Built from the IRC5 Product Manual and related ABB technical documentation.
+
+Coverage:
+
+| Area | Examples |
+|------|---------|
+| Controller power & cabinet | Main power supply, power distribution unit, fans, mains filter |
+| Control modules | DSQC 639, DSQC 652, DSQC 662, DSQC 663, computer unit |
+| Drive modules | Drive unit, rectifier unit, capacitor bank, bleeder resistor |
+| FlexPendant | Display, emergency stop, joystick, cable, teach mode |
+| Axis motors & gearboxes | Motors 1–6, encoders, resolver feedback, gearbox oil |
+| Communication | DeviceNet, Profibus, fieldbus adapter, EtherNet/IP |
+| Safety | Safety controller, door interlock, collision detection, ESD |
+
+The ontology contains symptoms, failure modes with `related_measurements` (snake_case column names matching the telemetry CSV), corrective actions with manual source references, and error codes.
+
+**Telemetry**: `irc5_abb_robotics_telemetry.csv` — 7-day simulated timeseries at 5-minute resolution with 102 signal columns (temperatures, voltages, currents, vibration, load percentages, fault flags). Column names match the `related_measurements` fields in the ontology exactly.
 
 ## API Endpoints
 

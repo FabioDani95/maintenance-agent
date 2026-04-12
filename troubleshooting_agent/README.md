@@ -113,6 +113,8 @@ and relationships such as:
 - `RESOLVED_BY`
 - `AFFECTS`
 
+The default seeded ontology is the ABB IRC5 robot controller (`irc5_abb_robotics_V0.json`). The accompanying telemetry file is `irc5_abb_robotics_telemetry.csv` at the repository root.
+
 If `Symptom` nodes change, regenerate embeddings with:
 
 ```bash
