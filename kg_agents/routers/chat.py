@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from kg_agents.config import OPENAI_CHAT_MODEL
 from kg_agents.engine.domain_check import check_domain_relevance
@@ -15,6 +16,7 @@ from kg_agents.engine.graph_traversal import (
     get_troubleshooting_paths_from_error_code,
 )
 from kg_agents.engine.ontology_loader import OntologyIndex, build_product_metadata
+from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
     format_answer_single_group,
     low_confidence_response,
@@ -29,14 +31,18 @@ from kg_agents.engine.workflow import (
     group_paths_by_symptom_score,
 )
 from kg_agents.models import (
+    CurrentIssue,
     ChatRequest,
     ChatResponse,
+    OutcomeLogRequest,
+    OutcomeLogResponse,
     NextIssueRequest,
+    PathStatsResponse,
     ProductInfoResponse,
     ResetRequest,
     StatusResponse,
 )
-from kg_agents.services import instance_store
+from kg_agents.services import instance_store, intervention_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["chat"])
 
@@ -53,15 +59,132 @@ _product_metadata: dict[str, dict] = {}
 _sessions: dict[str, dict] = {}
 
 
+def evict_instance_cache(instance_id: str) -> None:
+    """Remove all in-memory caches for a given instance (ontology, embeddings, product metadata)."""
+    _ontology_indexes.pop(instance_id, None)
+    _symptom_embeddings.pop(instance_id, None)
+    _product_metadata.pop(instance_id, None)
+
+
 def _session_key(instance_id: str, session_id: str) -> str:
     return f"{instance_id}:{session_id}"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _new_session_state() -> dict[str, object]:
+    return {
+        "trace": {},
+        "ranked_issues": [],
+        "current_issue_idx": 0,
+        "current_group_paths": [],
+        "diagnosis_started_at": None,
+        "user_queries": [],
+    }
 
 
 def _get_session(instance_id: str, session_id: str) -> dict:
     key = _session_key(instance_id, session_id)
     if key not in _sessions:
-        _sessions[key] = {"trace": {}, "ranked_issues": [], "current_issue_idx": 0}
+        _sessions[key] = _new_session_state()
     return _sessions[key]
+
+
+def _begin_diagnosis(session: dict, message: str) -> None:
+    session["trace"] = {}
+    session["ranked_issues"] = []
+    session["current_issue_idx"] = 0
+    session["current_group_paths"] = []
+    session["diagnosis_started_at"] = _utc_now()
+    session["user_queries"] = [message]
+
+
+def _set_active_issue(session: dict, group_paths: list[dict], trace: dict[str, object]) -> None:
+    session["current_group_paths"] = group_paths
+    session["trace"] = trace
+
+
+def _symptom_ids_from_group(group_paths: list[dict], trace: dict[str, object]) -> list[str]:
+    trace_ids = trace.get("symptom_ids") if isinstance(trace, dict) else None
+    if isinstance(trace_ids, list) and trace_ids:
+        return [sid for sid in trace_ids if isinstance(sid, str)]
+    seen: list[str] = []
+    for path in group_paths:
+        symptom_id = path.get("symptom_id")
+        if symptom_id and symptom_id not in seen:
+            seen.append(symptom_id)
+    return seen
+
+
+def _build_current_issue(instance_id: str, group_paths: list[dict], trace: dict[str, object]) -> CurrentIssue | None:
+    if not group_paths:
+        return None
+
+    first_path = group_paths[0]
+    action_payloads: list[dict[str, object]] = []
+    path_keys: list[str] = []
+    seen_action_ids: set[str] = set()
+
+    for path in group_paths:
+        action_id = path.get("action_id", "")
+        if not action_id or action_id in seen_action_ids:
+            continue
+        seen_action_ids.add(action_id)
+        final_path = intervention_store.build_path_node_ids(path)
+        path_key = intervention_store.build_path_key(final_path)
+        path_keys.append(path_key)
+        action_payloads.append({
+            "action_id": action_id,
+            "action_name": path.get("action_name", action_id),
+            "instruction_text": path.get("instruction_text", ""),
+            "source_title": path.get("source_title", ""),
+            "source_reference": path.get("source_reference", ""),
+            "path_key": path_key,
+            "final_path": final_path,
+        })
+
+    stats_by_key = intervention_store.get_path_stats_map(instance_id, path_keys)
+    for action in action_payloads:
+        path_key = action["path_key"]
+        action["stats"] = stats_by_key.get(path_key)
+
+    return CurrentIssue(
+        failure_mode_id=first_path.get("failure_mode_id", ""),
+        failure_mode_name=first_path.get("failure_mode_name", ""),
+        component_id=first_path.get("component_id", ""),
+        component_name=first_path.get("component_name", ""),
+        symptom_ids=_symptom_ids_from_group(group_paths, trace),
+        action_options=action_payloads,
+    )
+
+
+def _build_chat_response(
+    *,
+    instance_id: str,
+    session_id: str,
+    reply: str,
+    trace: dict[str, object] | None = None,
+    group_paths: list[dict] | None = None,
+    has_more_issues: bool = False,
+    issue_number: int | None = None,
+    total_issues: int | None = None,
+    telemetry: dict[str, object] | None = None,
+) -> ChatResponse:
+    active_trace = trace or {}
+    active_group_paths = group_paths or []
+    current_issue = _build_current_issue(instance_id, active_group_paths, active_trace)
+    return ChatResponse(
+        reply=reply,
+        session_id=session_id,
+        highlight=active_trace,
+        has_more_issues=has_more_issues,
+        issue_number=issue_number,
+        total_issues=total_issues,
+        telemetry=telemetry,
+        current_issue=current_issue,
+    )
 
 
 def _load_instance_ontology(instance_id: str) -> OntologyIndex:
@@ -116,6 +239,7 @@ async def chat(instance_id: str, req: ChatRequest):
     embeddings = _load_instance_embeddings(instance_id)
     product_meta = _product_metadata.get(instance_id, {})
     session = _get_session(instance_id, session_id)
+    _begin_diagnosis(session, message)
 
     raw_code_match = _ERROR_CODE_PATTERN.search(message)
     if raw_code_match:
@@ -128,7 +252,8 @@ async def chat(instance_id: str, req: ChatRequest):
                 session["ranked_issues"] = ranked
                 session["current_issue_idx"] = 0
                 first_group = ranked[0]["paths"]
-                session["trace"] = build_trace(first_group)
+                trace = build_trace(first_group)
+                _set_active_issue(session, first_group, trace)
                 reply = format_answer_single_group(
                     first_group,
                     message,
@@ -136,17 +261,20 @@ async def chat(instance_id: str, req: ChatRequest):
                     product_meta=product_meta,
                 )
                 total = len(ranked)
-                return ChatResponse(
-                    reply=reply,
+                return _build_chat_response(
+                    instance_id=instance_id,
                     session_id=session_id,
-                    highlight=session["trace"],
+                    reply=reply,
+                    trace=trace,
+                    group_paths=first_group,
                     has_more_issues=total > 1,
                     issue_number=1,
                     total_issues=total,
                     telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
                 )
-        session["trace"] = {}
-        return ChatResponse(
+        _set_active_issue(session, [], {})
+        return _build_chat_response(
+            instance_id=instance_id,
             reply=(
                 f"I recognised the error code **{raw_code}** but I don't have specific troubleshooting "
                 "data for it yet. Could you also describe the symptom you're seeing?"
@@ -165,21 +293,24 @@ async def chat(instance_id: str, req: ChatRequest):
             product_meta=product_meta,
         )
         if relevance == "not_relevant":
-            session["trace"] = {}
-            return ChatResponse(
+            _set_active_issue(session, [], {})
+            return _build_chat_response(
+                instance_id=instance_id,
                 reply=out_of_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
         if relevance == "unclear":
-            session["trace"] = {}
-            return ChatResponse(
+            _set_active_issue(session, [], {})
+            return _build_chat_response(
+                instance_id=instance_id,
                 reply=unclear_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
 
     if not top_symptoms:
-        session["trace"] = {}
-        return ChatResponse(
+        _set_active_issue(session, [], {})
+        return _build_chat_response(
+            instance_id=instance_id,
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
@@ -187,8 +318,9 @@ async def chat(instance_id: str, req: ChatRequest):
     symptom_ids = [sid for sid, _ in top_symptoms]
     paths = get_troubleshooting_paths(symptom_ids, index)
     if not paths:
-        session["trace"] = {}
-        return ChatResponse(
+        _set_active_issue(session, [], {})
+        return _build_chat_response(
+            instance_id=instance_id,
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
@@ -197,7 +329,8 @@ async def chat(instance_id: str, req: ChatRequest):
     session["ranked_issues"] = ranked
     session["current_issue_idx"] = 0
     first_group = ranked[0]["paths"]
-    session["trace"] = build_trace(first_group, top_symptoms)
+    trace = build_trace(first_group, top_symptoms)
+    _set_active_issue(session, first_group, trace)
     total = len(ranked)
     reply = format_answer_single_group(
         first_group,
@@ -208,10 +341,12 @@ async def chat(instance_id: str, req: ChatRequest):
     if total > 1:
         reply += f"\n\n---\n*Possible cause 1 of {total}. Use \"Next\" to see the next most likely cause.*"
 
-    return ChatResponse(
-        reply=reply,
+    return _build_chat_response(
+        instance_id=instance_id,
         session_id=session_id,
-        highlight=session["trace"],
+        reply=reply,
+        trace=trace,
+        group_paths=first_group,
         has_more_issues=total > 1,
         issue_number=1,
         total_issues=total,
@@ -227,7 +362,8 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     chat_model = req.model or OPENAI_CHAT_MODEL
     session = _sessions.get(_session_key(instance_id, req.session_id))
     if not session or not session.get("ranked_issues"):
-        return ChatResponse(
+        return _build_chat_response(
+            instance_id=instance_id,
             reply="No more issues to show. Please describe a new problem.",
             session_id=req.session_id,
         )
@@ -238,14 +374,16 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     next_idx = session["current_issue_idx"] + 1
 
     if next_idx >= len(ranked):
-        return ChatResponse(
+        return _build_chat_response(
+            instance_id=instance_id,
             reply="Those were all the possible causes I found. If the problem persists, please describe it in more detail.",
             session_id=req.session_id,
         )
 
     session["current_issue_idx"] = next_idx
     group_paths = ranked[next_idx]["paths"]
-    session["trace"] = build_trace(group_paths)
+    trace = build_trace(group_paths)
+    _set_active_issue(session, group_paths, trace)
     reply = format_answer_single_group(
         group_paths,
         "",
@@ -254,10 +392,12 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     )
     total = len(ranked)
 
-    return ChatResponse(
-        reply=reply,
+    return _build_chat_response(
+        instance_id=instance_id,
         session_id=req.session_id,
-        highlight=session["trace"],
+        reply=reply,
+        trace=trace,
+        group_paths=group_paths,
         has_more_issues=next_idx + 1 < total,
         issue_number=next_idx + 1,
         total_issues=total,
@@ -270,6 +410,79 @@ async def reset_session(instance_id: str, req: ResetRequest):
     if req.session_id:
         _sessions.pop(_session_key(instance_id, req.session_id), None)
     return {"ok": True}
+
+
+@router.post("/instances/{instance_id}/log-outcome", response_model=OutcomeLogResponse)
+async def log_outcome(instance_id: str, req: OutcomeLogRequest):
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    session = _sessions.get(_session_key(instance_id, req.session_id))
+    if not session:
+        raise HTTPException(status_code=404, detail="No active diagnosis found for this session")
+
+    group_paths = session.get("current_group_paths") or []
+    trace = session.get("trace") or {}
+    current_issue = _build_current_issue(instance_id, group_paths, trace)
+    if current_issue is None or not current_issue.action_options:
+        raise HTTPException(status_code=409, detail="No active corrective actions found for this session")
+
+    selected_action_id = req.selected_action_id
+    if not selected_action_id:
+        if len(current_issue.action_options) == 1:
+            selected_action_id = current_issue.action_options[0].action_id
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail="selected_action_id is required when multiple corrective actions are available",
+            )
+
+    selected_action = next(
+        (action for action in current_issue.action_options if action.action_id == selected_action_id),
+        None,
+    )
+    if selected_action is None:
+        raise HTTPException(status_code=422, detail="selected_action_id is not valid for the active diagnosis")
+
+    try:
+        intervention, stats = intervention_store.record_outcome(
+            instance_id=instance_id,
+            session_id=req.session_id,
+            started_at=session.get("diagnosis_started_at"),
+            symptom_ids=current_issue.symptom_ids,
+            final_failure_mode_id=current_issue.failure_mode_id,
+            final_path=selected_action.final_path,
+            selected_action_id=selected_action.action_id,
+            outcome=req.outcome,
+            user_queries=session.get("user_queries", []),
+            user_feedback=req.user_feedback.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return OutcomeLogResponse(intervention=intervention, stats=stats)
+
+
+@router.get("/instances/{instance_id}/path-stats", response_model=PathStatsResponse)
+async def path_stats(
+    instance_id: str,
+    path_key: str | None = None,
+    final_failure_mode_id: str | None = None,
+    selected_action_id: str | None = None,
+    limit: int = Query(default=20, ge=1, le=200),
+):
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    stats = intervention_store.get_path_stats(
+        instance_id,
+        path_key=path_key,
+        final_failure_mode_id=final_failure_mode_id,
+        selected_action_id=selected_action_id,
+        limit=limit,
+    )
+    return PathStatsResponse(stats=stats)
 
 
 @router.get("/instances/{instance_id}/product-info", response_model=ProductInfoResponse)
@@ -288,6 +501,17 @@ async def product_info(instance_id: str):
         code = ec.get("code", "")
         chips.append({"label": code, "query": code})
     return {**meta, "suggested_symptoms": chips}
+
+
+@router.post("/instances/{instance_id}/reload", include_in_schema=True)
+async def reload_instance(instance_id: str):
+    """Evict the in-memory ontology and embeddings cache for this instance so it reloads from disk."""
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    evict_instance_cache(instance_id)
+    evict_telemetry_cache(telemetry_dir=_telemetry_dir(instance_id))
+    return {"ok": True, "instance_id": instance_id}
 
 
 @router.get("/instances/{instance_id}/status", response_model=StatusResponse)

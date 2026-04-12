@@ -31,6 +31,16 @@ def _resolve_telemetry_path(
     return DEFAULT_TELEMETRY_PATH
 
 
+def evict_telemetry_cache(telemetry_dir: Path | None = None, telemetry_path: Path | None = None) -> None:
+    """Remove cached telemetry data so the next call reloads from disk."""
+    resolved = _resolve_telemetry_path(telemetry_path=telemetry_path, telemetry_dir=telemetry_dir)
+    if resolved is None:
+        return
+    key = str(resolved.resolve())
+    _CACHE.pop(key, None)
+    _UNAVAILABLE.discard(key)
+
+
 def _load(
     telemetry_path: Path | None = None,
     telemetry_dir: Path | None = None,

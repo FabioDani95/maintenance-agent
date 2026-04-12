@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -90,6 +91,44 @@ class ChatRequest(BaseModel):
     model: str | None = None
 
 
+class PathStatsSummary(BaseModel):
+    instance_id: str
+    path_key: str
+    symptom_ids: list[str] = Field(default_factory=list)
+    final_failure_mode_id: str
+    final_path: list[str] = Field(default_factory=list)
+    selected_action_id: str
+    total_uses: int = 0
+    resolved_count: int = 0
+    partially_resolved_count: int = 0
+    not_resolved_count: int = 0
+    escalated_count: int = 0
+    total_duration_sec: int = 0
+    avg_duration_min: float = 0.0
+    success_rate_pct: float = 0.0
+    last_outcome_at: str = ""
+
+
+class ActionOption(BaseModel):
+    action_id: str
+    action_name: str
+    instruction_text: str = ""
+    source_title: str = ""
+    source_reference: str = ""
+    path_key: str
+    final_path: list[str] = Field(default_factory=list)
+    stats: PathStatsSummary | None = None
+
+
+class CurrentIssue(BaseModel):
+    failure_mode_id: str
+    failure_mode_name: str
+    component_id: str = ""
+    component_name: str = ""
+    symptom_ids: list[str] = Field(default_factory=list)
+    action_options: list[ActionOption] = Field(default_factory=list)
+
+
 class ChatResponse(BaseModel):
     reply: str
     session_id: str
@@ -98,6 +137,7 @@ class ChatResponse(BaseModel):
     issue_number: int | None = None
     total_issues: int | None = None
     telemetry: dict[str, Any] | None = None
+    current_issue: CurrentIssue | None = None
 
 
 class NextIssueRequest(BaseModel):
@@ -107,6 +147,43 @@ class NextIssueRequest(BaseModel):
 
 class ResetRequest(BaseModel):
     session_id: str | None = None
+
+
+class OutcomeLogRequest(BaseModel):
+    session_id: str
+    selected_action_id: str | None = None
+    outcome: Literal["resolved", "partially_resolved", "not_resolved", "escalated"]
+    user_feedback: str = ""
+
+
+class InterventionRecord(BaseModel):
+    id: int
+    instance_id: str
+    session_id: str
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    duration_sec: int = 0
+    ontology_version: str | None = None
+    ontology_hash: str | None = None
+    symptom_ids: list[str] = Field(default_factory=list)
+    final_failure_mode_id: str
+    final_path: list[str] = Field(default_factory=list)
+    path_key: str
+    selected_action_id: str
+    outcome: Literal["resolved", "partially_resolved", "not_resolved", "escalated"]
+    user_queries: list[str] = Field(default_factory=list)
+    user_feedback: str = ""
+
+
+class OutcomeLogResponse(BaseModel):
+    ok: bool = True
+    intervention: InterventionRecord
+    stats: PathStatsSummary
+
+
+class PathStatsResponse(BaseModel):
+    stats: list[PathStatsSummary] = Field(default_factory=list)
 
 
 # ── Graph ──

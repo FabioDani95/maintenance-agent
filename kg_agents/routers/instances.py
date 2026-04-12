@@ -6,6 +6,7 @@ from kg_agents.models import (
     Instance, InstanceCreate, InstanceUpdate, InstanceResponse,
     AllInstancesResponse, ExtractionSummary,
 )
+from kg_agents.routers.chat import evict_instance_cache
 from kg_agents.services import agent_store, instance_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["instances"])
@@ -72,6 +73,7 @@ async def update_instance(instance_id: str, data: InstanceUpdate):
     instance = instance_store.update_instance(instance_id, update_data)
     if not instance:
         raise HTTPException(status_code=404, detail="Instance not found")
+    evict_instance_cache(instance_id)
     return instance
 
 

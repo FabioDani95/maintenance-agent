@@ -322,6 +322,180 @@ function buildAssistantHtml(text) {
   return `<div class="assistant-content">${blocks.join('')}</div>`;
 }
 
+function pluralize(count, singular, pluralForm) {
+  const plural = pluralForm || `${singular}s`;
+  return count === 1 ? singular : plural;
+}
+
+function formatOutcomeDate(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function describeActionHistory(stats) {
+  if (!stats || !stats.total_uses) {
+    return { label: 'New path', className: 'is-new' };
+  }
+  if (stats.resolved_count > 0) {
+    return {
+      label: `Resolved ${stats.resolved_count} ${pluralize(stats.resolved_count, 'time')} before`,
+      className: 'is-success',
+    };
+  }
+  return {
+    label: `Seen ${stats.total_uses} ${pluralize(stats.total_uses, 'time')}`,
+    className: 'is-known',
+  };
+}
+
+function buildPathStatsHtml(stats) {
+  if (!stats || !stats.total_uses) {
+    return '<div class="issue-history-empty">No recorded outcome yet for this exact symptom → cause → action path.</div>';
+  }
+
+  const metricBits = [
+    `<span class="issue-metric">Seen ${stats.total_uses}x</span>`,
+    `<span class="issue-metric issue-metric-success">${stats.resolved_count} resolved</span>`,
+    `<span class="issue-metric">${Math.round(stats.success_rate_pct)}% success</span>`,
+  ];
+
+  if (stats.not_resolved_count > 0) {
+    metricBits.push(`<span class="issue-metric issue-metric-risk">${stats.not_resolved_count} not solved</span>`);
+  }
+  if (stats.partially_resolved_count > 0) {
+    metricBits.push(`<span class="issue-metric">${stats.partially_resolved_count} partial</span>`);
+  }
+  if (stats.escalated_count > 0) {
+    metricBits.push(`<span class="issue-metric">${stats.escalated_count} escalated</span>`);
+  }
+  if (stats.avg_duration_min > 0) {
+    metricBits.push(`<span class="issue-metric">Avg ${stats.avg_duration_min.toFixed(1)} min</span>`);
+  }
+  const lastOutcome = formatOutcomeDate(stats.last_outcome_at);
+  if (lastOutcome) {
+    metricBits.push(`<span class="issue-metric">Last ${escapeHtml(lastOutcome)}</span>`);
+  }
+
+  return `<div class="issue-history-metrics">${metricBits.join('')}</div>`;
+}
+
+function buildCurrentIssueHtml(currentIssue, extra) {
+  if (!currentIssue) return '';
+
+  const actions = Array.isArray(currentIssue.action_options) ? currentIssue.action_options : [];
+  const issueCounter = (extra && extra.issue_number && extra.total_issues)
+    ? `<div class="issue-counter">Possible cause ${extra.issue_number} of ${extra.total_issues}</div>`
+    : '';
+  const subtitle = actions.length > 1
+    ? 'Mark the action that solved it. History below is for the exact path already seen in past sessions.'
+    : 'Confirm whether this corrective path solved it. History below refers to this exact path.';
+
+  let html = '<div class="issue-resolution-panel" data-issue-state="active">';
+  html += issueCounter;
+  html += '<div class="issue-resolution-title">Did this fix the problem?</div>';
+  html += `<div class="issue-resolution-subtitle">${escapeHtml(subtitle)}</div>`;
+
+  if (actions.length > 0) {
+    html += '<div class="issue-action-list">';
+    actions.forEach((action, index) => {
+      const badge = describeActionHistory(action.stats);
+      const actionTitle = escapeHtml(action.action_name || `Action ${index + 1}`);
+      const badgeClass = escapeHtml(badge.className);
+      const badgeLabel = escapeHtml(badge.label);
+      const actionId = escapeHtml(action.action_id || '');
+      const actionName = escapeHtml(action.action_name || '');
+      const buttonLabel = actions.length > 1 ? 'Resolved with this action' : 'Resolved';
+      const knownClass = action.stats && action.stats.total_uses > 0 ? 'is-known' : 'is-new';
+
+      html += `<div class="issue-action-card ${knownClass}" data-action-id="${actionId}">`;
+      html += '<div class="issue-action-header">';
+      html += `<div class="issue-action-title">${actionTitle}</div>`;
+      html += `<span class="issue-action-state ${badgeClass}">${badgeLabel}</span>`;
+      html += '</div>';
+      html += `<div class="issue-action-history">${buildPathStatsHtml(action.stats)}</div>`;
+      html += '<div class="issue-action-controls">';
+      html += `<button class="resolved-btn" data-action-id="${actionId}" data-action-name="${actionName}">${buttonLabel}</button>`;
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (extra && extra.has_more_issues) {
+    const autoLogActionId = actions.length === 1 ? escapeHtml(actions[0].action_id || '') : '';
+    const autoLogAttr = autoLogActionId ? ` data-auto-log-action-id="${autoLogActionId}"` : '';
+    html += '<div class="issue-actions-footer">';
+    html += `<button class="not-solved-btn"${autoLogAttr}>Next cause</button>`;
+    html += '</div>';
+  }
+
+  html += '<div class="issue-panel-status" aria-live="polite"></div>';
+  html += '</div>';
+  return html;
+}
+
+function updateIssuePanelStatus(panel, text) {
+  if (!panel) return;
+  const statusEl = panel.querySelector('.issue-panel-status');
+  if (!statusEl) return;
+  statusEl.textContent = text || '';
+}
+
+function setIssuePanelButtonsDisabled(panel, disabled, exceptButton = null) {
+  if (!panel) return;
+  panel.querySelectorAll('.resolved-btn, .not-solved-btn').forEach(btn => {
+    if (exceptButton && btn === exceptButton) return;
+    btn.disabled = disabled;
+  });
+}
+
+function setIssuePanelState(panel, state, statusText) {
+  if (!panel) return;
+  panel.dataset.issueState = state;
+  const disableButtons = state !== 'active';
+  setIssuePanelButtonsDisabled(panel, disableButtons);
+  panel.classList.toggle('is-inactive', state === 'inactive');
+  panel.classList.toggle('is-completed', state === 'completed');
+  updateIssuePanelStatus(panel, statusText);
+}
+
+function deactivateActiveIssuePanels(statusText) {
+  messagesEl.querySelectorAll('.issue-resolution-panel[data-issue-state="active"]').forEach(panel => {
+    setIssuePanelState(panel, 'inactive', statusText);
+  });
+}
+
+function setBusyButton(button, busyText) {
+  if (!button) return;
+  if (!button.dataset.originalText) {
+    button.dataset.originalText = button.textContent;
+  }
+  button.disabled = true;
+  button.textContent = busyText;
+}
+
+function restoreBusyButton(button) {
+  if (!button) return;
+  if (button.dataset.originalText) {
+    button.textContent = button.dataset.originalText;
+  }
+  button.disabled = false;
+}
+
+async function logOutcome(selectedActionId, outcome) {
+  return fetchJson(instanceApi('/log-outcome'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      selected_action_id: selectedActionId,
+      outcome,
+    }),
+  });
+}
+
 function appendMessage(role, text, extra) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
@@ -332,10 +506,13 @@ function appendMessage(role, text, extra) {
     div.textContent = text;
     html = div.textContent.replace(/\n/g, '<br>');
   }
-  // Add "problem not solved" button if there are more issues
-  if (extra && extra.has_more_issues) {
+  const hasCurrentIssue = role === 'assistant' && extra && extra.current_issue;
+  if (hasCurrentIssue) {
+    html += buildCurrentIssueHtml(extra.current_issue, extra);
+  } else if (extra && extra.has_more_issues) {
+    // Fallback for assistant responses without structured issue payload.
     html += `<div class="issue-counter">Possible cause ${extra.issue_number} of ${extra.total_issues}</div>`;
-    html += `<button class="not-solved-btn">Problem not solved? Try next cause</button>`;
+    html += `<button class="not-solved-btn">Next cause</button>`;
   } else if (extra && extra.issue_number && extra.total_issues) {
     html += `<div class="issue-counter">Possible cause ${extra.issue_number} of ${extra.total_issues}</div>`;
   }
@@ -477,6 +654,7 @@ async function sendMessage() {
     }
     sessionId = data.session_id;
     removeTyping();
+    deactivateActiveIssuePanels('Superseded by a newer diagnosis.');
     if (data.reply) {
       appendMessage('assistant', data.reply, {
         has_more_issues: data.has_more_issues,
@@ -484,6 +662,7 @@ async function sendMessage() {
         total_issues: data.total_issues,
         scores: data.highlight ? data.highlight.scores : null,
         reasoning: data.highlight ? data.highlight.reasoning : null,
+        current_issue: data.current_issue || null,
       });
     } else {
       appendMessage('assistant', 'Error: ' + (data.error || 'unknown'));
@@ -1032,11 +1211,24 @@ messagesEl.addEventListener('click', async (e) => {
 
   const notSolvedBtn = e.target.closest('.not-solved-btn');
   if (notSolvedBtn && !notSolvedBtn.disabled) {
-    notSolvedBtn.disabled = true;
-    notSolvedBtn.textContent = 'Loading next cause…';
+    const panel = notSolvedBtn.closest('.issue-resolution-panel');
+    const autoLogActionId = notSolvedBtn.dataset.autoLogActionId || '';
+    setBusyButton(notSolvedBtn, 'Loading next cause…');
+    setIssuePanelButtonsDisabled(panel, true, notSolvedBtn);
+    updateIssuePanelStatus(panel, autoLogActionId ? 'Saving "not solved" and loading the next cause…' : 'Loading the next cause…');
     showTyping();
 
     try {
+      let autoLogged = false;
+      if (autoLogActionId) {
+        try {
+          await logOutcome(autoLogActionId, 'not_resolved');
+          autoLogged = true;
+        } catch (logErr) {
+          console.warn('Could not auto-log not_resolved outcome before loading next cause:', logErr);
+        }
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
       let data;
@@ -1051,6 +1243,15 @@ messagesEl.addEventListener('click', async (e) => {
         clearTimeout(timeoutId);
       }
       removeTyping();
+      if (panel) {
+        const statusText = autoLogged
+          ? 'Marked as not solved. Showing the next possible cause.'
+          : 'Showing the next possible cause.';
+        notSolvedBtn.textContent = 'Next cause shown';
+        setIssuePanelState(panel, 'inactive', statusText);
+      } else if (notSolvedBtn.dataset.originalText) {
+        notSolvedBtn.textContent = notSolvedBtn.dataset.originalText;
+      }
       if (data.reply) {
         appendMessage('assistant', data.reply, {
           has_more_issues: data.has_more_issues,
@@ -1058,6 +1259,7 @@ messagesEl.addEventListener('click', async (e) => {
           total_issues: data.total_issues,
           scores: data.highlight ? data.highlight.scores : null,
           reasoning: data.highlight ? data.highlight.reasoning : null,
+          current_issue: data.current_issue || null,
         });
       }
       if (data.highlight && Object.keys(data.highlight).length > 0) {
@@ -1072,11 +1274,61 @@ messagesEl.addEventListener('click', async (e) => {
       }
     } catch (err) {
       removeTyping();
+      restoreBusyButton(notSolvedBtn);
+      setIssuePanelButtonsDisabled(panel, false, notSolvedBtn);
+      updateIssuePanelStatus(panel, 'Could not load the next cause.');
       if (err.name === 'AbortError') {
         appendMessage('assistant', 'Request timed out — the AI service may be slow. Please try again.');
       } else {
         appendMessage('assistant', 'Error loading next cause. Please try again.');
       }
+    }
+    return;
+  }
+
+  const resolvedBtn = e.target.closest('.resolved-btn');
+  if (resolvedBtn && !resolvedBtn.disabled) {
+    const panel = resolvedBtn.closest('.issue-resolution-panel');
+    if (!panel || panel.dataset.issueState !== 'active') {
+      return;
+    }
+
+    const actionId = resolvedBtn.dataset.actionId;
+    const actionName = resolvedBtn.dataset.actionName || 'this action';
+    const actionCard = resolvedBtn.closest('.issue-action-card');
+    if (!actionId || !sessionId) {
+      updateIssuePanelStatus(panel, 'No active session available for outcome logging.');
+      return;
+    }
+
+    setBusyButton(resolvedBtn, 'Saving…');
+    setIssuePanelButtonsDisabled(panel, true, resolvedBtn);
+    updateIssuePanelStatus(panel, `Saving confirmed resolution for ${actionName}…`);
+
+    try {
+      const data = await logOutcome(actionId, 'resolved');
+      const badge = describeActionHistory(data.stats);
+
+      if (actionCard) {
+        actionCard.classList.add('is-selected');
+        const stateEl = actionCard.querySelector('.issue-action-state');
+        if (stateEl) {
+          stateEl.className = `issue-action-state ${badge.className}`;
+          stateEl.textContent = badge.label;
+        }
+        const historyEl = actionCard.querySelector('.issue-action-history');
+        if (historyEl) {
+          historyEl.innerHTML = buildPathStatsHtml(data.stats);
+        }
+      }
+
+      setIssuePanelState(panel, 'completed', `Resolution saved for ${actionName}.`);
+      resolvedBtn.textContent = 'Resolved saved';
+    } catch (err) {
+      restoreBusyButton(resolvedBtn);
+      setIssuePanelButtonsDisabled(panel, false, resolvedBtn);
+      updateIssuePanelStatus(panel, err.message || 'Could not save the resolution outcome.');
+      appendMessage('assistant', 'Could not save the resolution outcome. Please try again.');
     }
   }
 });

@@ -10,11 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from kg_agents.config import AGENT_PORT, DATA_DIR, DEFAULT_MANUALS_DIR, DEV_UI_DIR
 from kg_agents.routers import agents, chat, devices, graph, instances
 from kg_agents.services.agent_store import seed_default_agent
+from kg_agents.services.intervention_store import init_db
 from kg_agents.services.instance_store import seed_default_instance
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     agent_id = seed_default_agent()
     seed_default_instance(agent_id)
     yield
