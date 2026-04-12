@@ -203,6 +203,7 @@ Current behavior:
 
 Each agent defines its own ontology schema (node types, properties, relationship types with domain/range). Instances are instantiations of that schema with concrete, asset-specific data. Ontology data is validated against the agent's schema on create and update — unknown node types, relationship types, or domain/range mismatches return a 422 with specific errors.
 
+
 ### Maintenance Troubleshooting schema (`ontology_schema.JSON`)
 
 The default flow expects:
