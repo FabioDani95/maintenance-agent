@@ -41,7 +41,8 @@ Notes:
 - runs troubleshooting chat for a specific instance
 - returns graph payloads for visualization
 - stores linked devices and failure-mode measurement mappings
-- seeds a default `Maintenance Troubleshooting Agent` and a default `IRC5 ABB Robotics` instance on startup
+- persists intervention outcomes and per-path success statistics
+- seeds a default `Maintenance Troubleshooting Agent` and a default `IRC5` instance on startup
 
 ## Architecture
 
@@ -55,12 +56,13 @@ kg_agents/
   routers/
     agents.py          # CRUD for agents
     instances.py       # CRUD for ontology instances
-    chat.py            # Chat, next-issue, reset, product-info, status
+    chat.py            # Chat, next-issue, outcome logging, reset, product-info, status
     graph.py           # vis-network graph data
     devices.py         # Device linking and measurement mappings
   services/
     agent_store.py     # JSON-file persistence for agents
     instance_store.py  # Per-instance directory management, device links, seeding, schema validation
+    intervention_store.py # SQLite persistence for intervention outcomes and aggregate path stats
 ```
 
 The shared troubleshooting engine now lives inside `kg_agents/engine/`:
@@ -79,6 +81,8 @@ The shared troubleshooting engine now lives inside `kg_agents/engine/`:
 ```
 data/
   agents.json                          # Agent registry
+  interventions.db                     # Persisted intervention outcomes + path stats
+  manuals/                             # Optional preferred manual PDFs served at /manuals
   instances/
     <instance_id>/
       meta.json                        # Instance metadata (name, agent_id, timestamps)
@@ -106,11 +110,19 @@ On first startup the app seeds:
 - agent: `maintenance-agent-default`
 - instance: `irc5-default-instance` — ABB IRC5 robot controller
 
+The checked-in `data/instances/` directory may also include additional instances, such as `p1p-default-instance`, from previous runs or reference data.
+
 The seeded instance is initialised from:
 
 - `irc5_abb_robotics_V0.json` (root of the repo) — knowledge graph for the ABB IRC5 controller covering power supply, FlexPendant, control modules, drive modules, axis motors, gearboxes, and related maintenance diagnostics
 - `troubleshooting_agent/symptom_embeddings.json` — OpenAI embeddings for symptom matching
-- `troubleshooting_agent/telemetry/` — first `.csv` found is used as the telemetry source; for IRC5 this should be `irc5_abb_robotics_telemetry.csv`
+- `troubleshooting_agent/telemetry/` — first `.csv` found is used as the telemetry source for a seeded instance copy
+
+Manual serving behavior:
+
+- if `data/manuals/` exists, FastAPI serves manuals from there
+- otherwise it falls back to `troubleshooting_agent/manuals/`
+- the current repo includes `data/manuals/IRC5.pdf`
 
 Create additional agents and instances via `/v1/kg-agents/agents` and `/v1/kg-agents/agents/{agent_id}/instances`.
 
@@ -166,6 +178,9 @@ The ontology contains symptoms, failure modes with `related_measurements` (snake
 |--------|------|-------------|
 | POST | `/v1/kg-agents/instances/{instance_id}/chat` | Send a message and get a diagnosis |
 | POST | `/v1/kg-agents/instances/{instance_id}/next-issue` | Return the next ranked possible cause |
+| POST | `/v1/kg-agents/instances/{instance_id}/log-outcome` | Persist the final outcome for a selected corrective action |
+| GET | `/v1/kg-agents/instances/{instance_id}/path-stats` | Retrieve aggregate outcome stats for corrective-action paths |
+| POST | `/v1/kg-agents/instances/{instance_id}/reload` | Evict cached ontology, embeddings, and telemetry so the instance reloads from disk |
 | POST | `/v1/kg-agents/instances/{instance_id}/reset` | Reset the chat session |
 | GET | `/v1/kg-agents/instances/{instance_id}/product-info` | Product metadata and suggested symptoms |
 | GET | `/v1/kg-agents/instances/{instance_id}/status` | Ontology status and counts |
@@ -195,9 +210,18 @@ Characteristics:
 - uses the versioned instance-scoped routes under `/v1/kg-agents/*`
 - runs against the same seeded or user-created instances exposed by the API
 - does not require running the external frontend repository
-- supports chat, next-issue navigation, graph highlighting, manuals, and telemetry
+- supports chat, next-issue navigation, graph highlighting, manuals, telemetry, and intervention outcome tracking
+- shows exact-path historical stats inside the assistant reply and lets the operator confirm `Resolved` directly from the UI
+- when an issue exposes a single corrective action, choosing `Next cause` also auto-logs that path as `not_resolved`
 
 The root path `/` redirects to `/dev-ui` for convenience.
+
+UI semantics:
+
+- history is attached to the exact canonical path `symptom -> failure_mode -> action`
+- if a failure mode exposes multiple corrective actions, the UI renders one `Resolved` button per action so the backend can persist the correct `selected_action_id`
+- `Next cause` is a failure-mode navigation control, not an action-level button
+- once the operator moves to the next cause or starts a new diagnosis, the previous issue card becomes inactive to avoid logging outcomes on stale paths
 
 ## Chat Pipeline
 
@@ -220,6 +244,37 @@ Current behavior:
 - response formatting is deterministic
 - returned facts come from the ontology and linked telemetry/manual metadata
 - telemetry is resolved per instance when a telemetry CSV is present under `data/instances/<instance_id>/telemetry/`
+- chat and next-issue responses now also expose a structured `current_issue` payload with `action_id`, `path_key`, and historical stats for each corrective action
+- intervention outcomes are stored centrally in `data/interventions.db` and aggregated per canonical `symptom -> failure_mode -> action` path
+
+### Intervention Logging
+
+Outcome logging is backend-native and does not mutate the ontology JSON.
+
+The `POST /log-outcome` flow stores:
+
+- `session_id`
+- `symptom_ids`
+- `final_failure_mode_id`
+- canonical `final_path`
+- `selected_action_id`
+- `outcome`
+- `user_queries`
+- `duration_sec`
+- ontology version/hash snapshot
+
+Persistence strategy:
+
+- `interventions` table keeps the durable event log
+- `path_stats` table keeps aggregate counters and success-rate metrics per canonical path
+- repeated submissions for the same `instance_id + session_id + path_key + selected_action_id` update the existing record instead of duplicating it
+
+Response structure:
+
+- `/chat` and `/next-issue` include `current_issue.action_options[]`
+- each action option carries `action_id`, `path_key`, `final_path`, and any historical `stats`
+- the bundled dev UI already uses those IDs directly for `Resolved` / `Next cause` controls without parsing prose
+- when several corrective actions exist for the same failure mode, the frontend must choose the specific `selected_action_id` before calling `/log-outcome`
 
 ## Ontology Expectations
 

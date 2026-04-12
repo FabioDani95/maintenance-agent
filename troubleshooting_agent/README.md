@@ -46,7 +46,7 @@ Then open:
 ## Legacy Quick Start
 
 ```bash
-python3 troubleshooting_agent/agent.py
+PYTHONPATH=. python3 troubleshooting_agent/agent.py
 ```
 
 Default port: `5001`
@@ -54,7 +54,7 @@ Default port: `5001`
 Optional override:
 
 ```bash
-AGENT_PORT=5002 python3 troubleshooting_agent/agent.py
+PYTHONPATH=. AGENT_PORT=5002 python3 troubleshooting_agent/agent.py
 ```
 
 Requirements:
@@ -62,6 +62,7 @@ Requirements:
 - `OPENAI_API_KEY`
 - dependencies from `requirements.txt`
 - `symptom_embeddings.json` aligned with ontology symptoms
+- root `ontology.json` aligned with the same product as the embeddings file
 
 ## Endpoints
 
@@ -99,6 +100,15 @@ Changes in this folder mainly affect:
 - the standalone Flask app
 - legacy compatibility behavior
 
+This legacy app does **not** expose the newer intervention outcome APIs. Outcome logging, path statistics, structured `current_issue` payloads, and the `Resolved` / `Next cause` intervention UI are implemented only in `kg_agents`.
+
+Put differently:
+
+- the legacy Flask UI can still show chat, graph, manuals, and telemetry
+- it does not show exact-path intervention history
+- it does not persist `Resolved` / `not_resolved` outcomes
+- it does not expose the structured action selection payload used by the newer FastAPI dev UI
+
 ## Data Assumptions
 
 The default flow expects an ontology built around:
@@ -113,16 +123,23 @@ and relationships such as:
 - `RESOLVED_BY`
 - `AFFECTS`
 
-The default seeded ontology is the ABB IRC5 robot controller (`irc5_abb_robotics_V0.json`). The accompanying telemetry file is `irc5_abb_robotics_telemetry.csv` at the repository root.
+At runtime, this Flask app reads:
+
+- root `ontology.json`
+- `troubleshooting_agent/symptom_embeddings.json`
+- manuals from `troubleshooting_agent/manuals/`
+- telemetry from `troubleshooting_agent/telemetry/telemetry_p1p.csv`
+
+The current checked-in single-instance data is aligned to the ABB IRC5 controller, and `troubleshooting_agent/manuals/IRC5.pdf` is available for manual page links. The older `Bambu Lab P1 series manual.pdf` is still present as a legacy asset.
 
 If `Symptom` nodes change, regenerate embeddings with:
 
 ```bash
-python3 troubleshooting_agent/embeddings.py
+PYTHONPATH=. python3 troubleshooting_agent/embeddings.py
 ```
 
 ## Current Role In This Branch
 
 - use `kg_agents` when you need the supported API surface
-- use the dev UI under `kg_agents` when you want to inspect chat, graph highlighting, manuals, and telemetry against the real versioned API
+- use the dev UI under `kg_agents` when you want to inspect chat, graph highlighting, manuals, telemetry, and intervention logging against the supported versioned API
 - use `troubleshooting_agent` only when you explicitly need the old Flask compatibility flow
