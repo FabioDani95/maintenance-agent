@@ -281,6 +281,50 @@ def _group_support_canonical_terms(group_paths: list[dict[str, Any]], index: Ont
     return terms
 
 
+def describe_group_alignment(
+    group_paths: list[dict[str, Any]],
+    index: OntologyIndex,
+) -> dict[str, Any]:
+    first_path = group_paths[0] if group_paths else {}
+    symptom_ids = sorted({
+        path.get("symptom_id", "").strip()
+        for path in group_paths
+        if path.get("symptom_id", "").strip()
+    })
+    component_names = sorted({
+        path.get("component_name", "").strip()
+        for path in group_paths
+        if path.get("component_name", "").strip()
+    })
+    symptom_names = sorted({
+        path.get("symptom_name", "").strip()
+        for path in group_paths
+        if path.get("symptom_name", "").strip()
+    })
+    direct_terms = _group_direct_terms(group_paths, index)
+    direct_canonical_terms = _group_direct_canonical_terms(group_paths, index)
+    support_terms = _group_support_terms(group_paths, index)
+    support_canonical_terms = _group_support_canonical_terms(group_paths, index)
+
+    return {
+        "failure_mode_id": first_path.get("failure_mode_id", ""),
+        "failure_mode_name": first_path.get("failure_mode_name", ""),
+        "symptom_ids": symptom_ids,
+        "component_names": component_names,
+        "symptom_names": symptom_names,
+        "symptom_descriptions": [
+            str(index.nodes_by_id.get(symptom_id, {}).get("description", "")).strip()
+            for symptom_id in symptom_ids
+            if str(index.nodes_by_id.get(symptom_id, {}).get("description", "")).strip()
+        ],
+        "direct_terms": sorted(direct_terms),
+        "direct_canonical_terms": sorted(direct_canonical_terms),
+        "support_terms": sorted(support_terms),
+        "support_canonical_terms": sorted(support_canonical_terms),
+        "signal_concepts": sorted(direct_canonical_terms & _HIGH_SIGNAL_CONCEPTS),
+    }
+
+
 def _build_group_rerank_text(group_paths: list[dict[str, Any]], index: OntologyIndex) -> str:
     first_path = group_paths[0] if group_paths else {}
     failure_mode_id = first_path.get("failure_mode_id", "")
@@ -397,6 +441,7 @@ def rerank_groups_for_query(
             - concept_mismatch_penalty
             - extra_signal_penalty
         )
+        group["_query_rank_score"] = round(score, 6)
         rescored.append((score, order, group))
 
     rescored.sort(key=lambda item: (-item[0], item[1]))

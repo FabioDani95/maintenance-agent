@@ -13,6 +13,9 @@ Important scope note:
 - the primary supported backend for this branch is `kg_agents/`
 - the legacy Flask app is kept for compatibility and local standalone use
 - the actual troubleshooting logic is shared from `kg_agents/engine/`
+- the supported `kg_agents` chat flow now includes a single clarification turn for
+  ambiguous top causes, but the legacy Flask transport in this folder does not yet
+  expose that clarification-state machine
 
 The current checked-in single-instance dataset used by the legacy app is aligned to
 the **ABB IRC5** controller, not to the older Bambu Lab P1P dataset that earlier
@@ -200,8 +203,8 @@ Duplicate `(failure_mode_id, action_id)` pairs are removed.
 
 ### R6. Deterministic reranking of candidate causes
 
-If multiple failure modes are available, the current implementation does **not** ask
-an immediate clarification question.
+If multiple failure modes are available, the current legacy Flask implementation does
+**not** ask an immediate clarification question.
 
 Instead, it reranks failure-mode groups against the current user message and returns
 the top reranked issue immediately.
@@ -399,6 +402,7 @@ Current `POST /chat` and `POST /next_issue` responses may include:
 Unlike the primary `kg_agents` API, the legacy Flask app does not expose:
 
 - structured `current_issue`
+- clarification-state fields for targeted follow-up questions
 - intervention outcome logging
 - path statistics
 - the newer `Resolved` / `not_resolved` workflow
@@ -625,3 +629,5 @@ For the current repository state:
 - `kg_agents` is the primary supported backend
 - `troubleshooting_agent` is a compatibility app
 - the shared engine in `kg_agents/engine/` defines the actual troubleshooting logic
+- the primary FastAPI path includes a clarification step for ambiguous rankings and
+  rejects nonsensical clarification replies by repeating the same question

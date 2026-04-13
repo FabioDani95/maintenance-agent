@@ -8,6 +8,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 
 from kg_agents.config import OPENAI_CHAT_MODEL
+from kg_agents.engine.clarification import (
+    build_clarification_state,
+    invalid_clarification_reply,
+    reorder_ranked_groups,
+    resolve_clarification_answer,
+)
 from kg_agents.engine.domain_check import check_domain_relevance
 from kg_agents.engine.embeddings import get_query_embedding
 from kg_agents.engine.graph_traversal import (
@@ -81,6 +87,7 @@ def _new_session_state() -> dict[str, object]:
         "ranked_issues": [],
         "current_issue_idx": 0,
         "current_group_paths": [],
+        "clarification": None,
         "diagnosis_started_at": None,
         "user_queries": [],
     }
@@ -98,6 +105,7 @@ def _begin_diagnosis(session: dict, message: str) -> None:
     session["ranked_issues"] = []
     session["current_issue_idx"] = 0
     session["current_group_paths"] = []
+    session["clarification"] = None
     session["diagnosis_started_at"] = _utc_now()
     session["user_queries"] = [message]
 
@@ -161,6 +169,24 @@ def _build_current_issue(instance_id: str, group_paths: list[dict], trace: dict[
     )
 
 
+def _public_clarification_options(session: dict) -> list[dict[str, str]]:
+    clarification = session.get("clarification")
+    if not isinstance(clarification, dict):
+        return []
+    options = clarification.get("options")
+    if not isinstance(options, list):
+        return []
+    return [
+        {
+            "id": str(option.get("id", "")),
+            "label": str(option.get("label", "")),
+            "description": str(option.get("description", "")),
+        }
+        for option in options
+        if isinstance(option, dict)
+    ]
+
+
 def _build_chat_response(
     *,
     instance_id: str,
@@ -172,6 +198,9 @@ def _build_chat_response(
     issue_number: int | None = None,
     total_issues: int | None = None,
     telemetry: dict[str, object] | None = None,
+    awaiting_clarification: bool = False,
+    clarification_question: str | None = None,
+    clarification_options: list[dict[str, str]] | None = None,
 ) -> ChatResponse:
     active_trace = trace or {}
     active_group_paths = group_paths or []
@@ -185,6 +214,9 @@ def _build_chat_response(
         total_issues=total_issues,
         telemetry=telemetry,
         current_issue=current_issue,
+        awaiting_clarification=awaiting_clarification,
+        clarification_question=clarification_question,
+        clarification_options=clarification_options or [],
     )
 
 
@@ -224,6 +256,93 @@ def _telemetry_dir(instance_id: str):
     return instance_store.get_telemetry_dir(instance_id)
 
 
+def _active_clarification(session: dict) -> dict[str, object] | None:
+    clarification = session.get("clarification")
+    return clarification if isinstance(clarification, dict) and clarification.get("question") else None
+
+
+def _build_clarification_response(
+    *,
+    instance_id: str,
+    session_id: str,
+    session: dict,
+    reply: str,
+) -> ChatResponse:
+    _set_active_issue(session, [], {})
+    return _build_chat_response(
+        instance_id=instance_id,
+        session_id=session_id,
+        reply=reply,
+        awaiting_clarification=True,
+        clarification_question=str(session["clarification"].get("question", "")),
+        clarification_options=_public_clarification_options(session),
+    )
+
+
+def _handle_clarification_turn(
+    *,
+    instance_id: str,
+    session_id: str,
+    session: dict,
+    message: str,
+    product_meta: dict[str, object],
+    chat_model: str,
+) -> ChatResponse:
+    clarification = _active_clarification(session)
+    if clarification is None:
+        raise HTTPException(status_code=409, detail="Clarification state is missing")
+
+    resolution = resolve_clarification_answer(message, clarification)
+    if resolution.get("status") != "selected":
+        clarification["attempts"] = int(clarification.get("attempts") or 0) + 1
+        session["clarification"] = clarification
+        return _build_clarification_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            session=session,
+            reply=invalid_clarification_reply(clarification),
+        )
+
+    ranked = reorder_ranked_groups(session.get("ranked_issues") or [], clarification, str(resolution["option_id"]))
+    session["clarification"] = None
+    session["ranked_issues"] = ranked
+    session["current_issue_idx"] = 0
+    session.setdefault("user_queries", []).append(message)
+
+    if not ranked:
+        _set_active_issue(session, [], {})
+        return _build_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            reply=low_confidence_response(product_meta=product_meta),
+        )
+
+    first_group = ranked[0]["paths"]
+    trace = build_trace(first_group)
+    _set_active_issue(session, first_group, trace)
+    total = len(ranked)
+    reply = format_answer_single_group(
+        first_group,
+        " ".join(query for query in session.get("user_queries", []) if isinstance(query, str)),
+        model=chat_model,
+        product_meta=product_meta,
+    )
+    if total > 1:
+        reply += f'\n\n---\n*Possible cause 1 of {total}. Use "Next" to see the next most likely cause.*'
+
+    return _build_chat_response(
+        instance_id=instance_id,
+        session_id=session_id,
+        reply=reply,
+        trace=trace,
+        group_paths=first_group,
+        has_more_issues=total > 1,
+        issue_number=1,
+        total_issues=total,
+        telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
+    )
+
+
 @router.post("/instances/{instance_id}/chat", response_model=ChatResponse)
 async def chat(instance_id: str, req: ChatRequest):
     inst = instance_store.get_instance(instance_id)
@@ -240,6 +359,17 @@ async def chat(instance_id: str, req: ChatRequest):
     embeddings = _load_instance_embeddings(instance_id)
     product_meta = _product_metadata.get(instance_id, {})
     session = _get_session(instance_id, session_id)
+
+    if _active_clarification(session):
+        return _handle_clarification_turn(
+            instance_id=instance_id,
+            session_id=session_id,
+            session=session,
+            message=message,
+            product_meta=product_meta,
+            chat_model=chat_model,
+        )
+
     _begin_diagnosis(session, message)
 
     raw_code_match = _ERROR_CODE_PATTERN.search(message)
@@ -341,6 +471,17 @@ async def chat(instance_id: str, req: ChatRequest):
         )
 
     session["ranked_issues"] = ranked
+    clarification = build_clarification_state(ranked, message, index)
+    if clarification:
+        session["clarification"] = clarification
+        session["current_issue_idx"] = 0
+        return _build_clarification_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            session=session,
+            reply=str(clarification["question"]),
+        )
+
     session["current_issue_idx"] = 0
     first_group = ranked[0]["paths"]
     trace = build_trace(first_group, top_symptoms)
@@ -380,6 +521,13 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
             instance_id=instance_id,
             reply="No more issues to show. Please describe a new problem.",
             session_id=req.session_id,
+        )
+    if _active_clarification(session):
+        return _build_clarification_response(
+            instance_id=instance_id,
+            session_id=req.session_id,
+            session=session,
+            reply=str(session["clarification"].get("question", "Please answer the clarification question first.")),
         )
 
     _load_instance_ontology(instance_id)

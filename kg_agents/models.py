@@ -129,6 +129,12 @@ class CurrentIssue(BaseModel):
     action_options: list[ActionOption] = Field(default_factory=list)
 
 
+class ClarificationOption(BaseModel):
+    id: str
+    label: str
+    description: str = ""
+
+
 class ChatResponse(BaseModel):
     reply: str
     session_id: str
@@ -138,6 +144,9 @@ class ChatResponse(BaseModel):
     total_issues: int | None = None
     telemetry: dict[str, Any] | None = None
     current_issue: CurrentIssue | None = None
+    awaiting_clarification: bool = False
+    clarification_question: str | None = None
+    clarification_options: list[ClarificationOption] = Field(default_factory=list)
 
 
 class NextIssueRequest(BaseModel):

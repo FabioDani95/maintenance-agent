@@ -70,6 +70,7 @@ The shared troubleshooting engine now lives inside `kg_agents/engine/`:
 - similarity scoring
 - query-to-KG alignment and no-fit guardrails
 - deterministic reranking of candidate failure modes
+- ambiguity detection plus a single targeted clarification turn when the top causes remain too close
 - graph traversal
 - deterministic response formatting
 - telemetry payload building
@@ -190,6 +191,7 @@ User message
   -> graph traversal
   -> deterministic candidate reranking (symptom score + KG term overlap + semantic cause similarity)
   -> no-fit guardrail when the query names a technical entity unsupported by the retrieved paths
+  -> optional clarification question when the top two causes are still too close and meaningfully different
   -> deterministic grounded answer
   -> trace payload for graph highlighting
   -> optional telemetry payload
@@ -201,6 +203,8 @@ Current behavior:
 - domain relevance is deterministic
 - failure modes are not shown in raw ontology order; they are reranked against the user query before the first issue is returned
 - if the user explicitly mentions a technical entity such as `ethernet` or `joystick` and no retrieved path supports it, the assistant returns a no-fit fallback instead of forcing an unrelated cause
+- if the user message is too broad to separate two nearby causes confidently, the API asks one focused clarification question before returning the first issue
+- if the clarification answer is unrelated or nonsensical, the API rejects it and repeats the same clarification instead of treating it as a new diagnosis
 - response formatting is deterministic
 - returned facts come from the ontology and linked telemetry/manual metadata
 - telemetry is resolved per instance when a telemetry CSV is present under `kg_agents/data/instances/<instance_id>/telemetry/`

@@ -102,6 +102,13 @@ In particular, the legacy Flask app now uses the same shared reranking and no-fi
 - failure modes are reranked against the current user message before the first issue is shown
 - if the user explicitly names a technical entity and no retrieved troubleshooting path supports it, the app returns a no-fit fallback instead of forcing an unrelated cause
 
+The supported FastAPI path in `kg_agents` has now moved one step further:
+
+- it can ask one targeted clarification question before the first cause when the top candidates are still too close
+- it rejects clarification replies that do not make sense for the troubleshooting question and re-asks the same clarification
+
+The legacy Flask app in this folder does not yet mirror that clarification-state machine.
+
 Changes in this folder mainly affect:
 
 - the standalone Flask app

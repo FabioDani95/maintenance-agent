@@ -49,6 +49,7 @@ Main characteristics:
 - local development UI served by the same backend at `/dev-ui` with `/` redirecting there
 - persistence on local JSON files under `kg_agents/data/`
 - chat pipeline based on symptom embeddings, deterministic cause reranking, graph traversal, and grounded responses
+- one clarification turn is inserted when the top candidate causes are still too close to separate confidently
 - explicit no-fit fallback when the user names a technical entity that is not supported by any retrieved troubleshooting path
 - shared troubleshooting engine lives in `kg_agents/engine`
 
@@ -103,6 +104,8 @@ The repository root still contains the default seed ontology and schema used to 
 ## Notes
 
 - `OPENAI_API_KEY` is required for runtime embeddings used by symptom retrieval and candidate cause reranking.
+- broad or ambiguous troubleshooting messages may now trigger a targeted clarification question before the first cause is returned.
+- clarification answers that do not make sense for the troubleshooting question are rejected and the same clarification is asked again instead of silently drifting to a different cause.
 - If you change `Symptom` nodes, regenerate embeddings before using the updated instance.
 - The versioned API under `/v1/kg-agents/*` is the contract to consume from other applications.
 - The preferred local workflow is a single process: start `kg_agents`, use `/docs` for the API and `/dev-ui` to test the same instance-scoped routes the external frontend consumes.
