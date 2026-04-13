@@ -531,9 +531,9 @@
       },
       {
         "symptom_id": "sym_problem_jogging_robot",
-        "name": "Problem jogging the robot",
+        "name": "Problem Jogging the Robot",
         "description": "The robot cannot be jogged properly.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_inconsistent_path_accuracy",
@@ -575,13 +575,13 @@
         "symptom_id": "sym_hot_parts_may_cause_burns",
         "name": "Hot Parts May Cause Burns",
         "description": "Manipulator parts and cabinet drive parts can become hot enough during operation to cause burns when handled.",
-        "severity": "medium"
+        "severity": "Medium"
       },
       {
         "symptom_id": "sym_gearbox_axis_6_getting_hot",
         "name": "Gearbox on Axis 6 Is Getting Hot",
         "description": "The gearbox on axis 6 becomes noticeably hot during operation.",
-        "severity": "medium"
+        "severity": "Medium"
       },
       {
         "symptom_id": "sym_controller_cannot_be_started",
@@ -593,49 +593,49 @@
         "symptom_id": "sym_erratic_robot_behavior",
         "name": "Erratic Robot Behavior",
         "description": "The robot behaves unpredictably during operation, with movements or reactions that do not match the expected program behavior.",
-        "severity": "medium"
+        "severity": "Medium"
       },
       {
         "symptom_id": "sym_problem_starting_the_system",
         "name": "Problem Starting the System",
         "description": "A problem occurs during start-up and the system does not start as expected.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_leds_not_lit_on_any_unit",
-        "name": "LEDs not lit on any unit",
+        "name": "LEDs Not Lit on Any Unit",
         "description": "LEDs are not lit on any unit during start-up failure.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_earth_fault_protection_trips",
         "name": "Earth Fault Protection Trips",
         "description": "The earth fault protection trips during start-up.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_unable_to_load_system_software",
         "name": "Unable to Load the System Software",
         "description": "The system software does not load successfully during start-up.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_flexpendant_not_responding",
-        "name": "FlexPendant not responding",
+        "name": "FlexPendant Not Responding",
         "description": "The FlexPendant is not responding during start-up failure.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_flexpendant_starts_but_no_input_response",
-        "name": "FlexPendant starts but does not respond to input",
+        "name": "FlexPendant Starts but Does Not Respond to Input",
         "description": "The FlexPendant starts, but does not respond to any input.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_system_software_disk_does_not_start_correctly",
         "name": "Disk Containing the System Software Does Not Start Correctly",
         "description": "The disk that contains the system software does not start correctly during start-up.",
-        "severity": "medium"
+        "severity": "Medium"
       },
       {
         "symptom_id": "sym_flexpendant_starts_but_does_not_communicate_with_controller",
@@ -663,9 +663,9 @@
       },
       {
         "symptom_id": "sym_flexpendant_no_screen_image",
-        "name": "FlexPendant starts but does not display a screen image",
+        "name": "FlexPendant Starts but Does Not Display a Screen Image",
         "description": "The FlexPendant starts, but the display remains blank and no screen image appears.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "sym_wrong_input_voltage_dsqc_604",
@@ -681,9 +681,9 @@
       },
       {
         "symptom_id": "sym_dsqc_662_status_led_red",
-        "name": "DSQC 662 Status LED red",
+        "name": "DSQC 662 Status LED Red",
         "description": "The indicator LED on DSQC 662 is red.",
-        "severity": "high"
+        "severity": "High"
       },
       {
         "symptom_id": "SYM-006",
@@ -749,7 +749,7 @@
     "FailureMode": [
       {
         "failure_mode_id": "fm_holding_brakes_disconnected_faulty_worn_or_non_operational",
-        "name": "holding brakes disconnected, faulty, worn or non-operational",
+        "name": "Holding Brakes Disconnected, Faulty, Worn, or Non-Operational",
         "description": "The holding brakes are disconnected, faulty, worn or in any way rendered non-operational.",
         "material_context": "holding brakes on the robot arm system",
         "related_measurements": [
@@ -760,7 +760,7 @@
       },
       {
         "failure_mode_id": "fm_live_voltage_present_at_drive_module_terminals",
-        "name": "live voltage present at Drive Module terminals",
+        "name": "Live Voltage Present at Drive Module Terminals",
         "description": "Live voltage is present at transformer terminals and Motors ON terminals even if the main power switches have been switched off.",
         "material_context": "Drive Module terminals",
         "related_measurements": [
@@ -776,7 +776,7 @@
       },
       {
         "failure_mode_id": "fm_components_overheated",
-        "name": "components overheated",
+        "name": "Components Overheated",
         "description": "Manipulator parts such as drive motors and gears, and drive parts in the cabinet, become hot during normal operation or due to higher environment temperature.",
         "material_context": "drive motors, gears, drive parts in the cabinet, Bleeder",
         "related_measurements": [
@@ -789,7 +789,7 @@
       },
       {
         "failure_mode_id": "fm_left_behind_service_tools",
-        "name": "left behind service tools",
+        "name": "Left-Behind Service Tools",
         "description": "Special tools left behind after repair or maintenance work may cause erratic robot behavior.",
         "material_context": "robot equipment and service tools",
         "related_measurements": [
@@ -819,7 +819,7 @@
       },
       {
         "failure_mode_id": "fm_main_switches_switched_off",
-        "name": "main switches switched off",
+        "name": "Main Switches Switched Off",
         "description": "The main switches are switched off during start-up troubleshooting.",
         "material_context": "main switches",
         "related_measurements": [
@@ -1468,7 +1468,7 @@
     "CorrectiveAction": [
       {
         "action_id": "ca_secure_robot_arm_system_by_other_means",
-        "name": "secure the robot arm system by other means",
+        "name": "Secure the Robot Arm System by Other Means",
         "description": "Secure the robot arm system by other means before working on it if the holding brakes are suspected to be non-operational.",
         "instruction_text": "1. If you suspect that the holding brakes are non-operational, secure the robot arm system by some other means before working on it.",
         "source_type": "Operating manual - Trouble shooting",
@@ -1478,7 +1478,7 @@
       },
       {
         "action_id": "ca_switch_off_incoming_mains_power_supply",
-        "name": "switch off incoming mains power supply",
+        "name": "Switch Off Incoming Mains Power Supply",
         "description": "Switch off the incoming mains power supply before opening the rear cover of either module.",
         "instruction_text": "1. Make sure the incoming mains power supply has been switched off.",
         "source_type": "Operating manual - Trouble shooting",
@@ -1497,7 +1497,7 @@
       },
       {
         "action_id": "ca_use_wrist_strap",
-        "name": "use a wrist strap",
+        "name": "Use a Wrist Strap",
         "description": "Use a wrist strap to prevent ESD damage.",
         "instruction_text": "1. Use a wrist strap.",
         "source_type": "Operating manual - Trouble shooting",
@@ -1507,7 +1507,7 @@
       },
       {
         "action_id": "ca_use_esd_protective_floor_mat",
-        "name": "use an ESD protective floor mat",
+        "name": "Use an ESD Protective Floor Mat",
         "description": "Use an ESD protective floor mat grounded through a current-limiting resistor.",
         "instruction_text": "1. Use an ESD protective floor mat.",
         "source_type": "Operating manual - Trouble shooting",
