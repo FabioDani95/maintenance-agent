@@ -89,11 +89,18 @@ This folder keeps thin compatibility wrappers for:
 - ontology loading
 - query embeddings
 - symptom matching
+- query-to-KG alignment and no-fit guardrails
+- deterministic failure-mode reranking
 - graph traversal
 - response formatting
 - telemetry payload assembly
 
 That means runtime logic changes should now be made in `kg_agents/engine/`, not here.
+
+In particular, the legacy Flask app now uses the same shared reranking and no-fit behavior as `kg_agents`:
+
+- failure modes are reranked against the current user message before the first issue is shown
+- if the user explicitly names a technical entity and no retrieved troubleshooting path supports it, the app returns a no-fit fallback instead of forcing an unrelated cause
 
 Changes in this folder mainly affect:
 

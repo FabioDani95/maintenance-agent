@@ -16,6 +16,7 @@ from kg_agents.engine.graph_traversal import (
     get_troubleshooting_paths_from_error_code,
 )
 from kg_agents.engine.ontology_loader import OntologyIndex, build_product_metadata
+from kg_agents.engine.query_alignment import align_ranked_groups_to_query, rerank_groups_for_query
 from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
     format_answer_single_group,
@@ -326,6 +327,19 @@ async def chat(instance_id: str, req: ChatRequest):
         )
 
     ranked = group_paths_by_symptom_score(paths, top_symptoms)
+    ranked = rerank_groups_for_query(ranked, message, query_emb, index, top_symptoms)
+    ranked, unmatched_terms = align_ranked_groups_to_query(ranked, message, index)
+    if not ranked:
+        _set_active_issue(session, [], {})
+        return _build_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            reply=low_confidence_response(
+                product_meta=product_meta,
+                unmatched_terms=unmatched_terms,
+            ),
+        )
+
     session["ranked_issues"] = ranked
     session["current_issue_idx"] = 0
     first_group = ranked[0]["paths"]

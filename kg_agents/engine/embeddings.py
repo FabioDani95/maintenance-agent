@@ -29,6 +29,16 @@ def _embed(text: str) -> list[float]:
     return response.data[0].embedding
 
 
+def get_text_embeddings(texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
+    response = _get_client().embeddings.create(
+        model=OPENAI_EMBEDDING_MODEL,
+        input=texts,
+    )
+    return [item.embedding for item in response.data]
+
+
 def build_symptom_embeddings(index: OntologyIndex | None = None) -> dict[str, Any]:
     active_index = index or get_index()
     result: dict[str, Any] = {}

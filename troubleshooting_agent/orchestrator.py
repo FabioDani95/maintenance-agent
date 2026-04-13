@@ -22,6 +22,8 @@ from graph_traversal import (
     get_troubleshooting_paths,
     get_troubleshooting_paths_from_error_code,
 )
+from kg_agents.engine.query_alignment import align_ranked_groups_to_query, rerank_groups_for_query
+from ontology_loader import get_index
 from response_builder import (
     format_answer_single_group,
     low_confidence_response,
@@ -254,6 +256,15 @@ def handle_message(user_message: str, session_id: str, model: str | None = None)
 
     # --- Step 4: rank by similarity score and show first cause immediately ---
     ranked = _group_paths_by_symptom_score(paths, top_symptoms)
+    ranked = rerank_groups_for_query(ranked, user_message, query_emb, get_index(), top_symptoms)
+    ranked, unmatched_terms = align_ranked_groups_to_query(ranked, user_message, get_index())
+    if not ranked:
+        session["trace"] = {}
+        return {
+            "reply": low_confidence_response(unmatched_terms=unmatched_terms),
+            "has_more_issues": False,
+        }
+
     session["ranked_issues"] = ranked
     session["current_issue_idx"] = 0
     first_group = ranked[0]["paths"]

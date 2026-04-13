@@ -48,7 +48,8 @@ Main characteristics:
 - FastAPI app with Swagger at `/docs` and ReDoc at `/redoc`
 - local development UI served by the same backend at `/dev-ui` with `/` redirecting there
 - persistence on local JSON files under `kg_agents/data/`
-- chat pipeline based on symptom embeddings, graph traversal, and deterministic grounded responses
+- chat pipeline based on symptom embeddings, deterministic cause reranking, graph traversal, and grounded responses
+- explicit no-fit fallback when the user names a technical entity that is not supported by any retrieved troubleshooting path
 - shared troubleshooting engine lives in `kg_agents/engine`
 
 Run it with:
@@ -101,7 +102,7 @@ The repository root still contains the default seed ontology and schema used to 
 
 ## Notes
 
-- `OPENAI_API_KEY` is required to generate query embeddings.
+- `OPENAI_API_KEY` is required for runtime embeddings used by symptom retrieval and candidate cause reranking.
 - If you change `Symptom` nodes, regenerate embeddings before using the updated instance.
 - The versioned API under `/v1/kg-agents/*` is the contract to consume from other applications.
 - The preferred local workflow is a single process: start `kg_agents`, use `/docs` for the API and `/dev-ui` to test the same instance-scoped routes the external frontend consumes.

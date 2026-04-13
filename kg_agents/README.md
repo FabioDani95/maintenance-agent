@@ -30,7 +30,7 @@ AGENT_PORT=8030          # optional, defaults to 8030
 
 Notes:
 
-- `OPENAI_API_KEY` is required because query matching uses OpenAI embeddings.
+- `OPENAI_API_KEY` is required because runtime matching uses OpenAI embeddings for symptom retrieval and candidate cause reranking.
 - Neo4j is not used by the current implementation. Persistence is file-based under `kg_agents/data/`.
 
 ## What This Service Does
@@ -68,6 +68,8 @@ The shared troubleshooting engine now lives inside `kg_agents/engine/`:
 - ontology loading and indexing
 - query embedding generation
 - similarity scoring
+- query-to-KG alignment and no-fit guardrails
+- deterministic reranking of candidate failure modes
 - graph traversal
 - deterministic response formatting
 - telemetry payload building
@@ -186,6 +188,8 @@ User message
   -> cosine similarity against symptom embeddings
   -> domain relevance check
   -> graph traversal
+  -> deterministic candidate reranking (symptom score + KG term overlap + semantic cause similarity)
+  -> no-fit guardrail when the query names a technical entity unsupported by the retrieved paths
   -> deterministic grounded answer
   -> trace payload for graph highlighting
   -> optional telemetry payload
@@ -195,9 +199,22 @@ Current behavior:
 
 - embeddings are generated through OpenAI
 - domain relevance is deterministic
+- failure modes are not shown in raw ontology order; they are reranked against the user query before the first issue is returned
+- if the user explicitly mentions a technical entity such as `ethernet` or `joystick` and no retrieved path supports it, the assistant returns a no-fit fallback instead of forcing an unrelated cause
 - response formatting is deterministic
 - returned facts come from the ontology and linked telemetry/manual metadata
 - telemetry is resolved per instance when a telemetry CSV is present under `kg_agents/data/instances/<instance_id>/telemetry/`
+
+### Chat ranking notes
+
+Within a matched symptom, candidate failure modes are ordered by a deterministic reranker that combines:
+
+- the original matched-symptom score
+- overlap between the user query and failure mode / component terms from the ontology
+- normalized concept families such as `communication`, `power`, `input`, `software`, `display`, `mechanical`, and `thermal`
+- semantic similarity between the full user query and a compact text representation of each failure mode group
+
+This means `/next-issue` iterates over the reranked order, not just the original graph insertion order.
 
 ## Ontology Expectations
 
