@@ -555,50 +555,50 @@
       },
       {
         "symptom_id": "sym_holding_brakes_non_operational",
-        "name": "holding brakes non-operational",
-        "description": "Robot axes' holding brakes are disconnected, faulty, worn, or rendered non-operational.",
+        "name": "Holding Brakes Non-Operational",
+        "description": "The robot axes do not hold position because the holding brakes are disconnected, faulty, worn, or otherwise non-operational.",
         "severity": "Critical"
       },
       {
         "symptom_id": "sym_live_voltage_inside_drive_module",
-        "name": "live voltage inside Drive Module",
-        "description": "Live voltage is accessible behind the rear covers and inside the front cover even when the main switches have been switched off.",
+        "name": "Live Voltage Inside Drive Module",
+        "description": "Live voltage may be present behind the rear covers and inside the front cover even when the main switches have been switched off.",
         "severity": "Critical"
       },
       {
         "symptom_id": "sym_unit_sensitive_to_esd",
-        "name": "unit sensitive to ESD",
-        "description": "Sensitive electronics may be destroyed by electrostatic discharge during handling.",
+        "name": "Unit Sensitive to ESD",
+        "description": "Sensitive electronics in the unit may be damaged by electrostatic discharge during handling.",
         "severity": "High"
       },
       {
         "symptom_id": "sym_hot_parts_may_cause_burns",
-        "name": "hot parts may cause burns",
-        "description": "Manipulator parts and cabinet drive parts become hot and may cause burns.",
+        "name": "Hot Parts May Cause Burns",
+        "description": "Manipulator parts and cabinet drive parts can become hot enough during operation to cause burns when handled.",
         "severity": "medium"
       },
       {
         "symptom_id": "sym_gearbox_axis_6_getting_hot",
-        "name": "gearbox on axis 6 is getting hot",
-        "description": "Observation that the gearbox on axis 6 is getting hot.",
+        "name": "Gearbox on Axis 6 Is Getting Hot",
+        "description": "The gearbox on axis 6 becomes noticeably hot during operation.",
         "severity": "medium"
       },
       {
         "symptom_id": "sym_controller_cannot_be_started",
         "name": "Controller cannot be started",
-        "description": "The system cannot be started. The joystick on the FlexPendant does not work.",
+        "description": "The controller cannot be started and the system does not enter normal operation.",
         "severity": "High"
       },
       {
         "symptom_id": "sym_erratic_robot_behavior",
-        "name": "erratic robot behavior",
-        "description": "Robot behavior becomes erratic.",
+        "name": "Erratic Robot Behavior",
+        "description": "The robot behaves unpredictably during operation, with movements or reactions that do not match the expected program behavior.",
         "severity": "medium"
       },
       {
         "symptom_id": "sym_problem_starting_the_system",
-        "name": "problem starting the system",
-        "description": "Problem starting the system during start-up.",
+        "name": "Problem Starting the System",
+        "description": "A problem occurs during start-up and the system does not start as expected.",
         "severity": "high"
       },
       {
@@ -609,14 +609,14 @@
       },
       {
         "symptom_id": "sym_earth_fault_protection_trips",
-        "name": "earth fault protection trips",
-        "description": "Earth fault protection trips during start-up failure.",
+        "name": "Earth Fault Protection Trips",
+        "description": "The earth fault protection trips during start-up.",
         "severity": "high"
       },
       {
         "symptom_id": "sym_unable_to_load_system_software",
-        "name": "unable to load the system software",
-        "description": "The system software cannot be loaded during start-up failure.",
+        "name": "Unable to Load the System Software",
+        "description": "The system software does not load successfully during start-up.",
         "severity": "high"
       },
       {
@@ -633,14 +633,14 @@
       },
       {
         "symptom_id": "sym_system_software_disk_does_not_start_correctly",
-        "name": "disk containing the system software does not start correctly",
-        "description": "The disk containing the system software does not start correctly.",
+        "name": "Disk Containing the System Software Does Not Start Correctly",
+        "description": "The disk that contains the system software does not start correctly during start-up.",
         "severity": "medium"
       },
       {
         "symptom_id": "sym_flexpendant_starts_but_does_not_communicate_with_controller",
         "name": "FlexPendant starts but does not communicate with the controller",
-        "description": "The FlexPendant starts but does not display a screen image. No entries are possible, and no functions are available.",
+        "description": "The FlexPendant powers up but does not establish communication with the controller. Controller functions remain unavailable from the pendant.",
         "severity": "High"
       },
       {
@@ -664,13 +664,13 @@
       {
         "symptom_id": "sym_flexpendant_no_screen_image",
         "name": "FlexPendant starts but does not display a screen image",
-        "description": "The FlexPendant starts but does not display a screen image. No entries are possible, and no functions are available.",
+        "description": "The FlexPendant starts, but the display remains blank and no screen image appears.",
         "severity": "high"
       },
       {
         "symptom_id": "sym_wrong_input_voltage_dsqc_604",
-        "name": "wrong input voltage to DSQC 604",
-        "description": "No or wrong input voltage is detected to DSQC 604.",
+        "name": "Wrong Input Voltage to DSQC 604",
+        "description": "No input voltage or the wrong input voltage is detected at DSQC 604.",
         "severity": "High"
       },
       {
@@ -688,7 +688,7 @@
       {
         "symptom_id": "SYM-006",
         "name": "Low controller performance",
-        "description": "The controller performance is low, and seems to work irrationally.",
+        "description": "The controller responds slowly, performs poorly, or behaves in a way that appears inconsistent during operation.",
         "severity": "Medium"
       },
       {
@@ -742,7 +742,7 @@
       {
         "symptom_id": "SYM-028",
         "name": "USB communication error",
-        "description": "USB communication error.",
+        "description": "A USB communication error is indicated between the power supply and the computer.",
         "severity": "High"
       }
     ],
@@ -798,8 +798,8 @@
       },
       {
         "failure_mode_id": "fm_loss_of_power_supply",
-        "name": "Mains power supply loss",
-        "description": "Start-up failure may be due to a loss of power supply in many stages.",
+        "name": "Loss of Power Supply During Start-Up",
+        "description": "A loss of power supply at one or more stages can prevent the system from starting correctly.",
         "material_context": "Control Module service outlet",
         "related_measurements": [
           "mains_voltage_vac",
@@ -809,8 +809,8 @@
       },
       {
         "failure_mode_id": "fm_main_transformer_incorrectly_connected_to_mains_voltage",
-        "name": "main transformer incorrectly connected to mains voltage levels",
-        "description": "The main transformer in the Drive module is not correctly connected to the mains voltage levels at hand.",
+        "name": "Main Transformer Incorrectly Connected to Mains Voltage",
+        "description": "The main transformer in the Drive Module is connected to terminals that do not match the available mains voltage.",
         "material_context": "main transformer in the Drive module",
         "related_measurements": [
           "mains_voltage_vac",
@@ -859,8 +859,8 @@
       },
       {
         "failure_mode_id": "fm_connection_missing_between_control_and_drive_modules",
-        "name": "Connection missing between the Control and Drive modules",
-        "description": "Connection is missing between the Control and Drive modules.",
+        "name": "Missing Connection Between Control and Drive Modules",
+        "description": "A required connection between the Control Module and the Drive Module is missing.",
         "material_context": "Control Module and Drive Module interconnection",
         "related_measurements": []
       },
@@ -900,7 +900,7 @@
       {
         "failure_mode_id": "fm_system_not_supplied_with_power",
         "name": "Drive Module power supply failure",
-        "description": "If the power supply incoming voltage is correct (230 VAC) but the LEDs still do not work, the Drive Module power supply must be replaced.",
+        "description": "The Drive Module power supply does not provide the expected output even when the incoming supply voltage is present.",
         "material_context": "Drive Module power supply",
         "related_measurements": [
           "drive_module_x1_input_vac",
@@ -963,8 +963,8 @@
       },
       {
         "failure_mode_id": "fm_mains_power_supply_loss",
-        "name": "Mains power supply loss",
-        "description": "Mains power supply is lost.",
+        "name": "Loss of Mains Power Supply",
+        "description": "The controller is no longer receiving mains power supply.",
         "material_context": "controller mains supply",
         "related_measurements": [
           "mains_voltage_vac",
@@ -1163,8 +1163,8 @@
       },
       {
         "failure_mode_id": "fm_loose_connections_or_dry_joints",
-        "name": "loose connections or dry joints",
-        "description": "Intermittent errors may be due to loose connections or dry joints, for example incorrectly connected cable screen connections.",
+        "name": "Loose Connections or Dry Joints",
+        "description": "Intermittent errors can be caused by loose connections, dry joints, or poorly connected cable screen connections.",
         "material_context": "Robot system cabling and joints",
         "related_measurements": [
           "connector_torque_nm",
@@ -1174,8 +1174,8 @@
       },
       {
         "failure_mode_id": "fm_wrong_input_voltage_to_cabinet",
-        "name": "incorrect cabinet input voltage",
-        "description": "The input voltage to the cabinet may be incorrect for that particular cabinet.",
+        "name": "Incorrect Cabinet Input Voltage",
+        "description": "The cabinet is supplied with an input voltage that does not match the required voltage for that cabinet.",
         "material_context": "cabinet power input",
         "related_measurements": [
           "cabinet_input_voltage_vac",
@@ -1195,8 +1195,8 @@
       },
       {
         "failure_mode_id": "fm_low_input_output_voltage_or_acok_n_high",
-        "name": "low input/output voltage or ACOK_N high",
-        "description": "A red Status LED on DSQC 662 indicates the input/output voltage is low and/or the logic signal ACOK_N is high.",
+        "name": "Low Input or Output Voltage, or ACOK_N High",
+        "description": "A red status LED on DSQC 662 indicates low input voltage, low output voltage, and/or a high ACOK_N logic signal.",
         "material_context": "DSQC 662 input, output, and ACOK_N signal",
         "related_measurements": [
           "dsqc662_input_vdc",
@@ -1488,9 +1488,9 @@
       },
       {
         "action_id": "ca_verify_no_voltage_with_voltmeter",
-        "name": "verify no voltage with voltmeter",
+        "name": "Verify No Voltage with Voltmeter",
         "description": "Use a voltmeter to verify that there is no voltage between any of the terminals.",
-        "instruction_text": "Use a voltmeter to verify that there is not voltage between any of the terminals.",
+        "instruction_text": "1. Use a voltmeter to verify that there is no voltage between any of the terminals.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 20"
@@ -1517,27 +1517,27 @@
       },
       {
         "action_id": "ca_use_dissipative_table_mat",
-        "name": "use a dissipative table mat",
+        "name": "Use a Dissipative Table Mat",
         "description": "Use a dissipative table mat grounded to provide controlled discharge of static voltages.",
-        "instruction_text": "Use a dissipative table mat.",
+        "instruction_text": "1. Use a dissipative table mat.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 21"
       },
       {
         "action_id": "ca_wait_until_component_has_cooled",
-        "name": "wait until the component has cooled",
+        "name": "Wait Until the Component Has Cooled",
         "description": "Wait until the potentially hot component has cooled before removing or handling it.",
-        "instruction_text": "Wait until the potentially hot component has cooled if it is to be removed or handled in any other way.",
+        "instruction_text": "1. Wait until the potentially hot component has cooled before removing it or handling it in any other way.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 23"
       },
       {
         "action_id": "ca_remove_left_behind_tools",
-        "name": "remove left behind tools",
+        "name": "Remove Left-Behind Tools",
         "description": "Remove all special tools left behind when maintenance work is complete.",
-        "instruction_text": "Make sure all such tools are removed when maintenance work is complete!",
+        "instruction_text": "1. Make sure all such tools are removed when maintenance work is complete.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 30"
@@ -1546,7 +1546,7 @@
         "action_id": "ca_make_sure_main_power_supply_is_present",
         "name": "Restore mains power supply within specifications",
         "description": "Ensure the main power supply to the system is present and within specified limits.",
-        "instruction_text": "Make sure the main power supply to the system is present and is within the specified limits.",
+        "instruction_text": "1. Make sure the main power supply to the system is present. 2. Make sure it is within the specified limits.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 33",
@@ -1554,9 +1554,9 @@
       },
       {
         "action_id": "ca_connect_main_transformer_correctly",
-        "name": "Connect FlexPendant correctly to Control Module",
+        "name": "Connect Main Transformer Correctly",
         "description": "Ensure the main transformer in the Drive module is correctly connected to the mains voltage levels at hand.",
-        "instruction_text": "Make sure that the main transformer in the Drive module is correctly connected to the mains voltage levels at hand.",
+        "instruction_text": "1. Make sure that the main transformer in the Drive Module is correctly connected to the available mains voltage level.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 33",
@@ -1564,18 +1564,18 @@
       },
       {
         "action_id": "ca_switch_on_main_switches",
-        "name": "switch on main switches",
+        "name": "Switch On Main Switches",
         "description": "Ensure that the main switches are switched on.",
-        "instruction_text": "Make sure that the main switches are switched on.",
+        "instruction_text": "1. Make sure that the main switches are switched on.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 33"
       },
       {
         "action_id": "ca_verify_power_supply_to_control_and_drive_modules",
-        "name": "verify power supply to Control module and Drive module",
-        "description": "Ensure that the power supply to the Control module and Drive module are within specified limits.",
-        "instruction_text": "Make sure that the power supply to the Control module and Drive module are within the specified limits.",
+        "name": "Verify Power Supply to Control Module and Drive Module",
+        "description": "Ensure that the power supply to the Control Module and Drive Module is within the specified limits.",
+        "instruction_text": "1. Make sure that the power supply to the Control Module and Drive Module is within the specified limits.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 33"
@@ -1594,7 +1594,7 @@
         "action_id": "ca_ensure_main_transformer_connected_correctly",
         "name": "Ensure main transformer is connected correctly",
         "description": "Ensure that the main transformer is connected correctly to the mains voltage level.",
-        "instruction_text": "Ensure that the main transformer is connected correctly to the mains voltage level.",
+        "instruction_text": "1. Ensure that the main transformer is connected correctly to the mains voltage level.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 35"
@@ -1623,7 +1623,7 @@
         "action_id": "ca_add_short_wait_instructions",
         "name": "Add short WAIT instructions",
         "description": "Add one or more short WAIT instructions to avoid fast program loops.",
-        "instruction_text": "To avoid such loops, you can test by adding one or more WAIT instructions. Use only short WAIT times, to avoid slowing the program down unnecessarily.",
+        "instruction_text": "1. Test by adding one or more WAIT instructions. 2. Use only short WAIT times to avoid slowing the program down unnecessarily.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 36"
@@ -1652,7 +1652,7 @@
         "action_id": "ca_switch_on_main_switch",
         "name": "Switch on main switch",
         "description": "Make sure the main switch has been switched on.",
-        "instruction_text": "Make sure the main switch has been switched on.",
+        "instruction_text": "1. Make sure the main switch has been switched on.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 39"
@@ -1671,7 +1671,7 @@
         "action_id": "ca_check_main_transformer_connection",
         "name": "Check main transformer connection",
         "description": "Check the main transformer connection and match terminal voltages to shop supply voltage.",
-        "instruction_text": "Check the main transformer connection. The voltages are marked on the terminals. Make sure they match the shop supply voltage.",
+        "instruction_text": "1. Check the main transformer connection. 2. Read the voltages marked on the terminals. 3. Make sure they match the shop supply voltage.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 39"
@@ -1698,9 +1698,9 @@
       },
       {
         "action_id": "ca_reset_circuit_breaker_f5_condition",
-        "name": "Reset earth fault protection condition",
+        "name": "Reset Circuit Breaker F5 Condition",
         "description": "Make sure the circuit breaker in the Control Module has not been tripped and connected equipment does not consume too much power.",
-        "instruction_text": "Make sure the circuit breaker in the Control Module has not been tripped. Make sure any equipment connected to the service outlet does not consume too much power, causing the circuit breaker to trip.",
+        "instruction_text": "1. Make sure the circuit breaker in the Control Module has not been tripped. 2. Make sure any equipment connected to the service outlet does not consume too much power and cause the circuit breaker to trip.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 41",
@@ -1710,15 +1710,15 @@
         "action_id": "ca_reset_earth_fault_protection_f4_condition",
         "name": "Reset earth fault protection F4 condition",
         "description": "Make sure the earth fault protection has not been tripped and connected equipment does not conduct current to ground.",
-        "instruction_text": "Make sure the earth fault protection has not been tripped. Make sure any equipment connected to the service outlet does not conduct current to ground, causing the earth fault protection to trip.",
+        "instruction_text": "1. Make sure the earth fault protection has not been tripped. 2. Make sure any equipment connected to the service outlet does not conduct current to ground and cause the earth fault protection to trip.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 41"
       },
       {
         "action_id": "ca_restore_power_supply_within_specifications",
-        "name": "Restore power supply within specifications",
-        "description": "Make sure the power supply to the robot system is within specifications.",
+        "name": "Restore USB Communication Between Power Supply and Computer",
+        "description": "Check and restore the USB connection between the power supply and the computer.",
         "instruction_text": "1. Check USB connection on both ends. 2. Try to fix the communication between the power supply and the computer by reconnecting the cable. 3. Make sure that the USB cable is properly connected on both ends.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
@@ -1737,9 +1737,9 @@
       },
       {
         "action_id": "ca_switch_on_system_and_connect_flexpendant",
-        "name": "Connect FlexPendant correctly to controller",
-        "description": "Make sure the system is switched on and that the FlexPendant is connected to the controller.",
-        "instruction_text": "1. Check the cabling. 2. Make sure that the cabling is correctly connected and not faulty. 3. If the cabling is found unconnected or faulty, connect/replace it. 4. Verify that the fault has been fixed and restart this guide if necessary.",
+        "name": "Switch On the System and Verify the FlexPendant Connection",
+        "description": "Make sure the system is switched on and that the FlexPendant cabling is correctly connected to the controller.",
+        "instruction_text": "1. Check the cabling. 2. Make sure that the cabling is correctly connected and not faulty. 3. If the cabling is found unconnected or faulty, connect or replace it. 4. Verify that the fault has been fixed and restart this guide if necessary.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 42",
@@ -1759,16 +1759,16 @@
         "action_id": "ca_connect_cables_from_power_supply_unit_to_main_computer",
         "name": "Connect cables from power supply unit to main computer correctly",
         "description": "Check all cables from power supply unit to main computer and make sure they are correctly connected.",
-        "instruction_text": "Check all cables from power supply unit to main computer, making sure these are correctly connected.",
+        "instruction_text": "1. Check all cables from the power supply unit to the main computer. 2. Make sure they are correctly connected.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 43"
       },
       {
         "action_id": "ca_connect_flexpendant_correctly_to_controller",
-        "name": "Connect FlexPendant correctly to controller",
-        "description": "Make sure the FlexPendant has been correctly connected to the controller.",
-        "instruction_text": "1. Check connection between DC output and connected unit. 2. Make sure that the power supply is connected to DSQC 662. 3. If the connection is faulty or the power supply is not connected to DSQC 662, repair connection/connect it. 4. Verify that the fault has been fixed and restart this guide if necessary.",
+        "name": "Connect the Power Supply to DSQC 662 Correctly",
+        "description": "Check the connection between the DC output and the connected unit, and make sure the power supply is correctly connected to DSQC 662.",
+        "instruction_text": "1. Check the connection between the DC output and the connected unit. 2. Make sure that the power supply is connected to DSQC 662. 3. If the connection is faulty or the power supply is not connected to DSQC 662, repair the connection or connect it properly. 4. Verify that the fault has been fixed and restart this guide if necessary.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 43",
@@ -1788,7 +1788,7 @@
         "action_id": "ca_replace_faulty_cabling",
         "name": "Replace faulty cabling",
         "description": "Inspect cable insulation for damage and replace faulty cabling.",
-        "instruction_text": "Inspect all cable insulation for damage. Replace any faulty cabling as detailed in the product manual for the robot.",
+        "instruction_text": "1. Inspect all cable insulation for damage. 2. Replace any faulty cabling as detailed in the product manual for the robot.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 44"
@@ -1797,7 +1797,7 @@
         "action_id": "ca_set_controller_manual_mode",
         "name": "Set controller to manual mode",
         "description": "Make sure the controller is in manual mode.",
-        "instruction_text": "Make sure the controller is in manual mode.",
+        "instruction_text": "1. Make sure the controller is in manual mode.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 45"
@@ -1824,9 +1824,9 @@
       },
       {
         "action_id": "ca_replace_faulty_bearing",
-        "name": "Replace faulty motor or gearbox",
+        "name": "Replace Faulty Bearing",
         "description": "Locate the faulty bearing by tracking the noise and replace it.",
-        "instruction_text": "1. Locate the faulty motor by tracking the noise. 2. Study the path of the robot TCP to establish which axis, and thus which motor, may be faulty. 3. Replace the faulty motor/gearbox as specified in the product manual for the robot.",
+        "instruction_text": "1. Locate the faulty bearing by tracking the noise. 2. Identify which axis the noise follows. 3. Replace the faulty bearing as specified in the product manual for the robot.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 47",
@@ -1836,7 +1836,7 @@
         "action_id": "ca_replace_faulty_motor_gearbox",
         "name": "Replace faulty motor or gearbox",
         "description": "Locate the faulty motor by tracking the noise and replace the faulty motor or gearbox.",
-        "instruction_text": "Locate the faulty motor by tracking the noise. Replace the faulty motor/gearbox as specified in the product manual for the robot.",
+        "instruction_text": "1. Locate the faulty motor by tracking the noise. 2. Replace the faulty motor or gearbox as specified in the product manual for the robot.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 47"
@@ -1845,7 +1845,7 @@
         "action_id": "ca_replace_faulty_parallel_bar",
         "name": "Replace faulty parallel bar",
         "description": "Check the trueness of the parallel bar and replace the faulty parallel bar.",
-        "instruction_text": "Check the trueness of the parallel bar (applies to robots fitted with parallel bars only). Replace the faulty parallel bar as specified in the product manual for the robot.",
+        "instruction_text": "1. Check the trueness of the parallel bar if the robot is fitted with parallel bars. 2. Replace the faulty parallel bar as specified in the product manual for the robot.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 47",
@@ -1875,7 +1875,7 @@
         "action_id": "ca_correct_gearbox_oil_level",
         "name": "Correct gearbox oil level",
         "description": "Check the gearbox oil level and correct it according to specification.",
-        "instruction_text": "Check the gearbox oil level. Correct oil level is specified in the product manual for the robot.",
+        "instruction_text": "1. Check the gearbox oil level. 2. Correct the oil level according to the specification in the product manual for the robot.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 48"
@@ -1884,14 +1884,14 @@
         "action_id": "ca_check_recommended_oil_level_and_type",
         "name": "Check recommended oil level and type",
         "description": "Check the recommended oil level and type as specified in the product manual for the robot.",
-        "instruction_text": "Check the recommended oil level and type as specified in the product manual for the robot.",
+        "instruction_text": "1. Check the recommended oil level and type as specified in the product manual for the robot.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 48"
       },
       {
         "action_id": "ca_secure_all_cabling_and_connectors",
-        "name": "secure all cabling and connectors",
+        "name": "Secure All Cabling and Connectors",
         "description": "Check all cabling and make sure connectors are connected securely.",
         "instruction_text": "1. Check all the cabling, especially the cables in the Emergency stop and Enable chains. 2. Make sure all connectors are connected securely.",
         "source_type": "Operating manual - Trouble shooting",
@@ -1901,8 +1901,8 @@
       },
       {
         "action_id": "ca_adjust_cabinet_input_voltage",
-        "name": "adjust cabinet input voltage",
-        "description": "Replace DSQC 661 when the input voltage is correct and the unit may be faulty.",
+        "name": "Adjust Cabinet Input Voltage",
+        "description": "Verify that the cabinet input voltage matches the required voltage for that cabinet and adjust it if necessary.",
         "instruction_text": "1. Make sure that the input voltage to the cabinet is the correct one for that particular cabinet. 2. If the input voltage is incorrect, adjust it. 3. Verify that the fault has been fixed and restart this guide if necessary.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
@@ -1911,27 +1911,27 @@
       },
       {
         "action_id": "ca_check_usb_connection_both_ends",
-        "name": "check USB connection on both ends",
+        "name": "Check USB Connection on Both Ends",
         "description": "Check the USB connection on both ends for DSQC 662 communication issues.",
-        "instruction_text": "Check USB connection on both ends.",
+        "instruction_text": "1. Check the USB connection on both ends.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 65"
       },
       {
         "action_id": "ca_reconnect_usb_cable",
-        "name": "reconnect USB cable",
+        "name": "Reconnect USB Cable",
         "description": "Reconnect the USB cable to restore communication between the power supply and the computer.",
-        "instruction_text": "Try to fix the communication between the power supply and the computer by reconnecting the cable. Make sure that the USB cable is properly connected on both ends.",
+        "instruction_text": "1. Try to restore communication between the power supply and the computer by reconnecting the cable. 2. Make sure that the USB cable is properly connected on both ends.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 65"
       },
       {
         "action_id": "ca_troubleshoot_dsqc_661",
-        "name": "troubleshoot DSQC 661",
-        "description": "Troubleshoot DSQC 661 when DSQC 662 input voltage is wrong.",
-        "instruction_text": "If no or the wrong input voltage is detected, troubleshoot DSQC 661.",
+        "name": "Troubleshoot DSQC 661",
+        "description": "Troubleshoot DSQC 661 when no input voltage or the wrong input voltage is detected.",
+        "instruction_text": "1. If no input voltage or the wrong input voltage is detected, troubleshoot DSQC 661.",
         "source_type": "Operating manual - Trouble shooting",
         "source_title": "IRC5",
         "source_reference": "PAGE 65"
