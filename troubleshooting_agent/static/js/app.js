@@ -480,7 +480,7 @@ function enrichNode(n, cMap) {
   return {
     ...n,
     color: { border: sevColor, background: c, highlight: { border: "#e5e7eb", background: c }, hover: { border: "#e5e7eb", background: c } },
-    font: { color: "#8b949e", size: 11, face: "system-ui" },
+    font: { color: ACTIVE_FONT_COLOR, size: 11, face: "system-ui" },
     shape: "dot",
     size: 10,
     borderWidth: bw,
