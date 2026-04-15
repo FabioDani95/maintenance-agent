@@ -1,142 +1,171 @@
-# Troubleshooting Assistant for Bambu Lab P1P
-## Functional Specification Aligned with the Current Repository
+# Troubleshooting Assistant
+## Legacy Flask Compatibility App Specification
 
 ---
 
 ## 1. Purpose
 
-The application is a domain-constrained troubleshooting assistant for the **Bambu Lab P1P**.
+This document describes the current behavior of the legacy `troubleshooting_agent/`
+Flask application as it exists in this repository today.
 
-Its goal is to help the user diagnose maintenance and troubleshooting issues by:
+Important scope note:
 
-1. receiving a problem description in natural language
-2. deciding whether the message is relevant to the product domain
-3. matching the message to known symptoms using embeddings
-4. traversing the Knowledge Graph from symptom to failure mode to corrective action
-5. asking one clarifying question when multiple causes are plausible
-6. generating a grounded answer from graph data only
-7. highlighting the active troubleshooting path in the graph UI
-8. exposing manual references and related telemetry when available
+- the primary supported backend for this branch is `kg_agents/`
+- the legacy Flask app is kept for compatibility and local standalone use
+- the actual troubleshooting logic is shared from `kg_agents/engine/`
+- the supported `kg_agents` chat flow now includes a single clarification turn for
+  ambiguous top causes, but the legacy Flask transport in this folder does not yet
+  expose that clarification-state machine
 
-The system is grounded in `ontology.json` and must not invent unsupported technical procedures.
+The current checked-in single-instance dataset used by the legacy app is aligned to
+the **ABB IRC5** controller, not to the older Bambu Lab P1P dataset that earlier
+versions of this specification described.
+
+The application's purpose is to help a user troubleshoot a machine issue by:
+
+1. accepting a free-text troubleshooting message
+2. checking whether the message is relevant to the product domain
+3. retrieving the closest known symptoms with OpenAI embeddings
+4. traversing the knowledge graph from symptom to failure mode to corrective action
+5. reranking candidate causes against the user's wording
+6. blocking obviously unrelated causes with a no-fit guardrail
+7. returning only grounded actions, sources, graph trace data, and telemetry metadata
+
+The assistant must not invent unsupported technical procedures.
 
 ---
 
-## 2. Design Principle
+## 2. Design Principles
 
-The assistant follows a knowledge-grounded architecture built from four components:
+The current implementation is knowledge-grounded and mostly deterministic.
 
-- LLM-based domain classification
+The active runtime behavior is built from:
+
+- deterministic domain relevance checks
 - embedding-based symptom retrieval
 - graph traversal over the ontology
-- LLM-based answer formatting constrained by retrieved data
+- deterministic reranking of candidate failure modes
+- deterministic response rendering from retrieved graph data only
 
 Core rule:
 
-> The assistant must not autonomously create technical solutions.
-> It must only present information retrieved from the ontology and its linked metadata.
+> The assistant must not autonomously create troubleshooting knowledge.
+> It may only present causes and corrective actions supported by the ontology.
 
 ---
 
-## 3. Knowledge Model
+## 3. Current Checked-In Knowledge Graph
 
-The troubleshooting graph used by the current code has this operative structure:
+The legacy Flask app loads the root `ontology.json`.
 
-```text
-Symptom
-   -> MAY_INDICATE -> FailureMode
-   -> FailureMode -> RESOLVED_BY -> CorrectiveAction
-   -> FailureMode -> AFFECTS -> Component
-```
+Current metadata in the checked-in file:
 
-The current ontology metadata in `ontology.json` reports:
+- `product_name`: `IRC5`
+- `product_short_name`: `IRC5`
+- `product_type`: `control box`
+- `version`: `V0`
+- `total_nodes`: `252`
+- `total_relationships`: `354`
 
-- version: `2.0-aligned`
-- extraction date: `2026-03-10`
-- product: `Bambu Lab P1P`
-- total nodes: `73`
-- total relationships: `98`
+Current node counts in the checked-in root ontology:
 
-Current node counts:
+- `Asset`: 1
+- `Component`: 80
+- `Symptom`: 40
+- `FailureMode`: 71
+- `CorrectiveAction`: 60
+- `ErrorCode`: 0
 
-- Printer: 1
-- Component: 16
-- Symptom: 16
-- FailureMode: 18
-- CorrectiveAction: 22
+Operationally important node classes for troubleshooting:
 
-The active application logic depends on these node ID fields:
+- `Symptom`
+- `FailureMode`
+- `CorrectiveAction`
+- optional `Component`
+- optional `ErrorCode`
 
-- `printer_id`
-- `component_id`
+Operationally important relationship types:
+
+- `MAY_INDICATE`
+- `RESOLVED_BY`
+- `AFFECTS`
+- optional `INDICATES` for error codes
+
+The active traversal logic depends on these ID fields:
+
 - `symptom_id`
 - `failure_mode_id`
 - `action_id`
+- optional `component_id`
+- optional `error_code_id`
 
-Each `CorrectiveAction` is expected to expose:
+Each `CorrectiveAction` is expected to provide:
 
 - `name`
 - `instruction_text`
 - `source_title`
 - `source_reference`
 
-Each `FailureMode` may additionally expose:
+Each `FailureMode` may additionally provide:
 
+- `material_context`
 - `related_measurements`
 
-When present, `related_measurements` is used to load telemetry series from the CSV dataset.
+When `related_measurements` is present, the app attempts to load telemetry for those
+signals.
 
 ---
 
-## 4. Scope
-
-The assistant is specialized for Bambu Lab P1P troubleshooting and maintenance.
-
-Supported examples:
-
-- mechanical noises, friction, resistance, vibrations
-- extrusion issues and filament feed/cut problems
-- nozzle or hotend maintenance issues
-- motion-system issues on X/Y/Z axes
-- maintenance operations already represented in the ontology
-- camera or optics problems represented in the ontology
-
-Out-of-scope examples:
-
-- general conversation
-- unrelated software or coding help
-- questions outside the Bambu Lab P1P troubleshooting domain
-- procedures not represented in the graph
-
-Language handling in the current implementation:
-
-- the classifier prompt explicitly requires English input
-- non-English input is classified as `not_relevant`
-
----
-
-## 5. Functional Requirements
+## 4. Functional Requirements
 
 ### R1. Natural-language input
 
 The frontend sends free-text user messages to `POST /chat`.
 
-### R2. Domain relevance check
+### R2. Deterministic domain relevance check
 
-`domain_check.py` uses the configured chat model to classify the message as:
+The current implementation does not use an LLM classifier.
+
+`domain_check.py` is a compatibility wrapper around `kg_agents.engine.domain_check`,
+which performs a deterministic check based on:
+
+- top symptom similarity score
+- product metadata topics from `ontology.json`
+- simple message heuristics
+- likely non-English input detection
+
+Possible outcomes:
 
 - `relevant`
 - `unclear`
 - `not_relevant`
 
-The prompt is built from product metadata loaded from `ontology.json`.
+If the top symptom match is already high-confidence, the domain relevance check is
+effectively bypassed.
 
-### R3. Embedding-based symptom retrieval
+### R3. Error code detection
 
-If the message is relevant:
+The chat pipeline first checks whether the message contains an error-code-like token
+matching the HMS-style pattern used by the code.
 
-1. the system generates a query embedding
-2. compares it with precomputed symptom embeddings
+If an error code is recognized and present in the ontology:
+
+- the app traverses `ErrorCode -> FailureMode -> CorrectiveAction`
+- returns the first ranked issue immediately
+
+If an error code is recognized syntactically but not found in the ontology:
+
+- the app returns a fallback asking the user to also describe the symptom
+
+Current checked-in root ontology contains `0` `ErrorCode` nodes, so this branch of
+the flow is supported by the code but inactive for the default legacy dataset.
+
+### R4. Embedding-based symptom retrieval
+
+If no usable error code path is found:
+
+1. the system generates a query embedding with OpenAI
+2. compares it against precomputed symptom embeddings
 3. returns up to `TOP_K_SYMPTOMS = 3` candidates above threshold
 
 Current configuration:
@@ -145,52 +174,88 @@ Current configuration:
 - similarity threshold: `0.45`
 - high-confidence threshold: `0.75`
 
-### R4. Vector similarity search
+Similarity is computed with in-memory cosine similarity using NumPy.
 
-Similarity search is performed in-memory with NumPy cosine similarity.
-
-If no symptom exceeds the threshold, the assistant returns a low-confidence fallback message.
+If no symptom exceeds the threshold, the assistant returns a low-confidence no-fit
+message.
 
 ### R5. Knowledge graph traversal
 
-`graph_traversal.py` traverses:
+For matched symptoms, `graph_traversal.py` returns paths over:
 
 ```text
 Symptom -> FailureMode -> CorrectiveAction
 FailureMode -> Component
 ```
 
-Each returned path contains:
+Each returned path includes:
 
 - symptom ID and name
 - failure mode ID and name
-- first affected component ID and name, if any
+- first affected component ID and name, if present
 - action ID and name
 - `instruction_text`
 - `source_title`
 - `source_reference`
 - `related_measurements`
 
-Duplicate `(failure_mode, action)` pairs are removed.
+Duplicate `(failure_mode_id, action_id)` pairs are removed.
 
-### R6. Clarification flow
+### R6. Deterministic reranking of candidate causes
 
-If multiple failure modes are retrieved:
+If multiple failure modes are available, the current legacy Flask implementation does
+**not** ask an immediate clarification question.
 
-1. the assistant stores all pending paths in session state
-2. asks one short clarifying question via LLM
-3. waits for the next user turn
-4. ranks failure modes by keyword overlap with the clarification answer
-5. returns the top ranked issue first
+Instead, it reranks failure-mode groups against the current user message and returns
+the top reranked issue immediately.
 
-Session state is kept in memory per `session_id`.
+The reranker combines:
 
-### R7. Step-through issue navigation
+- matched-symptom score
+- overlap between the query and failure-mode / component ontology terms
+- normalized concept families such as:
+  - `communication`
+  - `power`
+  - `input`
+  - `display`
+  - `software`
+  - `mechanical`
+  - `thermal`
+- semantic similarity between the full user query and a compact text representation
+  of each failure-mode group
+- penalties when the query clearly points to one technical family and a candidate
+  belongs to another
 
-The current code supports issue-by-issue navigation:
+This reranker is deterministic once the query embedding is available.
 
-- first result is returned immediately
-- additional ranked issues are available via `POST /next_issue`
+### R7. Query-to-KG alignment guardrail
+
+After reranking, the app checks whether the retrieved paths support explicit
+technical entities named by the user.
+
+Example of intended behavior:
+
+- user says `ethernet`
+- no retrieved path actually supports `ethernet`
+- app must **not** return a joystick or unrelated power cause
+
+If no candidate group supports the explicit technical entity named by the user, the
+assistant returns a no-fit fallback instead of forcing an unrelated answer.
+
+The guardrail is controlled by a shared engine setting:
+
+- `QUERY_ALIGNMENT_MAX_TERM_FREQUENCY = 3`
+
+This setting lives in `kg_agents/config.py` because the shared engine is now
+defined there.
+
+### R8. Step-through issue navigation
+
+The issue flow is now:
+
+1. return the first reranked issue immediately
+2. store the remaining ranked issues in session state
+3. expose the remaining candidates via `POST /next_issue`
 
 Each response may include:
 
@@ -198,38 +263,43 @@ Each response may include:
 - `issue_number`
 - `total_issues`
 
-### R8. Grounded answer generation
+`/next_issue` iterates over the reranked order, not the raw graph insertion order.
 
-`response_builder.py` uses the configured chat model to format graph data into English prose.
+### R9. Response rendering
 
-Current default chat model:
+`response_builder.py` is now deterministic.
 
-- `gpt-5-mini`
+It does **not** call an LLM to generate prose. Instead it formats grouped graph data
+into a grounded markdown response containing:
 
-The prompt explicitly requires:
+- the selected failure mode
+- the affected component, if present
+- all unique corrective actions for that failure mode
+- source citations for those actions
 
-- use only provided graph data
-- no invented causes or procedures
-- grouping all actions under each failure mode
-- source citation for each corrective action
+The configured `OPENAI_CHAT_MODEL = gpt-5-mini` is still present in config and API
+payloads for compatibility, but the current legacy app behavior does not depend on
+chat-completion calls.
 
-### R9. Source citation behavior
+### R10. Source citation behavior
 
 Two source modes are supported:
 
 1. URL source
-   - if `source_reference` starts with `http`, the answer shows a web citation
+   - if `source_reference` starts with `http`, the response uses a web link
 2. Manual source
-   - if `source_reference` is numeric, the answer uses the marker
+   - if `source_reference` contains or is a numeric page reference, the response
+     emits a marker of the form:
      `[MANUAL:<source_title>:<page>]`
 
-The frontend converts the manual marker into a button that opens the local PDF.
+The frontend converts the manual marker into a UI action that opens the local PDF.
 
-### R10. Graph highlighting
+### R11. Graph highlighting
 
 The backend builds a trace containing:
 
 - `symptom_ids`
+- `error_code_ids`
 - `failure_mode_ids`
 - `action_ids`
 - `component_ids`
@@ -237,22 +307,28 @@ The backend builds a trace containing:
 - `scores`
 - `reasoning`
 
-This trace is returned by `/chat` and `/next_issue` and consumed by the frontend to highlight the active troubleshooting path.
+This trace is returned by `/chat` and `/next_issue` and is consumed by the frontend
+to highlight the active troubleshooting path.
 
-### R11. Telemetry support
+### R12. Telemetry support
 
-If the selected failure mode includes `related_measurements`, the orchestrator loads:
+If the active failure mode exposes `related_measurements`, the backend attempts to
+load:
 
 - time series via `get_signals()`
 - summary statistics via `get_stats()`
 
-Telemetry is returned in the JSON response and is optional. Missing CSV files or unknown columns do not crash the app.
+Telemetry is optional:
 
-### R12. Session reset
+- missing CSV files do not crash the app
+- unknown columns are skipped
+- telemetry may be absent in the response
 
-`POST /reset` clears in-memory conversation state for a given `session_id`.
+### R13. Session reset
 
-### R13. Server lifecycle
+`POST /reset` clears the in-memory troubleshooting session for a given `session_id`.
+
+### R14. Server lifecycle
 
 `agent.py` currently provides:
 
@@ -264,7 +340,7 @@ Telemetry is returned in the JSON response and is optional. Missing CSV files or
 
 ---
 
-## 6. Architecture
+## 5. Architecture
 
 ```text
 Browser UI
@@ -279,31 +355,33 @@ Browser UI
   -> GET /telemetry/<signal>  api_routes.py
 
 orchestrator.py
-  -> domain_check.py
-  -> embeddings.py
-  -> similarity.py
-  -> graph_traversal.py
-  -> response_builder.py
-  -> telemetry_loader.py
-  -> ontology_loader.py
+  -> domain_check.py          compatibility wrapper
+  -> embeddings.py            compatibility wrapper
+  -> similarity.py            compatibility wrapper
+  -> graph_traversal.py       compatibility wrapper
+  -> response_builder.py      compatibility wrapper
+  -> telemetry_loader.py      compatibility wrapper
+  -> ontology_loader.py       compatibility wrapper
+  -> shared implementation in kg_agents/engine/*
 ```
 
 Application composition:
 
 - `app_factory.py` creates the Flask app and registers blueprints
 - `frontend_routes.py` serves the HTML shell
-- `api_routes.py` serves all JSON and manual endpoints
+- `api_routes.py` serves JSON and manual endpoints
 - `routes.py` keeps `app = create_app()` for compatibility
+- most troubleshooting logic now lives in `kg_agents/engine/`
 
 ---
 
-## 7. API Surface
+## 6. API Surface
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Main web UI |
 | `POST` | `/chat` | Submit user message and receive reply, trace, issue metadata, optional telemetry |
-| `POST` | `/next_issue` | Move to the next ranked issue in the current session |
+| `POST` | `/next_issue` | Move to the next reranked issue in the current session |
 | `POST` | `/reset` | Clear session state |
 | `GET` | `/graph_data` | Full ontology as vis-network payload |
 | `GET` | `/product_info` | Product metadata plus suggested symptoms |
@@ -311,11 +389,29 @@ Application composition:
 | `GET` | `/manuals/<filename>` | Serve local manual PDFs |
 | `GET` | `/telemetry/<signal_name>` | Return raw series and statistics for one telemetry signal |
 
+Current `POST /chat` and `POST /next_issue` responses may include:
+
+- `reply`
+- `session_id`
+- `highlight`
+- `has_more_issues`
+- `issue_number`
+- `total_issues`
+- optional `telemetry`
+
+Unlike the primary `kg_agents` API, the legacy Flask app does not expose:
+
+- structured `current_issue`
+- clarification-state fields for targeted follow-up questions
+- intervention outcome logging
+- path statistics
+- the newer `Resolved` / `not_resolved` workflow
+
 ---
 
-## 8. Runtime Configuration
+## 7. Runtime Configuration
 
-From `config.py`:
+From `troubleshooting_agent/config.py`:
 
 | Parameter | Current value |
 |---|---|
@@ -327,21 +423,32 @@ From `config.py`:
 | `AGENT_PORT` | `5001` |
 | `TELEMETRY_WINDOW_HOURS` | `48` |
 
+From shared engine config in `kg_agents/config.py`:
+
+| Parameter | Current value |
+|---|---|
+| `QUERY_ALIGNMENT_MAX_TERM_FREQUENCY` | `3` |
+
 Required environment variable:
 
 - `OPENAI_API_KEY`
 
+Important runtime note:
+
+- the current code requires OpenAI embeddings at runtime
+- the current code does not require OpenAI chat completions at runtime
+
 ---
 
-## 9. Data Dependencies and Assumptions
+## 8. Data Dependencies and Assumptions
 
 The current implementation assumes:
 
-- `ontology.json` is valid and consistent with the expected ID fields
-- `symptom_embeddings.json` contains one embedding for every ontology symptom
-- local manuals referenced by `source_title` exist in `manuals/`
-- numeric manual references correspond to PDF page numbers
-- telemetry column names referenced in `related_measurements` exist in `telemetry/telemetry_p1p.csv`
+- root `ontology.json` is valid and consistent with the expected traversal fields
+- `troubleshooting_agent/symptom_embeddings.json` contains an embedding for every ontology symptom
+- local manuals referenced by `source_title` exist in `troubleshooting_agent/manuals/`
+- manual references are either URLs or parseable page references
+- telemetry column names referenced in `related_measurements` exist in the configured CSV when telemetry is used
 
 Startup behavior:
 
@@ -349,26 +456,46 @@ Startup behavior:
 - extra stale embeddings only produce a warning
 - missing telemetry data degrades gracefully
 
+Telemetry note:
+
+- the default telemetry path still points to
+  `troubleshooting_agent/telemetry/telemetry_p1p.csv`
+- this filename is historical and does not imply that the active ontology is still P1P
+- the telemetry loader itself is generic and only depends on column availability
+
 ---
 
-## 10. Procedure for Re-instantiating `ontology.json` for Another Product
+## 9. Procedure for Re-instantiating the Legacy App for Another Product
 
-The current application can be reused for another industrial product only if the new ontology still respects the runtime assumptions of the code.
+The legacy app can be reused for another product only if the new ontology still
+respects the runtime assumptions of the shared engine.
 
-### 10.1 Minimum data contract to preserve
+### 9.1 Minimum data contract to preserve
 
-To keep the current code working without modification, the re-instantiated ontology must preserve:
+To keep the current code working without changes, preserve:
 
 - top-level sections: `metadata`, `nodes`, `relationships`
-- node types used by the app: `Printer`, `Component`, `Symptom`, `FailureMode`, `CorrectiveAction`
-- ID fields used for indexing: `printer_id`, `component_id`, `symptom_id`, `failure_mode_id`, `action_id`
-- operative relationships: `MAY_INDICATE`, `RESOLVED_BY`, `AFFECTS`
+- node classes required by troubleshooting:
+  - `Symptom`
+  - `FailureMode`
+  - `CorrectiveAction`
+  - optional `Component`
+  - optional `ErrorCode`
+- operative relationships:
+  - `MAY_INDICATE`
+  - `RESOLVED_BY`
+  - `AFFECTS`
+  - optional `INDICATES`
+- ID fields used by traversal and rendering:
+  - `symptom_id`
+  - `failure_mode_id`
+  - `action_id`
+  - optional `component_id`
+  - optional `error_code_id`
 
-If these contracts are broken, the application may start but fail during indexing, graph traversal, answer generation, or graph rendering.
+### 9.2 Metadata that should be updated
 
-### 10.2 Metadata that must be updated
-
-When changing product, `ontology.json` metadata should be updated at least for:
+When changing product, update at least:
 
 - `product_name`
 - `product_short_name`
@@ -378,110 +505,129 @@ When changing product, `ontology.json` metadata should be updated at least for:
 - `total_nodes`
 - `total_relationships`
 
-This is not just documentation:
+This matters because product metadata is used by:
 
-- `domain_check.py` uses product metadata to build the domain-classification prompt
-- `response_builder.py` uses product metadata in grounded replies
-- `/product_info` exposes product metadata to the frontend
-- `/status` exposes ontology counts and version
+- domain relevance heuristics
+- fallback messages
+- `/product_info`
+- `/status`
 
-### 10.3 Symptom embeddings must be regenerated
+### 9.3 Symptom embeddings must be regenerated
 
-If `Symptom` nodes are changed, added, removed, or renamed, the symptom embedding file must be regenerated:
+If `Symptom` nodes are changed, added, removed, or renamed, regenerate the symptom
+embedding file:
 
 ```bash
-python3 troubleshooting_agent/embeddings.py
+PYTHONPATH=. python3 troubleshooting_agent/embeddings.py
 ```
 
-This step is mandatory because:
+This is mandatory because:
 
 - retrieval depends on `symptom_embeddings.json`
 - `agent.py` validates that every ontology symptom has an embedding
-- stale extra embeddings only trigger a warning, but missing embeddings block startup
+- missing embeddings block startup
 
-### 10.4 Corrective action source requirements
+### 9.4 Corrective action source requirements
 
-For each `CorrectiveAction`, the implementation expects:
+For each `CorrectiveAction`, the runtime expects:
 
 - `instruction_text`
 - `source_title`
 - `source_reference`
 
-Source behavior:
+Source handling rules:
 
-- if `source_reference` starts with `http`, it is treated as a web citation
-- if `source_reference` is numeric, it is treated as a PDF page reference
+- web URLs are rendered as links
+- numeric or parseable page references are rendered as manual markers
 
 If local manuals are used for the new product:
 
-- place the files in `manuals/`
-- make `source_title` match the PDF filename without extension
+- place them in `troubleshooting_agent/manuals/`
+- make `source_title` align with the manual naming expected by the frontend flow
 
-### 10.5 Telemetry alignment
+### 9.5 Telemetry alignment
 
-Telemetry support remains optional, but if the new ontology uses it:
+Telemetry is optional, but if used:
 
 - `FailureMode.related_measurements` must list valid signal names
-- those names must exist as columns in `telemetry/telemetry_p1p.csv` or in whatever file path the configuration points to
+- those names must exist in the configured CSV
 
-If telemetry is not needed, `related_measurements` can be omitted and the app continues to work.
+If telemetry is not needed, omit `related_measurements` and the app still works.
 
-### 10.6 When schema updates are required
+### 9.6 Cases that require code changes
 
-If the new product can still be modeled as:
+The following changes cannot be handled by ontology replacement alone:
 
-```text
-Symptom -> FailureMode -> CorrectiveAction
-```
-
-then updating `ontology.json` and its linked assets is usually sufficient.
-
-If the new product requires new node classes, new relation types, or a different troubleshooting flow, then `ontology_schema.JSON` should also be updated and any external ontology editing workflow should be reviewed against the new schema.
-
-### 10.7 Cases that require code changes
-
-The following changes cannot be handled by ontology replacement alone and would require code updates:
-
-- replacing the current path logic with another graph pattern
-- removing `Symptom` nodes as the retrieval entry point
-- renaming the relationship types used in traversal
-- renaming the ID fields used by `ontology_loader.py` and `api_routes.py`
+- replacing the traversal entry point with something other than `Symptom`
+- removing or renaming the relation types used in traversal
+- removing or renaming the ID fields used by the engine
 - changing how sources or manuals are represented
-- changing telemetry storage shape away from the current wide CSV format
+- changing telemetry storage away from the current wide CSV model
+- changing the troubleshooting flow to a clarification-first dialogue
 
-The primary modules impacted in that case would be:
+The primary modules impacted in that case would be the shared engine modules under:
 
-- `ontology_loader.py`
-- `graph_traversal.py`
-- `embeddings.py`
-- `api_routes.py`
-- `response_builder.py`
-- frontend graph/manual handling in `static/js/app.js`
+- `kg_agents/engine/ontology_loader.py`
+- `kg_agents/engine/graph_traversal.py`
+- `kg_agents/engine/embeddings.py`
+- `kg_agents/engine/query_alignment.py`
+- `kg_agents/engine/response_builder.py`
 
-### 10.8 Recommended migration checklist
+and the legacy transport layer:
 
-1. Replace `ontology.json` with the new product instance.
+- `troubleshooting_agent/api_routes.py`
+- `troubleshooting_agent/orchestrator.py`
+- `troubleshooting_agent/static/js/app.js`
+
+### 9.7 Recommended migration checklist
+
+1. Replace root `ontology.json` with the new product instance.
 2. Update ontology metadata for the new product.
-3. Verify node types, IDs, and relationship names expected by the code.
+3. Verify required node classes, IDs, and relationship names.
 4. Update or add local manuals if manual citations are used.
 5. Update telemetry data and `related_measurements` if telemetry is required.
-6. Regenerate `symptom_embeddings.json`.
-7. Start the app with `python3 troubleshooting_agent/agent.py`.
+6. Regenerate `troubleshooting_agent/symptom_embeddings.json`.
+7. Start the app with `PYTHONPATH=. python3 troubleshooting_agent/agent.py`.
 8. Validate:
    - startup passes embedding checks
    - `/product_info` shows the new product metadata
-   - `/graph_data` renders the graph correctly
+   - `/graph_data` renders correctly
    - `/chat` retrieves valid troubleshooting paths
-   - manual links and telemetry render correctly when present
+   - `/next_issue` iterates through the reranked candidate causes
+   - manuals and telemetry still render when present
 
 ---
 
-## 11. Notes on Repository Alignment
+## 10. Explicit Non-Goals of the Current Legacy App
 
-This specification is aligned with the repository state visible in the current codebase and supersedes older descriptions that referenced:
+The current legacy Flask app does **not** implement:
 
-- `gpt-4o-mini` as the active chat model
-- `text-embedding-3-small` as the active embedding model
-- a routes-only architecture without blueprint separation
-- nonexistent local files such as `test_scenarios.py` and `test_report.md`
-- an API surface without `/next_issue` and `/telemetry/<signal_name>`
+- LLM-based domain classification
+- LLM-based answer generation
+- an immediate clarification-question turn before returning the first cause
+- intervention outcome logging
+- structured action selection payloads
+- path statistics
+
+Those behaviors were described in older documents but are not accurate for the
+current repository state.
+
+---
+
+## 11. Repository Alignment Notes
+
+This specification supersedes older descriptions that referenced:
+
+- **Bambu Lab P1P** as the active legacy dataset
+- LLM-based classification or LLM-based answer formatting
+- a clarification flow that asks one question before returning the first cause
+- ranking by keyword overlap with the clarification answer
+- the old assumption that the legacy app owned its own engine implementation
+
+For the current repository state:
+
+- `kg_agents` is the primary supported backend
+- `troubleshooting_agent` is a compatibility app
+- the shared engine in `kg_agents/engine/` defines the actual troubleshooting logic
+- the primary FastAPI path includes a clarification step for ambiguous rankings and
+  rejects nonsensical clarification replies by repeating the same question

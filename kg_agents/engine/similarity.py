@@ -14,6 +14,10 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return float(np.dot(va, vb) / denom)
 
 
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    return _cosine(a, b)
+
+
 def find_top_k_symptoms(
     query_embedding: list[float],
     symptom_embeddings: dict[str, list[float]],

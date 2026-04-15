@@ -43,12 +43,23 @@ def unclear_domain_response(product_meta: dict[str, Any] | None = None) -> str:
     )
 
 
-def low_confidence_response(product_meta: dict[str, Any] | None = None) -> str:
+def low_confidence_response(
+    product_meta: dict[str, Any] | None = None,
+    unmatched_terms: list[str] | None = None,
+) -> str:
     meta = _meta(product_meta)
+    if unmatched_terms:
+        terms = ", ".join(f"**{term}**" for term in unmatched_terms[:3])
+        return (
+            f"I could not find a sufficiently close troubleshooting match in the "
+            f"{meta['product_short_name']} knowledge base for {terms}. Please describe the observed "
+            "symptom more precisely, or rephrase it using the machine behaviour you can see directly."
+        )
     return (
-        f"I could not confidently match your description to a known {meta['product_short_name']} "
-        "troubleshooting symptom. Please describe what you observe more precisely — for example, "
-        "which part is affected, what sound or visual problem you notice, or when the issue occurs."
+        f"I could not find a sufficiently close troubleshooting match in the {meta['product_short_name']} "
+        "knowledge base for your description. Please describe what you observe more precisely — "
+        "for example, which part is affected, what sound or visual problem you notice, or when the "
+        "issue occurs."
     )
 
 

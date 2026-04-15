@@ -35,3 +35,8 @@ TOP_K_SYMPTOMS: int = 3
 AGENT_PORT: int = int(os.getenv("AGENT_PORT", "8030"))
 
 TELEMETRY_WINDOW_HOURS: int = 48
+
+# Query-to-KG alignment guardrail:
+# only ontology anchor terms that appear at most this many times are treated as
+# strong user-specified entities that can veto an unrelated ranked issue.
+QUERY_ALIGNMENT_MAX_TERM_FREQUENCY: int = 3

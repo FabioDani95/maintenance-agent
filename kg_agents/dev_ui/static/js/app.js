@@ -436,6 +436,34 @@ function buildCurrentIssueHtml(currentIssue, extra) {
   return html;
 }
 
+function buildClarificationHtml(extra) {
+  if (!extra || !extra.awaiting_clarification) return '';
+  const options = Array.isArray(extra.clarification_options) ? extra.clarification_options : [];
+  if (!options.length) return '';
+
+  let html = '<div class="clarification-panel">';
+  html += '<div class="clarification-title">Quick clarification</div>';
+  html += '<div class="clarification-subtitle">Choose the closest description, or type your own short answer.</div>';
+  html += '<div class="clarification-options">';
+  options.forEach(option => {
+    const optionId = escapeHtml(option.id || '');
+    const label = escapeHtml(option.label || '');
+    const description = escapeHtml(option.description || '');
+    html += `<button class="clarification-option-btn" data-option-id="${optionId}" data-option-label="${label}">`;
+    html += `<span class="clarification-option-index">${optionId}</span>`;
+    html += '<span class="clarification-option-text">';
+    html += `<span class="clarification-option-label">${label}</span>`;
+    if (description) {
+      html += `<span class="clarification-option-description">${description}</span>`;
+    }
+    html += '</span>';
+    html += '</button>';
+  });
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
 function updateIssuePanelStatus(panel, text) {
   if (!panel) return;
   const statusEl = panel.querySelector('.issue-panel-status');
@@ -507,8 +535,11 @@ function appendMessage(role, text, extra) {
     html = div.textContent.replace(/\n/g, '<br>');
   }
   const hasCurrentIssue = role === 'assistant' && extra && extra.current_issue;
+  const hasClarification = role === 'assistant' && extra && extra.awaiting_clarification;
   if (hasCurrentIssue) {
     html += buildCurrentIssueHtml(extra.current_issue, extra);
+  } else if (hasClarification) {
+    html += buildClarificationHtml(extra);
   } else if (extra && extra.has_more_issues) {
     // Fallback for assistant responses without structured issue payload.
     html += `<div class="issue-counter">Possible cause ${extra.issue_number} of ${extra.total_issues}</div>`;
@@ -663,6 +694,8 @@ async function sendMessage() {
         scores: data.highlight ? data.highlight.scores : null,
         reasoning: data.highlight ? data.highlight.reasoning : null,
         current_issue: data.current_issue || null,
+        awaiting_clarification: !!data.awaiting_clarification,
+        clarification_options: data.clarification_options || [],
       });
     } else {
       appendMessage('assistant', 'Error: ' + (data.error || 'unknown'));
@@ -735,7 +768,7 @@ function enrichNode(n, cMap) {
   return {
     ...n,
     color: { border: sevColor, background: c, highlight: { border: "#e5e7eb", background: c }, hover: { border: "#e5e7eb", background: c } },
-    font: { color: "#8b949e", size: 11, face: "system-ui" },
+    font: { color: ACTIVE_FONT_COLOR, size: 11, face: "system-ui" },
     shape: "dot",
     size: 10,
     borderWidth: bw,
@@ -1209,6 +1242,14 @@ messagesEl.addEventListener('click', async (e) => {
     return;
   }
 
+  const clarificationBtn = e.target.closest('.clarification-option-btn');
+  if (clarificationBtn && !clarificationBtn.disabled) {
+    inputEl.value = clarificationBtn.dataset.optionId || clarificationBtn.dataset.optionLabel || '';
+    inputEl.dispatchEvent(new Event('input'));
+    await sendMessage();
+    return;
+  }
+
   const notSolvedBtn = e.target.closest('.not-solved-btn');
   if (notSolvedBtn && !notSolvedBtn.disabled) {
     const panel = notSolvedBtn.closest('.issue-resolution-panel');
@@ -1260,6 +1301,8 @@ messagesEl.addEventListener('click', async (e) => {
           scores: data.highlight ? data.highlight.scores : null,
           reasoning: data.highlight ? data.highlight.reasoning : null,
           current_issue: data.current_issue || null,
+          awaiting_clarification: !!data.awaiting_clarification,
+          clarification_options: data.clarification_options || [],
         });
       }
       if (data.highlight && Object.keys(data.highlight).length > 0) {
