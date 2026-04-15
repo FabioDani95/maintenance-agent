@@ -1,0 +1,23 @@
+{
+  "context": {
+    "kg_id": "p1p-default-instance",
+    "version": "v1",
+    "ontology_ref": "BambuLab_MVP_Troubleshooting_KG",
+    "extraction_timestamp": "2026-03-25T13:27:48Z"
+  },
+  "extraction_performance": {
+    "status": "EXTRACTION COMPLETE",
+    "triplets_validated": 126,
+    "total_automation_time": "12m 45s",
+    "estimated_cost_usd": 2.18,
+    "llm_tokens": 312450
+  },
+  "model_usage": {
+    "primary_model": "GPT-5.4",
+    "secondary_model": "GPT-5.4 Mini"
+  },
+  "file_links": {
+    "meta": "./p1p-default-instance/meta.json",
+    "ontology": "./p1p-default-instance/ontology.json"
+  }
+}

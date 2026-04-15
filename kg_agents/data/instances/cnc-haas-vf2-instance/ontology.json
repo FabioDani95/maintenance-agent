@@ -1,0 +1,225 @@
+{
+  "metadata": {
+    "ontology_name": "Haas_VF2_Quality_KG",
+    "version": "1.0",
+    "extraction_date": "2026-04-04",
+    "language": "en",
+    "sources_processed": 1,
+    "total_nodes": 21,
+    "total_relationships": 28,
+    "product_name": "Haas VF-2 CNC Vertical Machining Center",
+    "product_short_name": "VF-2",
+    "product_type": "CNC Mill",
+    "domain_topics": [
+      "surface finish defects: chatter marks, poor Ra, burrs, tool marks",
+      "dimensional errors: out-of-tolerance, taper, runout",
+      "tool issues: wear, breakage, deflection, wrong geometry",
+      "spindle: vibration, bearing wear, thermal drift",
+      "coolant: insufficient flow, wrong concentration, chip evacuation",
+      "workholding: fixture shift, insufficient clamping"
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "src_haas_manual",
+      "type": "manual",
+      "title": "Haas VF-2 Operator's Manual — Troubleshooting Section",
+      "reference": "Haas Document 96-0283 Rev. Y"
+    }
+  ],
+  "nodes": {
+    "Asset": [
+      {
+        "asset_id": "asset_vf2",
+        "name": "Haas VF-2",
+        "description": "3-axis vertical machining center with 30x16x20 in travel, 8100 RPM inline direct-drive spindle, 20-pocket tool changer.",
+        "brand": "Haas",
+        "model": "VF-2"
+      }
+    ],
+    "Process": [
+      {
+        "process_id": "proc_roughing",
+        "name": "Roughing",
+        "description": "High material removal rate cutting to bring the workpiece close to final dimensions. Heavy cuts, high feed rates.",
+        "category": "machining"
+      },
+      {
+        "process_id": "proc_finishing",
+        "name": "Finishing",
+        "description": "Light cuts at higher spindle speed to achieve final surface finish and dimensional accuracy.",
+        "category": "machining"
+      },
+      {
+        "process_id": "proc_drilling",
+        "name": "Drilling",
+        "description": "Hole-making operations including drilling, tapping, and reaming.",
+        "category": "machining"
+      },
+      {
+        "process_id": "proc_tool_change",
+        "name": "Tool Change",
+        "description": "Automatic tool change cycle — tool carousel rotation, spindle orientation, tool pull/insert.",
+        "category": "setup"
+      }
+    ],
+    "Defect": [
+      {
+        "defect_id": "def_chatter_marks",
+        "name": "Chatter marks on surface",
+        "description": "Regular wavy pattern on machined surface caused by vibration during cutting. Audible as a high-pitched screech.",
+        "severity": "high"
+      },
+      {
+        "defect_id": "def_poor_surface_finish",
+        "name": "Poor surface finish (high Ra)",
+        "description": "Surface roughness exceeds specification. Surface appears rough or shows visible tool marks.",
+        "severity": "medium"
+      },
+      {
+        "defect_id": "def_out_of_tolerance",
+        "name": "Dimension out of tolerance",
+        "description": "Finished part dimension is outside the specified tolerance band.",
+        "severity": "high"
+      },
+      {
+        "defect_id": "def_burrs",
+        "name": "Burrs on edges",
+        "description": "Raised material left on edges after machining. Requires secondary deburring operation.",
+        "severity": "low"
+      },
+      {
+        "defect_id": "def_hole_oversize",
+        "name": "Hole oversize",
+        "description": "Drilled or reamed hole diameter exceeds tolerance. May cause loose fits in assembly.",
+        "severity": "medium"
+      }
+    ],
+    "RootCause": [
+      {
+        "root_cause_id": "rc_tool_wear",
+        "name": "Tool wear (flank/crater)",
+        "description": "Cutting tool has excessive flank or crater wear, increasing cutting forces and degrading surface quality."
+      },
+      {
+        "root_cause_id": "rc_tool_deflection",
+        "name": "Tool deflection",
+        "description": "Long tool stick-out or insufficient rigidity causes tool to bend under cutting forces, shifting dimensions."
+      },
+      {
+        "root_cause_id": "rc_spindle_vibration",
+        "name": "Spindle vibration",
+        "description": "Spindle bearing wear or imbalance causing vibration transmitted to the workpiece during cutting."
+      },
+      {
+        "root_cause_id": "rc_thermal_drift",
+        "name": "Thermal drift",
+        "description": "Spindle or ballscrew thermal expansion over time causes dimensional shift, typically in Z-axis."
+      },
+      {
+        "root_cause_id": "rc_wrong_feed_speed",
+        "name": "Incorrect feed/speed parameters",
+        "description": "Spindle speed or feed rate not appropriate for the material and tool combination."
+      },
+      {
+        "root_cause_id": "rc_insufficient_coolant",
+        "name": "Insufficient coolant flow",
+        "description": "Coolant not reaching the cut zone or concentration too low, causing heat buildup and poor chip evacuation."
+      }
+    ],
+    "Inspection": [
+      {
+        "inspection_id": "insp_surface_profilometer",
+        "name": "Surface profilometer (Ra measurement)",
+        "description": "Contact or optical profilometer to measure surface roughness Ra/Rz values.",
+        "method_type": "measurement"
+      },
+      {
+        "inspection_id": "insp_cmm",
+        "name": "CMM dimensional check",
+        "description": "Coordinate measuring machine to verify part dimensions and GD&T features.",
+        "method_type": "measurement"
+      },
+      {
+        "inspection_id": "insp_visual",
+        "name": "Visual inspection",
+        "description": "Operator visual check for surface defects, burrs, chatter marks, and discoloration.",
+        "method_type": "visual"
+      },
+      {
+        "inspection_id": "insp_pin_gauge",
+        "name": "Pin gauge / bore gauge",
+        "description": "Go/no-go pin gauge or bore gauge to verify hole diameter within tolerance.",
+        "method_type": "measurement"
+      }
+    ],
+    "CorrectiveAction": [
+      {
+        "action_id": "act_replace_tool",
+        "name": "Replace worn tool",
+        "description": "Replace the cutting tool insert or end mill. Reset tool length offset after replacement."
+      },
+      {
+        "action_id": "act_reduce_stickout",
+        "name": "Reduce tool stick-out",
+        "description": "Use a shorter tool or shrink-fit holder to minimize deflection. Re-verify tool length offset."
+      },
+      {
+        "action_id": "act_adjust_feed_speed",
+        "name": "Adjust feed rate / spindle speed",
+        "description": "Recalculate cutting parameters per tool manufacturer recommendations for the material being cut."
+      },
+      {
+        "action_id": "act_warmup_cycle",
+        "name": "Run spindle warm-up cycle",
+        "description": "Run a 15-minute spindle warm-up program before production to stabilize thermal conditions."
+      },
+      {
+        "action_id": "act_check_coolant",
+        "name": "Check coolant level and concentration",
+        "description": "Top up coolant tank, verify concentration with refractometer (target 6-8%), clean nozzle filters."
+      }
+    ]
+  },
+  "relationships": [
+    { "from_id": "asset_vf2", "to_id": "proc_roughing", "type": "HAS_PROCESS" },
+    { "from_id": "asset_vf2", "to_id": "proc_finishing", "type": "HAS_PROCESS" },
+    { "from_id": "asset_vf2", "to_id": "proc_drilling", "type": "HAS_PROCESS" },
+    { "from_id": "asset_vf2", "to_id": "proc_tool_change", "type": "HAS_PROCESS" },
+
+    { "from_id": "proc_roughing", "to_id": "def_chatter_marks", "type": "PRODUCES_DEFECT" },
+    { "from_id": "proc_finishing", "to_id": "def_poor_surface_finish", "type": "PRODUCES_DEFECT" },
+    { "from_id": "proc_finishing", "to_id": "def_out_of_tolerance", "type": "PRODUCES_DEFECT" },
+    { "from_id": "proc_roughing", "to_id": "def_burrs", "type": "PRODUCES_DEFECT" },
+    { "from_id": "proc_drilling", "to_id": "def_hole_oversize", "type": "PRODUCES_DEFECT" },
+    { "from_id": "proc_finishing", "to_id": "def_chatter_marks", "type": "PRODUCES_DEFECT" },
+
+    { "from_id": "def_chatter_marks", "to_id": "rc_spindle_vibration", "type": "MAY_INDICATE" },
+    { "from_id": "def_chatter_marks", "to_id": "rc_wrong_feed_speed", "type": "MAY_INDICATE" },
+    { "from_id": "def_poor_surface_finish", "to_id": "rc_tool_wear", "type": "MAY_INDICATE" },
+    { "from_id": "def_poor_surface_finish", "to_id": "rc_insufficient_coolant", "type": "MAY_INDICATE" },
+    { "from_id": "def_out_of_tolerance", "to_id": "rc_thermal_drift", "type": "MAY_INDICATE" },
+    { "from_id": "def_out_of_tolerance", "to_id": "rc_tool_deflection", "type": "MAY_INDICATE" },
+    { "from_id": "def_burrs", "to_id": "rc_tool_wear", "type": "MAY_INDICATE" },
+    { "from_id": "def_hole_oversize", "to_id": "rc_tool_wear", "type": "MAY_INDICATE" },
+    { "from_id": "def_hole_oversize", "to_id": "rc_spindle_vibration", "type": "MAY_INDICATE" },
+
+    { "from_id": "rc_tool_wear", "to_id": "proc_finishing", "type": "AFFECTS" },
+    { "from_id": "rc_spindle_vibration", "to_id": "proc_roughing", "type": "AFFECTS" },
+    { "from_id": "rc_thermal_drift", "to_id": "proc_finishing", "type": "AFFECTS" },
+    { "from_id": "rc_tool_deflection", "to_id": "proc_drilling", "type": "AFFECTS" },
+
+    { "from_id": "def_chatter_marks", "to_id": "insp_visual", "type": "DETECTED_BY" },
+    { "from_id": "def_poor_surface_finish", "to_id": "insp_surface_profilometer", "type": "DETECTED_BY" },
+    { "from_id": "def_out_of_tolerance", "to_id": "insp_cmm", "type": "DETECTED_BY" },
+    { "from_id": "def_hole_oversize", "to_id": "insp_pin_gauge", "type": "DETECTED_BY" },
+    { "from_id": "def_burrs", "to_id": "insp_visual", "type": "DETECTED_BY" },
+
+    { "from_id": "rc_tool_wear", "to_id": "act_replace_tool", "type": "RESOLVED_BY" },
+    { "from_id": "rc_tool_deflection", "to_id": "act_reduce_stickout", "type": "RESOLVED_BY" },
+    { "from_id": "rc_spindle_vibration", "to_id": "act_adjust_feed_speed", "type": "RESOLVED_BY" },
+    { "from_id": "rc_wrong_feed_speed", "to_id": "act_adjust_feed_speed", "type": "RESOLVED_BY" },
+    { "from_id": "rc_thermal_drift", "to_id": "act_warmup_cycle", "type": "RESOLVED_BY" },
+    { "from_id": "rc_insufficient_coolant", "to_id": "act_check_coolant", "type": "RESOLVED_BY" }
+  ]
+}

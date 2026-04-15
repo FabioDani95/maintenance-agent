@@ -1,0 +1,23 @@
+{
+  "context": {
+    "kg_id": "cnc-haas-vf2-instance",
+    "version": "v1",
+    "ontology_ref": "Haas_VF2_Quality_KG",
+    "extraction_timestamp": "2026-04-04T16:30:00Z"
+  },
+  "extraction_performance": {
+    "status": "EXTRACTION COMPLETE",
+    "triplets_validated": 34,
+    "total_automation_time": "6m 12s",
+    "estimated_cost_usd": 0.87,
+    "llm_tokens": 128930
+  },
+  "model_usage": {
+    "primary_model": "GPT-5.4",
+    "secondary_model": "GPT-5.4 Mini"
+  },
+  "file_links": {
+    "meta": "./cnc-haas-vf2-instance/meta.json",
+    "ontology": "./cnc-haas-vf2-instance/ontology.json"
+  }
+}

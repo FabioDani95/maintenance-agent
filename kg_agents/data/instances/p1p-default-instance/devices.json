@@ -1,0 +1,18 @@
+[
+  {
+    "device_id": "68c17a5d77ac1e6976257fa3",
+    "device_name": "Bambu Printer",
+    "source": "device",
+    "platform_device_id": "68c17a5d77ac1e6976257fa3",
+    "category": "Device",
+    "measurement_mappings": []
+  },
+  {
+    "device_id": "e1f16d24-c9b0-4873-b922-a9123ed6caf2",
+    "device_name": "df<dsfv",
+    "source": "equipment",
+    "platform_device_id": null,
+    "category": "Equipment",
+    "measurement_mappings": []
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "context": {
+    "kg_id": "007c7ceb-ffed-43e5-bd0a-2914c78f6ecb",
+    "version": "v2",
+    "ontology_ref": "ABB_IRC5_Troubleshooting_KG",
+    "extraction_timestamp": "2026-04-04T16:10:30Z"
+  },
+  "extraction_performance": {
+    "status": "EXTRACTION COMPLETE",
+    "triplets_validated": 35,
+    "total_automation_time": "7m 36s",
+    "estimated_cost_usd": 1.04,
+    "llm_tokens": 150111
+  },
+  "model_usage": {
+    "primary_model": "GPT-5.4",
+    "secondary_model": "GPT-5.4 Mini"
+  },
+  "file_links": {
+    "meta": "./007c7ceb-ffed-43e5-bd0a-2914c78f6ecb/meta.json",
+    "ontology": "./007c7ceb-ffed-43e5-bd0a-2914c78f6ecb/ontology.json"
+  }
+}

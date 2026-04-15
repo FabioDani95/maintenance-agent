@@ -1,0 +1,195 @@
+{
+  "metadata": {
+    "ontology_name": "ABB_IRC5_Troubleshooting_KG",
+    "version": "1.0",
+    "extraction_date": "2026-04-04",
+    "language": "en",
+    "sources_processed": 1,
+    "total_nodes": 16,
+    "total_relationships": 26,
+    "product_name": "ABB IRC5 Controller + IRB 1200 Manipulator",
+    "product_short_name": "IRC5",
+    "product_type": "Industrial Robot",
+    "domain_topics": [
+      "joint and axis faults: motor overload, encoder errors, brake wear",
+      "controller issues: power supply, I/O board, safety chain",
+      "motion problems: path deviation, vibration, speed limitation",
+      "maintenance: lubrication, calibration, battery replacement",
+      "communication: EtherNet/IP, PROFINET, fieldbus faults"
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "src_abb_manual",
+      "type": "manual",
+      "title": "ABB IRC5 Troubleshooting Manual",
+      "reference": "ABB Document ID 3HAC020738"
+    }
+  ],
+  "nodes": {
+    "Asset": [
+      {
+        "asset_id": "dev_irc5",
+        "name": "ABB IRC5 Controller",
+        "description": "ABB IRC5 industrial robot controller paired with IRB 1200 6-axis manipulator. Handles motion control, safety, and I/O.",
+        "brand": "ABB",
+        "model": "IRC5"
+      }
+    ],
+    "Component": [
+      {
+        "component_id": "comp_axis1_motor",
+        "name": "Axis 1 Motor",
+        "description": "Main base rotation motor (J1). Highest torque joint, drives full upper-body rotation.",
+        "category": "drive system"
+      },
+      {
+        "component_id": "comp_axis1_gearbox",
+        "name": "Axis 1 Gearbox",
+        "description": "Cycloidal gearbox for joint 1, reduces motor speed and amplifies torque.",
+        "category": "drive system"
+      },
+      {
+        "component_id": "comp_encoder_j1",
+        "name": "Axis 1 Encoder",
+        "description": "Absolute encoder on joint 1 providing position feedback to the controller.",
+        "category": "sensors"
+      },
+      {
+        "component_id": "comp_brake_j1",
+        "name": "Axis 1 Brake",
+        "description": "Electromagnetic holding brake on joint 1. Engages on power loss to prevent arm drop.",
+        "category": "safety"
+      },
+      {
+        "component_id": "comp_power_supply",
+        "name": "Controller Power Supply",
+        "description": "Main power supply unit inside the IRC5 cabinet, converts AC to DC for drives and logic.",
+        "category": "electrical"
+      },
+      {
+        "component_id": "comp_smb",
+        "name": "Serial Measurement Board (SMB)",
+        "description": "Board on the manipulator that reads all axis encoders and transmits position data to the controller.",
+        "category": "sensors"
+      },
+      {
+        "component_id": "comp_smb_battery",
+        "name": "SMB Battery",
+        "description": "Backup battery on the SMB that maintains absolute encoder positions when power is off.",
+        "category": "sensors"
+      }
+    ],
+    "Symptom": [
+      {
+        "symptom_id": "sym_motor_overload_j1",
+        "name": "Axis 1 motor overload",
+        "description": "Controller reports motor overload or overcurrent on joint 1. Robot slows down or stops.",
+        "severity": "high"
+      },
+      {
+        "symptom_id": "sym_position_lost",
+        "name": "Revolution counter not updated",
+        "description": "After power cycle the controller reports 'Revolution counter not updated' for one or more axes.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_vibration_j1",
+        "name": "Vibration during J1 movement",
+        "description": "Noticeable vibration or oscillation when axis 1 moves, especially at low speed.",
+        "severity": "medium"
+      },
+      {
+        "symptom_id": "sym_arm_drops",
+        "name": "Arm drops when motors off",
+        "description": "Robot arm slowly drifts or drops under gravity when drives are powered off.",
+        "severity": "critical"
+      }
+    ],
+    "FailureMode": [
+      {
+        "failure_mode_id": "fm_gearbox_wear",
+        "name": "Gearbox wear / backlash",
+        "description": "Cycloidal gearbox internal wear causing increased backlash and vibration."
+      },
+      {
+        "failure_mode_id": "fm_brake_worn",
+        "name": "Holding brake worn",
+        "description": "Brake disc material degraded, insufficient holding torque to keep arm in position."
+      },
+      {
+        "failure_mode_id": "fm_smb_battery_dead",
+        "name": "SMB battery depleted",
+        "description": "Backup battery voltage too low to maintain encoder revolution counters during power-off."
+      }
+    ],
+    "ErrorCode": [
+      {
+        "error_code_id": "err_10036",
+        "name": "Error 10036: Motor overload",
+        "description": "The motor temperature or current has exceeded the allowed limit. Check load, cycle time, and ambient temperature."
+      },
+      {
+        "error_code_id": "err_20252",
+        "name": "Error 20252: Rev counter not updated",
+        "description": "Revolution counter for one or more axes has not been updated. Update revolution counters or replace SMB battery."
+      }
+    ],
+    "CorrectiveAction": [
+      {
+        "action_id": "act_replace_gearbox",
+        "name": "Replace gearbox",
+        "description": "Replace the cycloidal gearbox on the affected axis and recalibrate."
+      },
+      {
+        "action_id": "act_replace_brake",
+        "name": "Replace holding brake",
+        "description": "Replace the electromagnetic brake unit and verify holding torque."
+      },
+      {
+        "action_id": "act_replace_smb_battery",
+        "name": "Replace SMB battery",
+        "description": "Replace the SMB backup battery and update revolution counters for all axes."
+      },
+      {
+        "action_id": "act_reduce_load",
+        "name": "Reduce payload / cycle time",
+        "description": "Review and reduce payload weight or increase cycle time to lower motor thermal load."
+      }
+    ]
+  },
+  "relationships": [
+    { "from_id": "dev_irc5", "to_id": "comp_axis1_motor", "type": "HAS_COMPONENT" },
+    { "from_id": "dev_irc5", "to_id": "comp_axis1_gearbox", "type": "HAS_COMPONENT" },
+    { "from_id": "dev_irc5", "to_id": "comp_encoder_j1", "type": "HAS_COMPONENT" },
+    { "from_id": "dev_irc5", "to_id": "comp_brake_j1", "type": "HAS_COMPONENT" },
+    { "from_id": "dev_irc5", "to_id": "comp_power_supply", "type": "HAS_COMPONENT" },
+    { "from_id": "dev_irc5", "to_id": "comp_smb", "type": "HAS_COMPONENT" },
+    { "from_id": "dev_irc5", "to_id": "comp_smb_battery", "type": "HAS_COMPONENT" },
+
+    { "from_id": "sym_motor_overload_j1", "to_id": "comp_axis1_motor", "type": "RELATED_TO" },
+    { "from_id": "sym_vibration_j1", "to_id": "comp_axis1_gearbox", "type": "RELATED_TO" },
+    { "from_id": "sym_arm_drops", "to_id": "comp_brake_j1", "type": "RELATED_TO" },
+    { "from_id": "sym_position_lost", "to_id": "comp_smb_battery", "type": "RELATED_TO" },
+
+    { "from_id": "sym_vibration_j1", "to_id": "fm_gearbox_wear", "type": "MAY_INDICATE" },
+    { "from_id": "sym_arm_drops", "to_id": "fm_brake_worn", "type": "MAY_INDICATE" },
+    { "from_id": "sym_position_lost", "to_id": "fm_smb_battery_dead", "type": "MAY_INDICATE" },
+    { "from_id": "sym_motor_overload_j1", "to_id": "fm_gearbox_wear", "type": "MAY_INDICATE" },
+
+    { "from_id": "fm_gearbox_wear", "to_id": "comp_axis1_gearbox", "type": "AFFECTS" },
+    { "from_id": "fm_brake_worn", "to_id": "comp_brake_j1", "type": "AFFECTS" },
+    { "from_id": "fm_smb_battery_dead", "to_id": "comp_smb_battery", "type": "AFFECTS" },
+
+    { "from_id": "dev_irc5", "to_id": "err_10036", "type": "GENERATES_ERROR" },
+    { "from_id": "dev_irc5", "to_id": "err_20252", "type": "GENERATES_ERROR" },
+
+    { "from_id": "err_10036", "to_id": "fm_gearbox_wear", "type": "INDICATES" },
+    { "from_id": "err_20252", "to_id": "fm_smb_battery_dead", "type": "INDICATES" },
+
+    { "from_id": "fm_gearbox_wear", "to_id": "act_replace_gearbox", "type": "RESOLVED_BY" },
+    { "from_id": "fm_brake_worn", "to_id": "act_replace_brake", "type": "RESOLVED_BY" },
+    { "from_id": "fm_smb_battery_dead", "to_id": "act_replace_smb_battery", "type": "RESOLVED_BY" },
+    { "from_id": "fm_gearbox_wear", "to_id": "act_reduce_load", "type": "RESOLVED_BY" }
+  ]
+}
