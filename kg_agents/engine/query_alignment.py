@@ -191,6 +191,14 @@ def _alignment_cache(index: OntologyIndex) -> dict[str, Any]:
     support_terms_by_id: dict[str, set[str]] = {}
     canonical_support_terms_by_id: dict[str, set[str]] = {}
     anchor_term_frequency: dict[str, int] = {}
+    product_terms = _tokenize(
+        " ".join(
+            [
+                str(index.product_meta.get("product_name", "")),
+                str(index.product_meta.get("product_short_name", "")),
+            ]
+        )
+    )
 
     for node_id, node in index.nodes_by_id.items():
         query_terms = _node_anchor_terms(node)
@@ -210,7 +218,7 @@ def _alignment_cache(index: OntologyIndex) -> dict[str, Any]:
         "specific_anchor_terms": {
             term
             for term, count in anchor_term_frequency.items()
-            if count <= QUERY_ALIGNMENT_MAX_TERM_FREQUENCY
+            if count <= QUERY_ALIGNMENT_MAX_TERM_FREQUENCY and term not in product_terms
         },
     }
     setattr(index, "_query_alignment_cache", cache)
