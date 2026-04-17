@@ -2,7 +2,7 @@
   "context": {
     "kg_id": "p1p-default-instance",
     "version": "v1",
-    "ontology_ref": "BambuLab_MVP_Troubleshooting_KG",
+    "ontology_ref": "Core_Ontology",
     "extraction_timestamp": "2026-03-25T13:27:48Z"
   },
   "extraction_performance": {

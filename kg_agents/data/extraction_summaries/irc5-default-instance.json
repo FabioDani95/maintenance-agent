@@ -1,0 +1,30 @@
+{
+  "context": {
+    "kg_id": "irc5-default-instance",
+    "version": "v1",
+    "ontology_ref": "IRC5_Troubleshooting_KG",
+    "extraction_timestamp": "2026-03-25T13:27:48Z"
+  },
+  "extraction_performance": {
+    "status": "EXTRACTION COMPLETE",
+    "triplets_validated": 28,
+    "total_automation_time": "11m 59s",
+    "estimated_cost_usd": 1.73,
+    "llm_tokens": 234939
+  },
+  "model_usage": {
+    "primary_model": "GPT-5.4",
+    "secondary_model": null
+  },
+  "node_counts": {
+    "Component": 80,
+    "FailureMode": 72,
+    "CorrectiveAction": 61,
+    "Symptom": 58,
+    "Asset": 1
+  },
+  "file_links": {
+    "meta": "./irc5-default-instance/meta.json",
+    "ontology": "./irc5-default-instance/ontology.json"
+  }
+}

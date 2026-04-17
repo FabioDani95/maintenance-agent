@@ -251,5 +251,192 @@
       ]
     },
     "created_at": "2026-03-26T16:59:13.636387+00:00"
-  }
+  },
+  {
+  "id": "quality-agent-default",
+  "name": "Quality Control Agent",
+  "description": "Ontology for quality control and assurance in manufacturing, aligned with ISA-95. Supports inspection, non-conformance tracking, process capability, and corrective/preventive actions.",
+  "ontology_schema": {
+    "ontology_name": "Quality_Control_Ontology",
+    "version": "1.0",
+    "language": "en",
+    "description": "Ontology for modelling quality inspection, control results, and non-conformance management across production processes. Designed to integrate with maintenance and troubleshooting knowledge graphs.",
+    "design_principles": [
+      "Align with ISA-95 object hierarchy (material, equipment, process segment).",
+      "Separate inspection execution from evaluation results.",
+      "Represent quality deviations explicitly as non-conformances.",
+      "Link quality outcomes to process, material, and equipment context.",
+      "Enable traceability across lot, batch, and production order.",
+      "Support integration with corrective and preventive actions (CAPA)."
+    ],
+    "nodes": [
+      {
+        "name": "MaterialLot",
+        "description": "A batch or lot of material or product under quality control.",
+        "properties": [
+          { "name": "lot_id", "type": "string", "required": true, "unique": true },
+          { "name": "material_name", "type": "string", "required": true },
+          { "name": "quantity", "type": "number", "required": true },
+          { "name": "unit", "type": "string", "required": true },
+          { "name": "production_date", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "ProcessSegment",
+        "description": "A defined step or operation in the manufacturing process (ISA-95 aligned).",
+        "properties": [
+          { "name": "process_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "QualityCharacteristic",
+        "description": "A measurable quality attribute (e.g. dimension, weight, temperature).",
+        "properties": [
+          { "name": "characteristic_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "unit", "type": "string", "required": true },
+          { "name": "target_value", "type": "number", "required": false },
+          { "name": "tolerance_min", "type": "number", "required": false },
+          { "name": "tolerance_max", "type": "number", "required": false }
+        ]
+      },
+      {
+        "name": "Inspection",
+        "description": "An inspection event performed on a material lot or during a process segment.",
+        "properties": [
+          { "name": "inspection_id", "type": "string", "required": true, "unique": true },
+          { "name": "inspection_type", "type": "string", "required": true },
+          { "name": "timestamp", "type": "string", "required": true },
+          { "name": "method", "type": "string", "required": true },
+          { "name": "operator_id", "type": "string", "required": false }
+        ]
+      },
+      {
+        "name": "MeasurementResult",
+        "description": "The measured value of a quality characteristic during an inspection.",
+        "properties": [
+          { "name": "result_id", "type": "string", "required": true, "unique": true },
+          { "name": "value", "type": "number", "required": true },
+          { "name": "unit", "type": "string", "required": true },
+          { "name": "conformance", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "NonConformance",
+        "description": "A deviation from specified quality requirements.",
+        "properties": [
+          { "name": "nc_id", "type": "string", "required": true, "unique": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "severity", "type": "string", "required": true },
+          { "name": "status", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "RootCause",
+        "description": "The identified root cause of a non-conformance.",
+        "properties": [
+          { "name": "cause_id", "type": "string", "required": true, "unique": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "category", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "QualityAction",
+        "description": "Corrective or preventive action taken to address a non-conformance.",
+        "properties": [
+          { "name": "qa_id", "type": "string", "required": true, "unique": true },
+          { "name": "type", "type": "string", "required": true },
+          { "name": "description", "type": "string", "required": true },
+          { "name": "status", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "Equipment",
+        "description": "Equipment involved in production or inspection (aligned with ISA-95).",
+        "properties": [
+          { "name": "equipment_id", "type": "string", "required": true, "unique": true },
+          { "name": "name", "type": "string", "required": true },
+          { "name": "type", "type": "string", "required": true }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "name": "PRODUCED_IN",
+        "domain": "MaterialLot",
+        "range": "ProcessSegment",
+        "description": "The material lot was produced in the process segment."
+      },
+      {
+        "name": "INSPECTS",
+        "domain": "Inspection",
+        "range": "MaterialLot",
+        "description": "The inspection is performed on the material lot."
+      },
+      {
+        "name": "PERFORMED_AT",
+        "domain": "Inspection",
+        "range": "ProcessSegment",
+        "description": "The inspection occurs at a specific process step."
+      },
+      {
+        "name": "USES_EQUIPMENT",
+        "domain": "Inspection",
+        "range": "Equipment",
+        "description": "The inspection uses the specified equipment."
+      },
+      {
+        "name": "MEASURES",
+        "domain": "MeasurementResult",
+        "range": "QualityCharacteristic",
+        "description": "The result corresponds to a quality characteristic."
+      },
+      {
+        "name": "GENERATED_BY",
+        "domain": "MeasurementResult",
+        "range": "Inspection",
+        "description": "The measurement result is generated by the inspection."
+      },
+      {
+        "name": "DETECTS",
+        "domain": "Inspection",
+        "range": "NonConformance",
+        "description": "The inspection identifies a non-conformance."
+      },
+      {
+        "name": "RELATES_TO",
+        "domain": "NonConformance",
+        "range": "MaterialLot",
+        "description": "The non-conformance affects a material lot."
+      },
+      {
+        "name": "CAUSED_BY",
+        "domain": "NonConformance",
+        "range": "RootCause",
+        "description": "The non-conformance is caused by the root cause."
+      },
+      {
+        "name": "ADDRESSED_BY",
+        "domain": "NonConformance",
+        "range": "QualityAction",
+        "description": "The non-conformance is addressed by corrective or preventive actions."
+      },
+      {
+        "name": "LINKED_TO_PROCESS",
+        "domain": "RootCause",
+        "range": "ProcessSegment",
+        "description": "The root cause is associated with a process step."
+      },
+      {
+        "name": "LINKED_TO_EQUIPMENT",
+        "domain": "RootCause",
+        "range": "Equipment",
+        "description": "The root cause is associated with equipment."
+      }
+    ]
+  },
+  "created_at": "2026-04-17T00:00:00Z"
+}
 ]

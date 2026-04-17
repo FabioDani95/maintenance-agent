@@ -41,6 +41,8 @@ from kg_agents.models import (
     CurrentIssue,
     ChatRequest,
     ChatResponse,
+    ChatSessionsResponse,
+    ChatSessionMessagesResponse,
     OutcomeLogRequest,
     OutcomeLogResponse,
     NextIssueRequest,
@@ -50,6 +52,7 @@ from kg_agents.models import (
     StatusResponse,
 )
 from kg_agents.services import instance_store, intervention_store
+from kg_agents.services import chat_log_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["chat"])
 
@@ -343,6 +346,28 @@ def _handle_clarification_turn(
     )
 
 
+def _log_chat_exchange(
+    instance_id: str,
+    session_id: str,
+    user_message: str,
+    response: ChatResponse,
+) -> None:
+    try:
+        chat_log_store.log_user_message(
+            instance_id=instance_id,
+            session_id=session_id,
+            content=user_message,
+        )
+        chat_log_store.log_assistant_message(
+            instance_id=instance_id,
+            session_id=session_id,
+            content=response.reply,
+            payload=response.model_dump(),
+        )
+    except Exception:
+        pass
+
+
 @router.post("/instances/{instance_id}/chat", response_model=ChatResponse)
 async def chat(instance_id: str, req: ChatRequest):
     inst = instance_store.get_instance(instance_id)
@@ -360,8 +385,10 @@ async def chat(instance_id: str, req: ChatRequest):
     product_meta = _product_metadata.get(instance_id, {})
     session = _get_session(instance_id, session_id)
 
+    response: ChatResponse
+
     if _active_clarification(session):
-        return _handle_clarification_turn(
+        response = _handle_clarification_turn(
             instance_id=instance_id,
             session_id=session_id,
             session=session,
@@ -369,6 +396,8 @@ async def chat(instance_id: str, req: ChatRequest):
             product_meta=product_meta,
             chat_model=chat_model,
         )
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
 
     _begin_diagnosis(session, message)
 
@@ -392,7 +421,7 @@ async def chat(instance_id: str, req: ChatRequest):
                     product_meta=product_meta,
                 )
                 total = len(ranked)
-                return _build_chat_response(
+                response = _build_chat_response(
                     instance_id=instance_id,
                     session_id=session_id,
                     reply=reply,
@@ -403,8 +432,10 @@ async def chat(instance_id: str, req: ChatRequest):
                     total_issues=total,
                     telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
                 )
+                _log_chat_exchange(instance_id, session_id, message, response)
+                return response
         _set_active_issue(session, [], {})
-        return _build_chat_response(
+        response = _build_chat_response(
             instance_id=instance_id,
             reply=(
                 f"I recognised the error code **{raw_code}** but I don't have specific troubleshooting "
@@ -412,6 +443,8 @@ async def chat(instance_id: str, req: ChatRequest):
             ),
             session_id=session_id,
         )
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
 
     query_emb = get_query_embedding(message)
     top_symptoms = find_top_k_symptoms(query_emb, embeddings)
@@ -425,43 +458,51 @@ async def chat(instance_id: str, req: ChatRequest):
         )
         if relevance == "not_relevant":
             _set_active_issue(session, [], {})
-            return _build_chat_response(
+            response = _build_chat_response(
                 instance_id=instance_id,
                 reply=out_of_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
+            _log_chat_exchange(instance_id, session_id, message, response)
+            return response
         if relevance == "unclear":
             _set_active_issue(session, [], {})
-            return _build_chat_response(
+            response = _build_chat_response(
                 instance_id=instance_id,
                 reply=unclear_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
+            _log_chat_exchange(instance_id, session_id, message, response)
+            return response
 
     if not top_symptoms:
         _set_active_issue(session, [], {})
-        return _build_chat_response(
+        response = _build_chat_response(
             instance_id=instance_id,
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
 
     symptom_ids = [sid for sid, _ in top_symptoms]
     paths = get_troubleshooting_paths(symptom_ids, index)
     if not paths:
         _set_active_issue(session, [], {})
-        return _build_chat_response(
+        response = _build_chat_response(
             instance_id=instance_id,
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
 
     ranked = group_paths_by_symptom_score(paths, top_symptoms)
     ranked = rerank_groups_for_query(ranked, message, query_emb, index, top_symptoms)
     ranked, unmatched_terms = align_ranked_groups_to_query(ranked, message, index)
     if not ranked:
         _set_active_issue(session, [], {})
-        return _build_chat_response(
+        response = _build_chat_response(
             instance_id=instance_id,
             session_id=session_id,
             reply=low_confidence_response(
@@ -469,18 +510,22 @@ async def chat(instance_id: str, req: ChatRequest):
                 unmatched_terms=unmatched_terms,
             ),
         )
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
 
     session["ranked_issues"] = ranked
     clarification = build_clarification_state(ranked, message, index)
     if clarification:
         session["clarification"] = clarification
         session["current_issue_idx"] = 0
-        return _build_clarification_response(
+        response = _build_clarification_response(
             instance_id=instance_id,
             session_id=session_id,
             session=session,
             reply=str(clarification["question"]),
         )
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
 
     session["current_issue_idx"] = 0
     first_group = ranked[0]["paths"]
@@ -496,7 +541,7 @@ async def chat(instance_id: str, req: ChatRequest):
     if total > 1:
         reply += f"\n\n---\n*Possible cause 1 of {total}. Use \"Next\" to see the next most likely cause.*"
 
-    return _build_chat_response(
+    response = _build_chat_response(
         instance_id=instance_id,
         session_id=session_id,
         reply=reply,
@@ -507,6 +552,8 @@ async def chat(instance_id: str, req: ChatRequest):
         total_issues=total,
         telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
     )
+    _log_chat_exchange(instance_id, session_id, message, response)
+    return response
 
 
 @router.post("/instances/{instance_id}/next-issue", response_model=ChatResponse)
@@ -517,18 +564,22 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     chat_model = req.model or OPENAI_CHAT_MODEL
     session = _sessions.get(_session_key(instance_id, req.session_id))
     if not session or not session.get("ranked_issues"):
-        return _build_chat_response(
+        response = _build_chat_response(
             instance_id=instance_id,
             reply="No more issues to show. Please describe a new problem.",
             session_id=req.session_id,
         )
+        _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
+        return response
     if _active_clarification(session):
-        return _build_clarification_response(
+        response = _build_clarification_response(
             instance_id=instance_id,
             session_id=req.session_id,
             session=session,
             reply=str(session["clarification"].get("question", "Please answer the clarification question first.")),
         )
+        _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
+        return response
 
     _load_instance_ontology(instance_id)
     product_meta = _product_metadata.get(instance_id, {})
@@ -536,11 +587,13 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     next_idx = session["current_issue_idx"] + 1
 
     if next_idx >= len(ranked):
-        return _build_chat_response(
+        response = _build_chat_response(
             instance_id=instance_id,
             reply="Those were all the possible causes I found. If the problem persists, please describe it in more detail.",
             session_id=req.session_id,
         )
+        _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
+        return response
 
     session["current_issue_idx"] = next_idx
     group_paths = ranked[next_idx]["paths"]
@@ -554,7 +607,7 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     )
     total = len(ranked)
 
-    return _build_chat_response(
+    response = _build_chat_response(
         instance_id=instance_id,
         session_id=req.session_id,
         reply=reply,
@@ -565,6 +618,8 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
         total_issues=total,
         telemetry=build_telemetry_payload(group_paths, telemetry_dir=_telemetry_dir(instance_id)),
     )
+    _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
+    return response
 
 
 @router.post("/instances/{instance_id}/reset")
@@ -690,3 +745,21 @@ async def status(instance_id: str):
         total_nodes=meta.get("total_nodes"),
         total_relationships=meta.get("total_relationships"),
     )
+
+
+@router.get("/instances/{instance_id}/chat-sessions", response_model=ChatSessionsResponse)
+async def get_chat_sessions(instance_id: str, limit: int = Query(default=50, ge=1, le=200)):
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    sessions = chat_log_store.get_sessions(instance_id, limit=limit)
+    return ChatSessionsResponse(sessions=sessions)
+
+
+@router.get("/instances/{instance_id}/chat-sessions/{session_id}", response_model=ChatSessionMessagesResponse)
+async def get_chat_session_messages(instance_id: str, session_id: str):
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    messages = chat_log_store.get_session_messages(instance_id, session_id)
+    return ChatSessionMessagesResponse(messages=messages)

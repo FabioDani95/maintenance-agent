@@ -257,7 +257,7 @@ class ExtractionPerformance(BaseModel):
 
 class ExtractionModelUsage(BaseModel):
     primary_model: str = ""
-    secondary_model: str = ""
+    secondary_model: str | None = None
 
 
 class ExtractionFileLinks(BaseModel):
@@ -269,6 +269,7 @@ class ExtractionSummary(BaseModel):
     context: ExtractionContext
     extraction_performance: ExtractionPerformance = Field(default_factory=ExtractionPerformance)
     model_usage: ExtractionModelUsage = Field(default_factory=ExtractionModelUsage)
+    node_counts: dict[str, int] = Field(default_factory=dict)
     file_links: ExtractionFileLinks = Field(default_factory=ExtractionFileLinks)
 
 
@@ -287,3 +288,30 @@ class InstanceWithAgent(BaseModel):
 
 class AllInstancesResponse(BaseModel):
     instances: list[InstanceWithAgent]
+
+
+# ── Chat Logs ──
+class ChatLogEntry(BaseModel):
+    id: int
+    instance_id: str
+    session_id: str
+    role: str
+    content: str
+    created_at: str
+    payload: dict[str, Any] | None = None
+
+
+class ChatSessionSummary(BaseModel):
+    session_id: str
+    started_at: str
+    last_message_at: str
+    message_count: int
+    first_user_message: str = ""
+
+
+class ChatSessionsResponse(BaseModel):
+    sessions: list[ChatSessionSummary]
+
+
+class ChatSessionMessagesResponse(BaseModel):
+    messages: list[ChatLogEntry]
