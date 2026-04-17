@@ -27,6 +27,7 @@ class OntologyIndex:
     """Pre-built lookup structures for fast graph traversal."""
 
     def __init__(self, data: dict[str, Any]) -> None:
+        self.product_meta = build_product_metadata(data)
         nodes = data.get("nodes", {})
         relationships = data.get("relationships", [])
 
