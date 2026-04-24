@@ -40,11 +40,14 @@ class OntologyIndex:
 
         self.symptoms: list[dict[str, Any]] = nodes.get("Symptom", [])
         self.error_codes: list[dict[str, Any]] = nodes.get("ErrorCode", [])
+        self.failure_modes: list[dict[str, Any]] = nodes.get("FailureMode", [])
 
         self.may_indicate: dict[str, list[str]] = {}
+        self.may_indicate_inverse: dict[str, list[str]] = {}
         self.resolved_by: dict[str, list[str]] = {}
         self.affects: dict[str, list[str]] = {}
         self.indicates: dict[str, list[str]] = {}
+        self.indicates_inverse: dict[str, list[str]] = {}
 
         for rel in relationships:
             rtype = rel.get("type")
@@ -52,12 +55,14 @@ class OntologyIndex:
             dst = rel.get("to_id")
             if rtype == "MAY_INDICATE":
                 self.may_indicate.setdefault(src, []).append(dst)
+                self.may_indicate_inverse.setdefault(dst, []).append(src)
             elif rtype == "RESOLVED_BY":
                 self.resolved_by.setdefault(src, []).append(dst)
             elif rtype == "AFFECTS":
                 self.affects.setdefault(src, []).append(dst)
             elif rtype == "INDICATES":
                 self.indicates.setdefault(src, []).append(dst)
+                self.indicates_inverse.setdefault(dst, []).append(src)
 
     @staticmethod
     def _node_id(node: dict[str, Any]) -> str | None:

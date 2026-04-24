@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from kg_agents.config import HIGH_CONFIDENCE_THRESHOLD, SIMILARITY_THRESHOLD, TOP_K_SYMPTOMS
+from kg_agents.config import (
+    FAILURE_MODE_SIMILARITY_THRESHOLD,
+    HIGH_CONFIDENCE_THRESHOLD,
+    SIMILARITY_THRESHOLD,
+    TOP_K_FAILURE_MODES,
+    TOP_K_SYMPTOMS,
+)
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -18,15 +24,15 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return _cosine(a, b)
 
 
-def find_top_k_symptoms(
+def _top_k_by_cosine(
     query_embedding: list[float],
-    symptom_embeddings: dict[str, list[float]],
-    k: int = TOP_K_SYMPTOMS,
-    threshold: float = SIMILARITY_THRESHOLD,
+    embeddings: dict[str, list[float]],
+    k: int,
+    threshold: float,
 ) -> list[tuple[str, float]]:
     scores = [
-        (sid, _cosine(query_embedding, emb))
-        for sid, emb in symptom_embeddings.items()
+        (node_id, _cosine(query_embedding, emb))
+        for node_id, emb in embeddings.items()
     ]
     scores.sort(key=lambda x: x[1], reverse=True)
     top = scores[:k]
@@ -34,7 +40,25 @@ def find_top_k_symptoms(
     if not top or top[0][1] < threshold:
         return []
 
-    return [(sid, score) for sid, score in top if score >= threshold]
+    return [(node_id, score) for node_id, score in top if score >= threshold]
+
+
+def find_top_k_symptoms(
+    query_embedding: list[float],
+    symptom_embeddings: dict[str, list[float]],
+    k: int = TOP_K_SYMPTOMS,
+    threshold: float = SIMILARITY_THRESHOLD,
+) -> list[tuple[str, float]]:
+    return _top_k_by_cosine(query_embedding, symptom_embeddings, k, threshold)
+
+
+def find_top_k_failure_modes(
+    query_embedding: list[float],
+    failure_mode_embeddings: dict[str, list[float]],
+    k: int = TOP_K_FAILURE_MODES,
+    threshold: float = FAILURE_MODE_SIMILARITY_THRESHOLD,
+) -> list[tuple[str, float]]:
+    return _top_k_by_cosine(query_embedding, failure_mode_embeddings, k, threshold)
 
 
 def is_high_confidence(scores: list[tuple[str, float]]) -> bool:

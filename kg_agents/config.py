@@ -32,6 +32,12 @@ SIMILARITY_THRESHOLD: float = 0.45
 HIGH_CONFIDENCE_THRESHOLD: float = 0.75
 TOP_K_SYMPTOMS: int = 3
 
+# Failure-mode retrieval (augments symptom retrieval when the user describes a
+# root cause instead of an observable symptom). A slightly higher threshold
+# keeps spurious fm matches from dominating when a symptom fits better.
+FAILURE_MODE_SIMILARITY_THRESHOLD: float = 0.50
+TOP_K_FAILURE_MODES: int = 3
+
 AGENT_PORT: int = int(os.getenv("AGENT_PORT", "8030"))
 
 TELEMETRY_WINDOW_HOURS: int = 48

@@ -417,7 +417,13 @@ def rerank_groups_for_query(
             rescored.append((0.0, order, group))
             continue
 
-        base_score = max(score_map.get(path["symptom_id"], 0.0) for path in group_paths)
+        base_score = max(
+            max(
+                score_map.get(path.get("symptom_id", ""), 0.0),
+                score_map.get(path.get("failure_mode_id", ""), 0.0),
+            )
+            for path in group_paths
+        )
         direct_terms = _group_direct_terms(group_paths, index)
         direct_canonical_terms = _group_direct_canonical_terms(group_paths, index)
         support_canonical_terms = _group_support_canonical_terms(group_paths, index)

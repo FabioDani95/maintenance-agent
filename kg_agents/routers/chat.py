@@ -15,11 +15,12 @@ from kg_agents.engine.clarification import (
     resolve_clarification_answer,
 )
 from kg_agents.engine.domain_check import check_domain_relevance
-from kg_agents.engine.embeddings import get_query_embedding
+from kg_agents.engine.embeddings import get_query_embedding, load_embeddings
 from kg_agents.engine.graph_traversal import (
     find_error_code_by_value,
     get_troubleshooting_paths,
     get_troubleshooting_paths_from_error_code,
+    get_troubleshooting_paths_from_failure_modes,
 )
 from kg_agents.engine.ontology_loader import OntologyIndex, build_product_metadata
 from kg_agents.engine.query_alignment import align_ranked_groups_to_query, rerank_groups_for_query
@@ -30,7 +31,11 @@ from kg_agents.engine.response_builder import (
     out_of_domain_response,
     unclear_domain_response,
 )
-from kg_agents.engine.similarity import find_top_k_symptoms, is_high_confidence
+from kg_agents.engine.similarity import (
+    find_top_k_failure_modes,
+    find_top_k_symptoms,
+    is_high_confidence,
+)
 from kg_agents.engine.workflow import (
     build_telemetry_payload,
     build_trace,
@@ -62,7 +67,8 @@ _ERROR_CODE_PATTERN = re.compile(
 
 # Instance-scoped caches.
 _ontology_indexes: dict[str, OntologyIndex] = {}
-_symptom_embeddings: dict[str, dict[str, list[float]]] = {}
+# Sectioned embeddings per instance: {"symptoms": {...}, "failure_modes": {...}}
+_embeddings_cache: dict[str, dict[str, dict[str, list[float]]]] = {}
 _product_metadata: dict[str, dict] = {}
 
 # Session store (instance_id + session_id).
@@ -72,7 +78,7 @@ _sessions: dict[str, dict] = {}
 def evict_instance_cache(instance_id: str) -> None:
     """Remove all in-memory caches for a given instance (ontology, embeddings, product metadata)."""
     _ontology_indexes.pop(instance_id, None)
-    _symptom_embeddings.pop(instance_id, None)
+    _embeddings_cache.pop(instance_id, None)
     _product_metadata.pop(instance_id, None)
 
 
@@ -125,7 +131,11 @@ def _symptom_ids_from_group(group_paths: list[dict], trace: dict[str, object]) -
     seen: list[str] = []
     for path in group_paths:
         symptom_id = path.get("symptom_id")
-        if symptom_id and symptom_id not in seen:
+        # Skip pseudo-symptoms (fm-sourced paths re-use the fm id as symptom_id
+        # when no real Symptom is linked).
+        if not symptom_id or symptom_id == path.get("failure_mode_id"):
+            continue
+        if symptom_id not in seen:
             seen.append(symptom_id)
     return seen
 
@@ -240,18 +250,21 @@ def _load_instance_ontology(instance_id: str) -> OntologyIndex:
     return index
 
 
-def _load_instance_embeddings(instance_id: str) -> dict[str, list[float]]:
-    if instance_id in _symptom_embeddings:
-        return _symptom_embeddings[instance_id]
+def _load_instance_embeddings(instance_id: str) -> dict[str, dict[str, list[float]]]:
+    """Load sectioned embeddings for an instance.
+
+    Returns {"symptoms": {...}, "failure_modes": {...}}. Accepts both the new
+    sectioned format and the legacy flat-dict format (treated as symptoms only).
+    """
+    if instance_id in _embeddings_cache:
+        return _embeddings_cache[instance_id]
 
     emb_path = instance_store.get_embeddings_path(instance_id)
     if not emb_path.exists():
         raise HTTPException(status_code=404, detail="Symptom embeddings not found. Please generate them first.")
 
-    with emb_path.open("r", encoding="utf-8") as f:
-        embeddings = json.load(f)
-
-    _symptom_embeddings[instance_id] = embeddings
+    embeddings = load_embeddings(emb_path)
+    _embeddings_cache[instance_id] = embeddings
     return embeddings
 
 
@@ -447,13 +460,20 @@ async def chat(instance_id: str, req: ChatRequest):
         return response
 
     query_emb = get_query_embedding(message)
-    top_symptoms = find_top_k_symptoms(query_emb, embeddings)
+    symptom_embs = embeddings.get("symptoms", {})
+    fm_embs = embeddings.get("failure_modes", {})
+    top_symptoms = find_top_k_symptoms(query_emb, symptom_embs)
+    top_failure_modes = find_top_k_failure_modes(query_emb, fm_embs)
 
-    if not is_high_confidence(top_symptoms):
-        best_score = top_symptoms[0][1] if top_symptoms else 0.0
+    best_symptom_score = top_symptoms[0][1] if top_symptoms else 0.0
+    best_fm_score = top_failure_modes[0][1] if top_failure_modes else 0.0
+    best_overall_score = max(best_symptom_score, best_fm_score)
+    combined_top = top_symptoms + top_failure_modes
+
+    if not is_high_confidence(combined_top):
         relevance = check_domain_relevance(
             message,
-            top_score=best_score,
+            top_score=best_overall_score,
             product_meta=product_meta,
         )
         if relevance == "not_relevant":
@@ -475,7 +495,7 @@ async def chat(instance_id: str, req: ChatRequest):
             _log_chat_exchange(instance_id, session_id, message, response)
             return response
 
-    if not top_symptoms:
+    if not top_symptoms and not top_failure_modes:
         _set_active_issue(session, [], {})
         response = _build_chat_response(
             instance_id=instance_id,
@@ -486,7 +506,21 @@ async def chat(instance_id: str, req: ChatRequest):
         return response
 
     symptom_ids = [sid for sid, _ in top_symptoms]
+    fm_ids = [fm_id for fm_id, _ in top_failure_modes]
+
     paths = get_troubleshooting_paths(symptom_ids, index)
+    fm_paths = get_troubleshooting_paths_from_failure_modes(fm_ids, index)
+    # Merge, deduplicating on (failure_mode_id, action_id).
+    seen_keys: set[tuple[str, str]] = {
+        (p.get("failure_mode_id", ""), p.get("action_id", "")) for p in paths
+    }
+    for p in fm_paths:
+        key = (p.get("failure_mode_id", ""), p.get("action_id", ""))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        paths.append(p)
+
     if not paths:
         _set_active_issue(session, [], {})
         response = _build_chat_response(
@@ -497,8 +531,8 @@ async def chat(instance_id: str, req: ChatRequest):
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
 
-    ranked = group_paths_by_symptom_score(paths, top_symptoms)
-    ranked = rerank_groups_for_query(ranked, message, query_emb, index, top_symptoms)
+    ranked = group_paths_by_symptom_score(paths, combined_top)
+    ranked = rerank_groups_for_query(ranked, message, query_emb, index, combined_top)
     ranked, unmatched_terms = align_ranked_groups_to_query(ranked, message, index)
     if not ranked:
         _set_active_issue(session, [], {})

@@ -22,7 +22,11 @@ def group_paths_by_symptom_score(
     grouped = group_paths_by_failure_mode(paths)
     for group in grouped:
         group["_best_score"] = max(
-            score_map.get(path["symptom_id"], 0.0) for path in group["paths"]
+            max(
+                score_map.get(path.get("symptom_id", ""), 0.0),
+                score_map.get(path.get("failure_mode_id", ""), 0.0),
+            )
+            for path in group["paths"]
         )
     grouped.sort(key=lambda group: group["_best_score"], reverse=True)
     for group in grouped:
@@ -30,12 +34,23 @@ def group_paths_by_symptom_score(
     return grouped
 
 
+def _is_pseudo_symptom(path: dict[str, Any]) -> bool:
+    """A path sourced directly from a failure-mode match uses the fm id as a
+    stand-in symptom_id when no real symptom is linked to it. Detect that."""
+    sym_id = path.get("symptom_id", "")
+    return bool(sym_id) and sym_id == path.get("failure_mode_id", "")
+
+
 def build_trace(
     paths: list[dict[str, Any]],
     top_symptoms: list[tuple[str, float]] | None = None,
 ) -> dict[str, Any]:
     error_code_ids = list({path["error_code_id"] for path in paths if path.get("error_code_id")})
-    symptom_ids = list({path["symptom_id"] for path in paths if not path.get("error_code_id")})
+    symptom_ids = list({
+        path["symptom_id"]
+        for path in paths
+        if not path.get("error_code_id") and not _is_pseudo_symptom(path)
+    })
     failure_mode_ids = list({path["failure_mode_id"] for path in paths})
     action_ids = list({path["action_id"] for path in paths})
     component_ids = list({path["component_id"] for path in paths if path.get("component_id")})
@@ -44,7 +59,7 @@ def build_trace(
     for path in paths:
         if path.get("error_code_id"):
             edges.append({"from": path["error_code_id"], "to": path["failure_mode_id"]})
-        else:
+        elif not _is_pseudo_symptom(path):
             edges.append({"from": path["symptom_id"], "to": path["failure_mode_id"]})
         edges.append({"from": path["failure_mode_id"], "to": path["action_id"]})
         if path.get("component_id"):
