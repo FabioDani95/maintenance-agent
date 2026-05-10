@@ -33,9 +33,21 @@ _FLOAT_FIELDS = {
 
 
 def _coerce(row: dict[str, str]) -> dict[str, Any]:
-    """Convert empty strings to None and coerce numeric fields."""
+    """Convert empty strings to None and coerce numeric / structured fields."""
     out: dict[str, Any] = {}
     for k, v in row.items():
+        if k == "quality_flags":
+            out[k] = [f for f in (v or "").split(",") if f]
+            continue
+        if k == "attributes_json":
+            if not v:
+                out[k] = {}
+            else:
+                try:
+                    out[k] = json.loads(v)
+                except json.JSONDecodeError:
+                    out[k] = {}
+            continue
         if v == "":
             out[k] = None
             continue
@@ -50,15 +62,6 @@ def _coerce(row: dict[str, str]) -> dict[str, Any]:
                 out[k] = float(v)
             except (TypeError, ValueError):
                 out[k] = None
-            continue
-        if k == "attributes_json":
-            try:
-                out[k] = json.loads(v) if v else {}
-            except json.JSONDecodeError:
-                out[k] = {}
-            continue
-        if k == "quality_flags":
-            out[k] = [f for f in v.split(",") if f]
             continue
         out[k] = v
     return out

@@ -315,3 +315,101 @@ class ChatSessionsResponse(BaseModel):
 
 class ChatSessionMessagesResponse(BaseModel):
     messages: list[ChatLogEntry]
+
+
+class LogRecord(BaseModel):
+    log_id: str
+    source_system: str | None = None
+    source_record_id: str | None = None
+    occurred_at: str | None = None
+    observed_at: str | None = None
+    instance_id: str
+    asset_id: str | None = None
+    device_id: str | None = None
+    equipment_tag: str | None = None
+    location: str | None = None
+    event_name: str | None = None
+    event_category: str | None = None
+    maintenance_type: str | None = None
+    status: str | None = None
+    severity_number: int | None = None
+    severity_text: str | None = None
+    component_id: str | None = None
+    component_name_raw: str | None = None
+    error_code: str | None = None
+    alarm_code: str | None = None
+    signal_name: str | None = None
+    observed_value: float | None = None
+    observed_unit: str | None = None
+    threshold_value: float | None = None
+    threshold_unit: str | None = None
+    work_order_id: str | None = None
+    title: str | None = None
+    body: str | None = None
+    action_taken: str | None = None
+    outcome: str | None = None
+    planned_duration_min: int | None = None
+    actual_duration_min: int | None = None
+    downtime_min: int | None = None
+    semantic_text: str | None = None
+    event_signature_id: str | None = None
+    linked_failure_mode_id: str | None = None
+    linked_symptom_id: str | None = None
+    quality_flags: list[str] = Field(default_factory=list)
+    attributes_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class LogListResponse(BaseModel):
+    instance_id: str
+    total: int
+    limit: int
+    offset: int
+    items: list[LogRecord]
+
+
+class LogSummaryResponse(BaseModel):
+    instance_id: str
+    row_count: int
+    top_event_signatures: list[dict[str, Any]] = Field(default_factory=list)
+    top_components: list[dict[str, Any]] = Field(default_factory=list)
+    severity_distribution: dict[str, int] = Field(default_factory=dict)
+    events_by_month: dict[str, int] = Field(default_factory=dict)
+    open_events: int = 0
+    downtime_by_component_min: dict[str, int] = Field(default_factory=dict)
+
+
+class LogSearchRequest(BaseModel):
+    query: str
+    date_from: str | None = None
+    date_to: str | None = None
+    component_id: str | None = None
+    linked_failure_mode_id: str | None = None
+    maintenance_type: str | None = None
+    event_category: str | None = None
+    event_signature_id: str | None = None
+    status: str | None = None
+    severity_min: int | None = None
+    limit: int = 5
+    use_llm_rerank: bool = True
+
+
+class LogSearchMatch(BaseModel):
+    event_signature_id: str
+    score: float
+    occurrence_count: int
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    linked_failure_mode_id: str = ""
+    linked_symptom_id: str = ""
+    top_match_log: LogRecord
+    most_recent_log: LogRecord
+    all_log_ids: list[str] = Field(default_factory=list)
+    rerank_rationale: str | None = None
+
+
+class LogSearchResponse(BaseModel):
+    query: str
+    instance_id: str
+    match_count: int
+    matches: list[LogSearchMatch]
+    diagnostics: dict[str, Any] = Field(default_factory=dict)

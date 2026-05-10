@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from kg_agents.config import AGENT_PORT, DATA_DIR, DEFAULT_MANUALS_DIR, DEV_UI_DIR
-from kg_agents.routers import agents, chat, devices, graph, instances
+from kg_agents.routers import agents, chat, devices, graph, instances, logs
 from kg_agents.services.agent_store import seed_default_agent
 from kg_agents.services.intervention_store import init_db
 from kg_agents.services.chat_log_store import init_chat_log_db
@@ -44,6 +44,7 @@ app.include_router(instances.router)
 app.include_router(chat.router)
 app.include_router(graph.router)
 app.include_router(devices.router)
+app.include_router(logs.router)
 
 _DEV_UI_STATIC_DIR = DEV_UI_DIR / "static"
 if _DEV_UI_STATIC_DIR.exists():
