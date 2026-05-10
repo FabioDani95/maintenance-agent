@@ -17,11 +17,11 @@
       ],
       "nodes": [
         {
-          "name": "Printer",
-          "description": "The printer or printer model that is the subject of troubleshooting knowledge.",
+          "name": "Asset",
+          "description": "The asset or machine that is the subject of troubleshooting knowledge.",
           "properties": [
             {
-              "name": "printer_id",
+              "name": "asset_id",
               "type": "string",
               "required": true,
               "unique": true
@@ -50,7 +50,7 @@
         },
         {
           "name": "Component",
-          "description": "A physical component or subsystem of the printer involved in troubleshooting.",
+          "description": "A physical component or subsystem of the asset involved in troubleshooting.",
           "properties": [
             {
               "name": "component_id",
@@ -179,7 +179,7 @@
         },
         {
           "name": "ErrorCode",
-          "description": "A machine-generated error code or alert code produced by the printer and linked to troubleshooting knowledge.",
+          "description": "A machine-generated error code or alert code produced by the asset and linked to troubleshooting knowledge.",
           "properties": [
             {
               "name": "error_code_id",
@@ -208,9 +208,9 @@
       "relations": [
         {
           "name": "HAS_COMPONENT",
-          "domain": "Printer",
+          "domain": "Asset",
           "range": "Component",
-          "description": "The printer includes the specified component."
+          "description": "The asset includes the specified component."
         },
         {
           "name": "RELATED_TO",
@@ -238,9 +238,9 @@
         },
         {
           "name": "GENERATES_ERROR",
-          "domain": "Printer",
+          "domain": "Asset",
           "range": "ErrorCode",
-          "description": "The printer may generate the specified error code."
+          "description": "The asset may generate the specified error code."
         },
         {
           "name": "INDICATES",

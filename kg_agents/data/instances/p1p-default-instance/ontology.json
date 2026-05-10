@@ -29,9 +29,9 @@
     }
   ],
   "nodes": {
-    "Printer": [
+    "Asset": [
       {
-        "printer_id": "prt_p1p",
+        "asset_id": "asset_p1p",
         "name": "Bambu Lab P1P",
         "description": "CoreXY FDM 3D printer with a 256×256×256 mm build volume, high-speed motion system and optional multi-color AMS support.",
         "brand": "Bambu Lab",
@@ -634,87 +634,87 @@
   "relationships": [
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_x_axis_carbon_rods"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_z_axis_lead_screws"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_yz_linear_rods"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_lmu8_bearings"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_extruder_assembly"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_filament_cutter_blade"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_silicone_sock"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_idler_pulleys"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_chamber_camera"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_hotend_fan"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_front_cover_fan"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_auxiliary_fan"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_nozzle_wiper"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_nozzle"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_ptfe_tube"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_belts"
     },
     {
       "type": "HAS_COMPONENT",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "comp_hotend_fan"
     },
     {
@@ -1129,57 +1129,57 @@
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_0900_0002_0001"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_0900_0002_0003"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0700_7000_0002_0003"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0700_7000_0002_0001"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0700_4500_0002_0003"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0700_4500_0002_0001"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_1000_0002_0001"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_1000_0002_0002"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_1100_0002_0001"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_1100_0002_0002"
     },
     {
       "type": "GENERATES_ERROR",
-      "from_id": "prt_p1p",
+      "from_id": "asset_p1p",
       "to_id": "err_0300_0300_0001_0001"
     },
     {
