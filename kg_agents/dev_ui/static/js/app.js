@@ -231,6 +231,7 @@ function buildAssistantHtml(text) {
   const lines = normalized.split('\n');
   const blocks = [];
   let listItems = [];
+  let bulletItems = [];
   let currentItem = null;
 
   function pushCurrentItem() {
@@ -242,6 +243,7 @@ function buildAssistantHtml(text) {
   function flushList() {
     pushCurrentItem();
     if (!listItems.length) return;
+    flushBullets();
     let html = '<ol class="assistant-list">';
     listItems.forEach(item => {
       html += '<li>';
@@ -268,8 +270,20 @@ function buildAssistantHtml(text) {
     listItems = [];
   }
 
+  function flushBullets() {
+    if (!bulletItems.length) return;
+    let html = '<ul class="assistant-bullet-list">';
+    bulletItems.forEach(item => {
+      html += `<li>${formatInline(item)}</li>`;
+    });
+    html += '</ul>';
+    blocks.push(html);
+    bulletItems = [];
+  }
+
   function pushBlock(html) {
     flushList();
+    flushBullets();
     blocks.push(`<div class="assistant-block">${html}</div>`);
   }
 
@@ -288,8 +302,15 @@ function buildAssistantHtml(text) {
 
     const topLevelItem = rawLine.match(/^(\d+)\.\s+(.*)$/);
     if (topLevelItem) {
+      flushBullets();
       pushCurrentItem();
       currentItem = { title: topLevelItem[2], lines: [], substeps: [], source: '' };
+      return;
+    }
+
+    const bulletItem = trimmed.match(/^[-•]\s+(.*)$/);
+    if (bulletItem && !currentItem) {
+      bulletItems.push(bulletItem[1]);
       return;
     }
 
@@ -310,6 +331,12 @@ function buildAssistantHtml(text) {
       return;
     }
 
+    const sectionHeading = trimmed.match(/^\*\*([^*]+)\*\*$/);
+    if (sectionHeading) {
+      pushBlock(`<div class="assistant-section-title">${escapeHtml(sectionHeading[1])}</div>`);
+      return;
+    }
+
     if (currentItem) {
       currentItem.lines.push(trimmed);
       return;
@@ -319,6 +346,7 @@ function buildAssistantHtml(text) {
   });
 
   flushList();
+  flushBullets();
   return `<div class="assistant-content">${blocks.join('')}</div>`;
 }
 
@@ -524,6 +552,58 @@ async function logOutcome(selectedActionId, outcome) {
   });
 }
 
+const INTENT_LABELS = {
+  log_history_search: 'Historical lookup',
+  log_analytics: 'Log analytics',
+  work_order_lookup: 'Work order',
+  hybrid_diagnosis_with_history: 'Diagnosis + history',
+};
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function buildIntentBadge(intent, evidenceCount) {
+  if (!intent || intent === 'troubleshooting_current') return '';
+  const label = INTENT_LABELS[intent] || intent;
+  const count = (evidenceCount && evidenceCount > 0)
+    ? ` · ${evidenceCount} match${evidenceCount === 1 ? '' : 'es'}`
+    : '';
+  return `<div class="intent-badge intent-${intent}">${label}${count}</div>`;
+}
+
+function buildLogEvidenceHtml(evidence) {
+  if (!Array.isArray(evidence) || evidence.length === 0) return '';
+  const summaryLabel = `Evidence (${evidence.length} log${evidence.length === 1 ? '' : 's'})`;
+  let html = `<details class="log-evidence" open><summary>${summaryLabel}</summary><div class="log-evidence-list">`;
+  evidence.forEach(e => {
+    const top = e.top_match || {};
+    const date = (top.occurred_at || '').slice(0, 10);
+    const severity = top.severity_text || '';
+    const wo = top.work_order_id || '';
+    const sevClass = severity ? `log-sev-${severity.toLowerCase()}` : '';
+    const occCount = (typeof e.occurrence_count === 'number') ? e.occurrence_count : '?';
+    html += `<div class="log-evidence-item">`
+         + `<div class="log-evidence-meta">`
+         + (severity ? `<span class="log-severity ${sevClass}">${escapeHtml(severity)}</span>` : '')
+         + (date ? `<span class="log-date">${escapeHtml(date)}</span>` : '')
+         + (wo ? `<span class="log-wo">${escapeHtml(wo)}</span>` : '')
+         + `<span class="log-occurrences">${occCount} occurrence${occCount === 1 ? '' : 's'}</span>`
+         + `</div>`;
+    if (top.title) html += `<div class="log-evidence-title">${escapeHtml(top.title)}</div>`;
+    if (top.body) html += `<div class="log-evidence-body">${escapeHtml(top.body)}</div>`;
+    if (top.action_taken) html += `<div class="log-evidence-action"><strong>Action:</strong> ${escapeHtml(top.action_taken)}</div>`;
+    if (top.outcome) html += `<div class="log-evidence-outcome">Outcome: <em>${escapeHtml(top.outcome)}</em></div>`;
+    if (e.rerank_rationale) html += `<div class="log-evidence-rationale">${escapeHtml(e.rerank_rationale)}</div>`;
+    html += `</div>`;
+  });
+  html += '</div></details>';
+  return html;
+}
+
 function appendMessage(role, text, extra) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
@@ -533,6 +613,11 @@ function appendMessage(role, text, extra) {
   } else {
     div.textContent = text;
     html = div.textContent.replace(/\n/g, '<br>');
+  }
+  // Intent badge prefix (only for non-default intents)
+  if (role === 'assistant' && extra && extra.intent) {
+    const badge = buildIntentBadge(extra.intent, (extra.log_evidence || []).length);
+    if (badge) html = badge + html;
   }
   const hasCurrentIssue = role === 'assistant' && extra && extra.current_issue;
   const hasClarification = role === 'assistant' && extra && extra.awaiting_clarification;
@@ -561,6 +646,10 @@ function appendMessage(role, text, extra) {
     traceHtml += `<div style="margin-top:6px;color:#6e7681">All content retrieved from knowledge graph \u2014 0 LLM-generated facts</div>`;
     traceHtml += '</div></details>';
     html += traceHtml;
+  }
+  // Log evidence panel (history/analytics/work-order/hybrid)
+  if (role === 'assistant' && extra && Array.isArray(extra.log_evidence) && extra.log_evidence.length) {
+    html += buildLogEvidenceHtml(extra.log_evidence);
   }
   // Confidence bar
   if (extra && extra.scores && Object.keys(extra.scores).length > 0) {
@@ -696,6 +785,8 @@ async function sendMessage() {
         current_issue: data.current_issue || null,
         awaiting_clarification: !!data.awaiting_clarification,
         clarification_options: data.clarification_options || [],
+        intent: data.intent || null,
+        log_evidence: data.log_evidence || [],
       });
     } else {
       appendMessage('assistant', 'Error: ' + (data.error || 'unknown'));
@@ -704,6 +795,10 @@ async function sendMessage() {
     if (data.highlight && Object.keys(data.highlight).length > 0) {
       highlightGraph(data.highlight);
       updateSessionStats(data.highlight);
+    }
+    // Auto-populate log overlay query when chat returns log evidence
+    if (data.log_evidence && data.log_evidence.length > 0) {
+      maybeAutoSyncOverlay(text);
     }
     // Show telemetry panel
     if (data.telemetry) {
@@ -758,6 +853,33 @@ instanceSelect.addEventListener('change', async (e) => {
   await switchInstance(e.target.value);
 });
 
+// Log overlay controls
+const overlayToggleEl = document.getElementById('overlay-include-logs');
+const overlayQueryEl = document.getElementById('overlay-log-query');
+const overlayApplyBtn = document.getElementById('overlay-apply-btn');
+if (overlayToggleEl) {
+  overlayToggleEl.addEventListener('change', () => {
+    overlayIncludeLogs = !!overlayToggleEl.checked;
+    overlayLogQuery = (overlayQueryEl && overlayQueryEl.value) || '';
+    initGraph();
+  });
+}
+if (overlayApplyBtn) {
+  overlayApplyBtn.addEventListener('click', () => {
+    overlayLogQuery = (overlayQueryEl && overlayQueryEl.value) || '';
+    if (!overlayIncludeLogs && overlayToggleEl) {
+      overlayToggleEl.checked = true;
+      overlayIncludeLogs = true;
+    }
+    initGraph();
+  });
+}
+if (overlayQueryEl) {
+  overlayQueryEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); overlayApplyBtn.click(); }
+  });
+}
+
 // ── Graph functions ──
 const SEVERITY_COLORS = { high: '#f85149', medium: '#d29922', low: '#3fb950' };
 
@@ -765,13 +887,14 @@ function enrichNode(n, cMap) {
   const c = cMap[n.group] || "#4b5563";
   const sevColor = (n.group === 'Symptom' && n.severity) ? SEVERITY_COLORS[n.severity] || c : c;
   const bw = (n.group === 'Symptom' && n.severity) ? 2.5 : 1;
+  const isLog = n.group === 'LogEvent';
   return {
     ...n,
     color: { border: sevColor, background: c, highlight: { border: "#e5e7eb", background: c }, hover: { border: "#e5e7eb", background: c } },
-    font: { color: ACTIVE_FONT_COLOR, size: 11, face: "system-ui" },
-    shape: "dot",
-    size: 10,
-    borderWidth: bw,
+    font: { color: ACTIVE_FONT_COLOR, size: isLog ? 10 : 11, face: "system-ui" },
+    shape: isLog ? "diamond" : "dot",
+    size: isLog ? 12 : 10,
+    borderWidth: isLog ? 2 : bw,
   };
 }
 
@@ -786,6 +909,35 @@ function buildLegend(nodeTypes, cMap) {
   });
 }
 
+// ── Log overlay state ─────────────────────────────────────────
+let overlayIncludeLogs = false;
+let overlayLogQuery = '';
+
+function buildGraphDataUrl() {
+  const params = new URLSearchParams();
+  if (overlayIncludeLogs) {
+    params.set('include_logs', 'true');
+    if (overlayLogQuery && overlayLogQuery.trim()) {
+      params.set('log_query', overlayLogQuery.trim());
+    }
+    params.set('limit_logs', '15');
+  }
+  const qs = params.toString();
+  return instanceApi('/graph-data') + (qs ? '?' + qs : '');
+}
+
+function maybeAutoSyncOverlay(userMessage) {
+  // When chat returns log evidence, prefill the overlay query box with the
+  // user's question. If the overlay is already enabled, re-fetch the graph
+  // so the matched signatures appear as virtual LogEvent nodes.
+  const qInput = document.getElementById('overlay-log-query');
+  if (qInput) qInput.value = userMessage || '';
+  overlayLogQuery = userMessage || '';
+  if (overlayIncludeLogs) {
+    initGraph();
+  }
+}
+
 async function initGraph() {
   let payload;
   document.getElementById('graph-status').textContent = 'Loading graph…';
@@ -797,7 +949,7 @@ async function initGraph() {
     network = null;
   }
   try {
-    payload = await fetchJson(instanceApi('/graph-data'));
+    payload = await fetchJson(buildGraphDataUrl());
   } catch (err) {
     document.getElementById('graph-status').textContent = 'Failed to load graph';
     return;
@@ -1303,6 +1455,8 @@ messagesEl.addEventListener('click', async (e) => {
           current_issue: data.current_issue || null,
           awaiting_clarification: !!data.awaiting_clarification,
           clarification_options: data.clarification_options || [],
+          intent: data.intent || null,
+          log_evidence: data.log_evidence || [],
         });
       }
       if (data.highlight && Object.keys(data.highlight).length > 0) {

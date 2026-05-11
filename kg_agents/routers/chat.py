@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
+from time import perf_counter
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,7 +25,7 @@ from kg_agents.engine.graph_traversal import (
     get_troubleshooting_paths_from_error_code,
     get_troubleshooting_paths_from_failure_modes,
 )
-from kg_agents.engine.intent_router import classify_intent
+from kg_agents.engine.intent_router import classify_intent, classify_intent_fast
 from kg_agents.engine.log_chat import (
     fetch_hybrid_history_evidence,
     handle_log_analytics,
@@ -31,6 +34,8 @@ from kg_agents.engine.log_chat import (
 )
 from kg_agents.engine.ontology_loader import OntologyIndex, build_product_metadata
 from kg_agents.engine.query_alignment import align_ranked_groups_to_query, rerank_groups_for_query
+from kg_agents.engine.log_loader import evict_log_cache
+from kg_agents.engine.log_search import evict_search_cache
 from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
     format_answer_single_group,
@@ -67,6 +72,7 @@ from kg_agents.services import instance_store, intervention_store
 from kg_agents.services import chat_log_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 _ERROR_CODE_PATTERN = re.compile(
     r"\b([0-9A-Fa-f]{4}[_\-][0-9A-Fa-f]{4}[_\-][0-9A-Fa-f]{4}[_\-][0-9A-Fa-f]{4})\b"
@@ -80,6 +86,34 @@ _product_metadata: dict[str, dict] = {}
 
 # Session store (instance_id + session_id).
 _sessions: dict[str, dict] = {}
+
+
+class _StageTimer:
+    def __init__(self) -> None:
+        now = perf_counter()
+        self._start = now
+        self._last = now
+        self.timings: dict[str, float] = {}
+
+    def mark(self, stage: str) -> None:
+        now = perf_counter()
+        self.timings[f"{stage}_s"] = round(now - self._last, 3)
+        self._last = now
+
+    def add_nested(self, prefix: str, nested: dict[str, float]) -> None:
+        for key, value in nested.items():
+            self.timings[f"{prefix}_{key}"] = value
+
+    def snapshot(self) -> dict[str, float]:
+        out = dict(self.timings)
+        out["total_s"] = round(perf_counter() - self._start, 3)
+        return out
+
+
+def _timed_call(fn, *args, **kwargs):
+    started = perf_counter()
+    result = fn(*args, **kwargs)
+    return result, round(perf_counter() - started, 3)
 
 
 def evict_instance_cache(instance_id: str) -> None:
@@ -124,6 +158,11 @@ def _begin_diagnosis(session: dict, message: str) -> None:
     session["clarification"] = None
     session["diagnosis_started_at"] = _utc_now()
     session["user_queries"] = [message]
+    # Pending hybrid-history context only spans a single diagnosis turn;
+    # clear it whenever a new query starts so we never leak prior history
+    # into an unrelated answer.
+    session.pop("_hybrid_appendix_pending", None)
+    session.pop("_hybrid_evidence_pending", None)
 
 
 def _set_active_issue(session: dict, group_paths: list[dict], trace: dict[str, object]) -> None:
@@ -404,8 +443,34 @@ def _log_chat_exchange(
         pass
 
 
+def _finish_chat_response(
+    *,
+    instance_id: str,
+    session_id: str,
+    user_message: str,
+    response: ChatResponse,
+    timer: _StageTimer,
+    branch: str,
+    intent: str,
+) -> ChatResponse:
+    _log_chat_exchange(instance_id, session_id, user_message, response)
+    timer.mark("chat_log")
+    response.timings = timer.snapshot()
+    logger.info(
+        "kg_chat_timing instance_id=%s session_id=%s branch=%s intent=%s total_s=%.3f timings=%s",
+        instance_id,
+        session_id,
+        branch,
+        response.intent or intent,
+        response.timings.get("total_s", 0.0),
+        response.timings,
+    )
+    return response
+
+
 @router.post("/instances/{instance_id}/chat", response_model=ChatResponse)
 async def chat(instance_id: str, req: ChatRequest):
+    timer = _StageTimer()
     inst = instance_store.get_instance(instance_id)
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
@@ -420,6 +485,7 @@ async def chat(instance_id: str, req: ChatRequest):
     embeddings = _load_instance_embeddings(instance_id)
     product_meta = _product_metadata.get(instance_id, {})
     session = _get_session(instance_id, session_id)
+    timer.mark("setup")
 
     response: ChatResponse
     intent: str = "troubleshooting_current"
@@ -435,9 +501,33 @@ async def chat(instance_id: str, req: ChatRequest):
             product_meta=product_meta,
             chat_model=chat_model,
         )
-        _apply_intent(response, intent)
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        timer.mark("clarification_turn")
+        # If a hybrid query stashed history during the previous turn and the
+        # clarification is now resolved (i.e. we just produced a final KG
+        # answer), append the history and elevate the intent. If the user is
+        # still being asked for clarification, keep the stash for next turn.
+        pending_appendix = session.get("_hybrid_appendix_pending", "")
+        pending_evidence = session.get("_hybrid_evidence_pending") or []
+        if pending_appendix and not response.awaiting_clarification:
+            _apply_intent(
+                response,
+                "hybrid_diagnosis_with_history",
+                pending_appendix,
+                pending_evidence,
+            )
+            session.pop("_hybrid_appendix_pending", None)
+            session.pop("_hybrid_evidence_pending", None)
+        else:
+            _apply_intent(response, intent)
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="clarification",
+            intent=response.intent or intent,
+        )
 
     _begin_diagnosis(session, message)
 
@@ -454,6 +544,7 @@ async def chat(instance_id: str, req: ChatRequest):
                 first_group = ranked[0]["paths"]
                 trace = build_trace(first_group)
                 _set_active_issue(session, first_group, trace)
+                timer.mark("error_code_lookup")
                 reply = format_answer_single_group(
                     first_group,
                     message,
@@ -461,6 +552,8 @@ async def chat(instance_id: str, req: ChatRequest):
                     product_meta=product_meta,
                 )
                 total = len(ranked)
+                telemetry = build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id))
+                timer.mark("telemetry")
                 response = _build_chat_response(
                     instance_id=instance_id,
                     session_id=session_id,
@@ -470,11 +563,20 @@ async def chat(instance_id: str, req: ChatRequest):
                     has_more_issues=total > 1,
                     issue_number=1,
                     total_issues=total,
-                    telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
+                    telemetry=telemetry,
                 )
+                timer.mark("response_build")
                 _apply_intent(response, intent)
-                _log_chat_exchange(instance_id, session_id, message, response)
-                return response
+                return _finish_chat_response(
+                    instance_id=instance_id,
+                    session_id=session_id,
+                    user_message=message,
+                    response=response,
+                    timer=timer,
+                    branch="error_code",
+                    intent=intent,
+                )
+        timer.mark("error_code_lookup")
         _set_active_issue(session, [], {})
         response = _build_chat_response(
             instance_id=instance_id,
@@ -484,62 +586,125 @@ async def chat(instance_id: str, req: ChatRequest):
             ),
             session_id=session_id,
         )
+        timer.mark("response_build")
         _apply_intent(response, intent)
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="error_code_unknown",
+            intent=intent,
+        )
 
-    intent_result = classify_intent(message, instance_id, index)
+    query_emb: list[float] | None = None
+    fast_intent_started = perf_counter()
+    intent_result = classify_intent_fast(message)
+    timer.timings["intent_fast_path_s"] = round(perf_counter() - fast_intent_started, 3)
+    if intent_result is not None:
+        timer.timings["intent_classifier_s"] = 0.0
+        timer.timings["query_embedding_s"] = 0.0
+        timer.mark("intent_fast_path")
+    else:
+        # Fallback for ambiguous messages: run intent classification and the
+        # KG query embedding in parallel. The KG flow needs the embedding, and
+        # gathering hides the cheaper embedding call behind the classifier.
+        (intent_result, intent_classifier_s), (query_emb, query_embedding_s) = await asyncio.gather(
+            asyncio.to_thread(_timed_call, classify_intent, message, instance_id, index),
+            asyncio.to_thread(_timed_call, get_query_embedding, message),
+        )
+        timer.timings["intent_classifier_s"] = intent_classifier_s
+        timer.timings["query_embedding_s"] = query_embedding_s
+        timer.mark("intent_and_query_embedding")
     intent = intent_result["intent"]
     intent_filters = intent_result["filters"]
     intent_query = intent_result["search_query"]
 
     if intent == "log_history_search":
-        reply, evidence = handle_log_history_search(
+        reply, evidence, handler_timings = handle_log_history_search(
             intent_query, instance_id, intent_filters, chat_model,
         )
+        timer.add_nested("log_history", handler_timings)
+        timer.mark("log_history_handler")
         _set_active_issue(session, [], {})
         response = _build_chat_response(
             instance_id=instance_id, session_id=session_id, reply=reply,
         )
+        timer.mark("response_build")
         response.intent = intent
         response.log_evidence = evidence
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="log_history_search",
+            intent=intent,
+        )
 
     if intent == "log_analytics":
-        reply, evidence = handle_log_analytics(intent_query, instance_id, chat_model)
+        reply, evidence, handler_timings = handle_log_analytics(intent_query, instance_id, chat_model)
+        timer.add_nested("log_analytics", handler_timings)
+        timer.mark("log_analytics_handler")
         _set_active_issue(session, [], {})
         response = _build_chat_response(
             instance_id=instance_id, session_id=session_id, reply=reply,
         )
+        timer.mark("response_build")
         response.intent = intent
         response.log_evidence = evidence
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="log_analytics",
+            intent=intent,
+        )
 
     if intent == "work_order_lookup":
-        reply, evidence = handle_work_order_lookup(
+        reply, evidence, handler_timings = handle_work_order_lookup(
             intent_query, instance_id, intent_filters, chat_model,
         )
+        timer.add_nested("work_order", handler_timings)
+        timer.mark("work_order_handler")
         _set_active_issue(session, [], {})
         response = _build_chat_response(
             instance_id=instance_id, session_id=session_id, reply=reply,
         )
+        timer.mark("response_build")
         response.intent = intent
         response.log_evidence = evidence
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
-
-    if intent == "hybrid_diagnosis_with_history":
-        hybrid_appendix, hybrid_evidence = fetch_hybrid_history_evidence(
-            intent_query, instance_id, intent_filters,
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="work_order_lookup",
+            intent=intent,
         )
 
-    query_emb = get_query_embedding(message)
+    if intent == "hybrid_diagnosis_with_history":
+        hybrid_appendix, hybrid_evidence, handler_timings = fetch_hybrid_history_evidence(
+            intent_query, instance_id, intent_filters,
+        )
+        timer.add_nested("hybrid_history", handler_timings)
+        timer.mark("hybrid_history_search")
+
+    if query_emb is None:
+        query_emb, query_embedding_s = _timed_call(get_query_embedding, message)
+        timer.timings["query_embedding_s"] = query_embedding_s
+        timer.mark("query_embedding")
+
     symptom_embs = embeddings.get("symptoms", {})
     fm_embs = embeddings.get("failure_modes", {})
     top_symptoms = find_top_k_symptoms(query_emb, symptom_embs)
     top_failure_modes = find_top_k_failure_modes(query_emb, fm_embs)
+    timer.mark("kg_similarity")
 
     best_symptom_score = top_symptoms[0][1] if top_symptoms else 0.0
     best_fm_score = top_failure_modes[0][1] if top_failure_modes else 0.0
@@ -552,6 +717,7 @@ async def chat(instance_id: str, req: ChatRequest):
             top_score=best_overall_score,
             product_meta=product_meta,
         )
+        timer.mark("domain_check")
         if relevance == "not_relevant":
             _set_active_issue(session, [], {})
             response = _build_chat_response(
@@ -559,9 +725,17 @@ async def chat(instance_id: str, req: ChatRequest):
                 reply=out_of_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
+            timer.mark("response_build")
             _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-            _log_chat_exchange(instance_id, session_id, message, response)
-            return response
+            return _finish_chat_response(
+                instance_id=instance_id,
+                session_id=session_id,
+                user_message=message,
+                response=response,
+                timer=timer,
+                branch="out_of_domain",
+                intent=intent,
+            )
         if relevance == "unclear":
             _set_active_issue(session, [], {})
             response = _build_chat_response(
@@ -569,9 +743,17 @@ async def chat(instance_id: str, req: ChatRequest):
                 reply=unclear_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
+            timer.mark("response_build")
             _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-            _log_chat_exchange(instance_id, session_id, message, response)
-            return response
+            return _finish_chat_response(
+                instance_id=instance_id,
+                session_id=session_id,
+                user_message=message,
+                response=response,
+                timer=timer,
+                branch="unclear_domain",
+                intent=intent,
+            )
 
     if not top_symptoms and not top_failure_modes:
         _set_active_issue(session, [], {})
@@ -580,9 +762,17 @@ async def chat(instance_id: str, req: ChatRequest):
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
+        timer.mark("response_build")
         _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="low_confidence",
+            intent=intent,
+        )
 
     symptom_ids = [sid for sid, _ in top_symptoms]
     fm_ids = [fm_id for fm_id, _ in top_failure_modes]
@@ -599,6 +789,7 @@ async def chat(instance_id: str, req: ChatRequest):
             continue
         seen_keys.add(key)
         paths.append(p)
+    timer.mark("graph_traversal")
 
     if not paths:
         _set_active_issue(session, [], {})
@@ -607,13 +798,22 @@ async def chat(instance_id: str, req: ChatRequest):
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
+        timer.mark("response_build")
         _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="no_paths",
+            intent=intent,
+        )
 
     ranked = group_paths_by_symptom_score(paths, combined_top)
     ranked = rerank_groups_for_query(ranked, message, query_emb, index, combined_top)
     ranked, unmatched_terms = align_ranked_groups_to_query(ranked, message, index)
+    timer.mark("rerank_alignment")
     if not ranked:
         _set_active_issue(session, [], {})
         response = _build_chat_response(
@@ -624,24 +824,47 @@ async def chat(instance_id: str, req: ChatRequest):
                 unmatched_terms=unmatched_terms,
             ),
         )
+        timer.mark("response_build")
         _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="alignment_no_fit",
+            intent=intent,
+        )
 
     session["ranked_issues"] = ranked
     clarification = build_clarification_state(ranked, message, index)
+    timer.mark("clarification_build")
     if clarification:
         session["clarification"] = clarification
         session["current_issue_idx"] = 0
+        # For hybrid intent: stash the history appendix in session so it can
+        # be appended to the final answer once the user resolves the
+        # clarification, instead of cluttering the clarification prompt.
+        if intent == "hybrid_diagnosis_with_history" and hybrid_appendix:
+            session["_hybrid_appendix_pending"] = hybrid_appendix
+            session["_hybrid_evidence_pending"] = hybrid_evidence
         response = _build_clarification_response(
             instance_id=instance_id,
             session_id=session_id,
             session=session,
             reply=str(clarification["question"]),
         )
-        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-        _log_chat_exchange(instance_id, session_id, message, response)
-        return response
+        timer.mark("response_build")
+        _apply_intent(response, intent)
+        return _finish_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            user_message=message,
+            response=response,
+            timer=timer,
+            branch="clarification_prompt",
+            intent=intent,
+        )
 
     session["current_issue_idx"] = 0
     first_group = ranked[0]["paths"]
@@ -656,6 +879,9 @@ async def chat(instance_id: str, req: ChatRequest):
     )
     if total > 1:
         reply += f"\n\n---\n*Possible cause 1 of {total}. Use \"Next\" to see the next most likely cause.*"
+    timer.mark("response_render")
+    telemetry = build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id))
+    timer.mark("telemetry")
 
     response = _build_chat_response(
         instance_id=instance_id,
@@ -666,11 +892,19 @@ async def chat(instance_id: str, req: ChatRequest):
         has_more_issues=total > 1,
         issue_number=1,
         total_issues=total,
-        telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
+        telemetry=telemetry,
     )
+    timer.mark("response_build")
     _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
-    _log_chat_exchange(instance_id, session_id, message, response)
-    return response
+    return _finish_chat_response(
+        instance_id=instance_id,
+        session_id=session_id,
+        user_message=message,
+        response=response,
+        timer=timer,
+        branch="troubleshooting_current",
+        intent=intent,
+    )
 
 
 @router.post("/instances/{instance_id}/next-issue", response_model=ChatResponse)
@@ -821,30 +1055,49 @@ async def path_stats(
 
 @router.get("/instances/{instance_id}/product-info", response_model=ProductInfoResponse)
 async def product_info(instance_id: str):
-    index = _load_instance_ontology(instance_id)
+    _load_instance_ontology(instance_id)
     meta = _product_metadata.get(instance_id, {})
-    chips = []
-    for symptom in index.symptoms[:4]:
-        chips.append({
-            "label": symptom.get("name", ""),
-            "query": symptom.get("name", "") + (
-                ". " + symptom.get("description", "") if symptom.get("description") else ""
-            ),
-        })
-    for ec in index.error_codes[:4]:
-        code = ec.get("code", "")
-        chips.append({"label": code, "query": code})
+    chips = [
+        {
+            "label": "Fix now",
+            "query": "Robot brake voltage too low, how do I fix it?",
+        },
+        {
+            "label": "Past drive cases",
+            "query": "Show me past drive motor overtemperature cases",
+        },
+        {
+            "label": "Past network cases",
+            "query": "Show me past Ethernet packet loss cases",
+        },
+        {
+            "label": "Repeated events",
+            "query": "Which IRC5 component has the most repeated events?",
+        },
+        {
+            "label": "Work order",
+            "query": "Show me details for work order WO-IRC5-1042",
+        },
+        {
+            "label": "Symptom + history",
+            "query": "FlexPendant just disconnected - has this happened before and how was it fixed?",
+        },
+    ]
     return {**meta, "suggested_symptoms": chips}
 
 
 @router.post("/instances/{instance_id}/reload", include_in_schema=True)
 async def reload_instance(instance_id: str):
-    """Evict the in-memory ontology and embeddings cache for this instance so it reloads from disk."""
+    """Evict all in-memory caches for this instance so the next request
+    reloads from disk: ontology + embeddings, telemetry CSV, machine logs
+    CSV, and the log sparse index."""
     inst = instance_store.get_instance(instance_id)
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
     evict_instance_cache(instance_id)
     evict_telemetry_cache(telemetry_dir=_telemetry_dir(instance_id))
+    evict_log_cache(instance_id)
+    evict_search_cache(instance_id)
     return {"ok": True, "instance_id": instance_id}
 
 

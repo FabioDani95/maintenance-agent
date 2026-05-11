@@ -21,8 +21,8 @@
     <select id="instance-select" title="Knowledge graph instance"></select>
     <span class="mode-label">Mode:</span>
     <select id="model-select" title="Thinking intensity">
-      <option value="gpt-5-nano">⚡ Fast</option>
-      <option value="gpt-5-mini" selected>🔧 Normal</option>
+      <option value="gpt-5-nano" selected>⚡ Fast</option>
+      <option value="gpt-5-mini">🔧 Normal</option>
       <option value="gpt-5.4">🧠 Deep</option>
       <option value="gpt-5">🔬 Thorough</option>
     </select>
@@ -31,6 +31,14 @@
 
   <!-- Left: Knowledge Graph -->
   <div class="graph-panel">
+    <div class="graph-overlay-controls" id="graph-overlay-controls">
+      <label class="overlay-toggle">
+        <input type="checkbox" id="overlay-include-logs"/>
+        <span>Show logs</span>
+      </label>
+      <input type="text" id="overlay-log-query" placeholder="filter logs by query (empty = top by recurrence)" />
+      <button id="overlay-apply-btn" title="Apply log overlay">Apply</button>
+    </div>
     <div id="network"></div>
     <div class="graph-legend" id="graph-legend"></div>
     <div class="graph-status" id="graph-status">Loading graph…</div>

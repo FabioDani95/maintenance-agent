@@ -1,24 +1,24 @@
-"""LLM-based intent classifier for the chat workflow.
+"""Intent routing for the chat workflow.
 
 Decides whether a user message is a current-troubleshooting request, a log
 history question, a log analytics request, a hybrid diagnosis-plus-history
 question, or a work-order lookup. Also extracts filters (component, date
 range, severity, etc.) and a cleaned search query.
 
-No deterministic fallback — the LLM is the source of truth. If the LLM call
-fails, the exception propagates to the caller.
+Common cases use a deterministic fast path to avoid per-turn LLM latency.
+Ambiguous routing can still fall back to the LLM classifier.
 """
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 from openai import OpenAI
 
-from kg_agents.config import OPENAI_API_KEY, OPENAI_CHAT_MODEL
+from kg_agents.config import OPENAI_API_KEY, OPENAI_ROUTER_MODEL
 
-from .log_loader import LogStore, load_log_store
 from .ontology_loader import OntologyIndex
 
 VALID_INTENTS = {
@@ -45,6 +45,79 @@ _FILTER_KEYS = (
 
 _client: OpenAI | None = None
 
+_WORK_ORDER_RE = re.compile(r"\bWO-[A-Za-z0-9][A-Za-z0-9-]*\b", re.IGNORECASE)
+
+_HISTORY_PATTERNS = (
+    "happened before",
+    "seen before",
+    "have we seen",
+    "we have seen",
+    "we've seen",
+    "have seen",
+    "ever seen",
+    "seen this before",
+    "has this happened",
+    "past",
+    "history",
+    "historical",
+    "previous",
+    "previously",
+    "last time",
+    "ever happened",
+    "ever report",
+    "ever reported",
+    "operators ever",
+    "we've had",
+    "we have had",
+    "we had",
+    "log",
+    "logs",
+    "events",
+    "in passato",
+    "storico",
+    "precedent",
+)
+_ANALYTICS_PATTERNS = (
+    "how often",
+    "how many",
+    "frequency",
+    "frequent",
+    "most repeated",
+    "most affected",
+    "recurring",
+    "recurrence",
+    "trend",
+    "trends",
+    "count",
+    "counts",
+    "total",
+    "totals",
+    "which component",
+    "top component",
+    "per month",
+    "monthly",
+    "quante",
+    "quanto spesso",
+    "piu frequ",
+)
+_CURRENT_DIAGNOSIS_PATTERNS = (
+    "what should i check",
+    "what do i check",
+    "what's wrong",
+    "what is wrong",
+    "how do i fix",
+    "how to fix",
+    "how was it fixed",
+    "how was this fixed",
+    "how did we fix",
+    "fix it",
+    "diagnose",
+    "troubleshoot",
+    "should i check",
+    "cosa controllo",
+    "come risolvo",
+)
+
 
 def _get_client() -> OpenAI:
     global _client
@@ -53,30 +126,64 @@ def _get_client() -> OpenAI:
     return _client
 
 
-def _ontology_vocabulary(index: OntologyIndex) -> dict[str, list[dict[str, str]]]:
-    components = [
-        {"component_id": c.get("component_id", ""), "name": c.get("name", "")}
-        for c in index.nodes_by_id.values()
-        if isinstance(c, dict) and c.get("component_id")
-    ]
-    failure_modes = [
-        {"failure_mode_id": fm.get("failure_mode_id", ""), "name": fm.get("name", "")}
-        for fm in index.failure_modes
-    ]
-    return {"components": components, "failure_modes": failure_modes}
+def _fast_filters(text: str) -> dict[str, Any]:
+    filters: dict[str, Any] = {}
+    if "fatal" in text:
+        filters["severity_min"] = 22
+    elif "critical" in text or re.search(r"\bonly\s+errors?\b|\berror\s+severity\b|\bseverity\s+error\b", text):
+        filters["severity_min"] = 18
+    elif "warn" in text or "warning" in text:
+        filters["severity_min"] = 14
+
+    if "operator" in text and ("report" in text or "note" in text):
+        filters["event_category"] = "operator_note"
+
+    for status in ("open", "closed", "completed"):
+        if status in text:
+            filters["status"] = status
+            break
+    return filters
 
 
-def _signature_vocabulary(store: LogStore | None) -> list[dict[str, Any]]:
-    if store is None:
-        return []
-    return [
-        {
-            "event_signature_id": sig_id,
-            "linked_failure_mode_id": meta.get("linked_failure_mode_id", ""),
-            "occurrence_count": meta.get("occurrence_count", 0),
-        }
-        for sig_id, meta in store.signature_meta.items()
-    ]
+def _base_result(intent: str, message: str, rationale: str) -> dict[str, Any]:
+    text = " ".join((message or "").lower().split())
+    return {
+        "intent": intent,
+        "search_query": message.strip(),
+        "filters": _fast_filters(text),
+        "rationale": rationale,
+        "source": "deterministic_fast_path",
+    }
+
+
+def classify_intent_fast(message: str) -> dict[str, Any] | None:
+    """Fast deterministic intent routing for common cases."""
+    text = " ".join((message or "").lower().split())
+    if not text:
+        return None
+
+    if _WORK_ORDER_RE.search(message):
+        return _base_result("work_order_lookup", message, "work order id detected")
+
+    has_history = any(pattern in text for pattern in _HISTORY_PATTERNS)
+    has_analytics = any(pattern in text for pattern in _ANALYTICS_PATTERNS)
+    has_current_diagnosis = any(pattern in text for pattern in _CURRENT_DIAGNOSIS_PATTERNS)
+
+    if has_analytics:
+        return _base_result("log_analytics", message, "analytics wording detected")
+    if has_history and has_current_diagnosis:
+        return _base_result(
+            "hybrid_diagnosis_with_history",
+            message,
+            "current diagnosis plus history wording detected",
+        )
+    if has_history:
+        return _base_result("log_history_search", message, "history wording detected")
+
+    # In this app, the common case is a current troubleshooting question. If
+    # the message has no explicit log/history/analytics signals, skip the LLM
+    # classifier and route directly to the KG flow.
+    return _base_result("troubleshooting_current", message, "default troubleshooting route")
 
 
 def classify_intent(
@@ -93,8 +200,13 @@ def classify_intent(
           "filters": dict,
           "rationale": str,
         }
+
+    The prompt is kept small on purpose: filters are limited to
+    date/severity/status/maintenance_type/event_category (everything else is
+    handled by the semantic retrieval downstream), so neither the ontology
+    vocabulary nor the log signature list is needed as context here. Smaller
+    prompt = much faster routing on `gpt-5-nano`.
     """
-    log_store = load_log_store(instance_id)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     system = (
@@ -129,8 +241,6 @@ def classify_intent(
     user_payload = {
         "today": today,
         "message": message,
-        "ontology_vocabulary": _ontology_vocabulary(ontology_index),
-        "log_signatures": _signature_vocabulary(log_store),
         "schema": {
             "intent": "one of the 5 intent strings above",
             "search_query": "string optimized for log retrieval",
@@ -147,7 +257,7 @@ def classify_intent(
     }
 
     resp = _get_client().chat.completions.create(
-        model=OPENAI_CHAT_MODEL,
+        model=OPENAI_ROUTER_MODEL,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},

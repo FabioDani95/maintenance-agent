@@ -149,6 +149,7 @@ class ChatResponse(BaseModel):
     clarification_options: list[ClarificationOption] = Field(default_factory=list)
     intent: str | None = None
     log_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    timings: dict[str, float] = Field(default_factory=dict)
 
 
 class NextIssueRequest(BaseModel):

@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -38,6 +40,7 @@ SPARSE_TOP_K = 25
 RRF_K = 60
 RERANK_TOP_N = 12
 DEFAULT_RESULT_LIMIT = 5
+_SIGNATURE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_:-]*$")
 
 
 @dataclass
@@ -49,6 +52,13 @@ class SparseIndex:
 
 _SPARSE_CACHE: dict[str, SparseIndex] = {}
 _OPENAI_CLIENT: OpenAI | None = None
+
+
+def is_presentable_signature_id(signature_id: str | None) -> bool:
+    """Return whether a log signature is suitable for summaries/UI labels."""
+    if not signature_id or signature_id == "_unsignatured":
+        return False
+    return bool(_SIGNATURE_ID_PATTERN.fullmatch(signature_id))
 
 
 def _get_client() -> OpenAI:
@@ -296,6 +306,8 @@ def _aggregate_by_signature(
     by_sig: dict[str, dict[str, Any]] = {}
     for row in ranked_rows:
         sig = row.get("event_signature_id") or "_unsignatured"
+        if not is_presentable_signature_id(sig):
+            continue
         score = row.get(score_key, 0.0)
         existing = by_sig.get(sig)
         if existing is None or score > existing["_top_score"]:
@@ -341,14 +353,34 @@ def search_logs(
     use_llm_rerank: bool = True,
 ) -> dict[str, Any]:
     """Run hybrid search and return signature-level matches."""
+    started = perf_counter()
+    last = started
+    timings: dict[str, float] = {}
+
+    def mark(stage: str) -> None:
+        nonlocal last
+        now = perf_counter()
+        timings[f"{stage}_s"] = round(now - last, 3)
+        last = now
+
+    def diagnostics(extra: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **extra,
+            "timings": {
+                **timings,
+                "total_s": round(perf_counter() - started, 3),
+            },
+        }
+
     store = load_log_store(instance_id)
+    mark("load_store")
     if store is None or store.is_empty:
         return {
             "query": query,
             "instance_id": instance_id,
             "match_count": 0,
             "matches": [],
-            "diagnostics": {"reason": "no_logs_for_instance"},
+            "diagnostics": diagnostics({"reason": "no_logs_for_instance"}),
         }
 
     filters = filters or {}
@@ -356,18 +388,22 @@ def search_logs(
         r["log_id"] for r in store.rows
         if _passes_filters(r, filters)
     }
+    mark("filters")
     if not allowed_ids:
         return {
             "query": query,
             "instance_id": instance_id,
             "match_count": 0,
             "matches": [],
-            "diagnostics": {"reason": "filters_excluded_all_rows"},
+            "diagnostics": diagnostics({"reason": "filters_excluded_all_rows"}),
         }
 
     query_emb = _embed_query(query) if store.occurrence_embeddings else []
+    mark("embed_query")
     dense = _dense_scores(query_emb, store, allowed_ids) if query_emb else []
+    mark("dense_scores")
     sparse = _sparse_scores(query, store, allowed_ids)
+    mark("sparse_scores")
 
     if not dense and not sparse:
         return {
@@ -375,7 +411,7 @@ def search_logs(
             "instance_id": instance_id,
             "match_count": 0,
             "matches": [],
-            "diagnostics": {"reason": "no_candidates_from_dense_or_sparse"},
+            "diagnostics": diagnostics({"reason": "no_candidates_from_dense_or_sparse"}),
         }
 
     fused = _rrf_fuse(dense, sparse)
@@ -390,6 +426,7 @@ def search_logs(
         enriched = dict(row)
         enriched["fused_score"] = fused_score_by_id.get(log_id, 0.0)
         candidate_rows.append(enriched)
+    mark("fuse_candidates")
 
     if use_llm_rerank and candidate_rows:
         try:
@@ -402,21 +439,23 @@ def search_logs(
     else:
         reranked = candidate_rows
         score_key = "fused_score"
+    mark("llm_rerank" if use_llm_rerank and candidate_rows else "skip_rerank")
 
     matches = _aggregate_by_signature(reranked, store, score_key, limit)
+    mark("aggregate")
 
     return {
         "query": query,
         "instance_id": instance_id,
         "match_count": len(matches),
         "matches": matches,
-        "diagnostics": {
+        "diagnostics": diagnostics({
             "dense_candidates": len(dense),
             "sparse_candidates": len(sparse),
             "fused_candidates": len(fused),
             "rerank_used": bool(use_llm_rerank and candidate_rows),
             "candidate_pool_size": len(allowed_ids),
-        },
+        }),
     }
 
 
@@ -433,7 +472,10 @@ def summarize_logs(instance_id: str) -> dict[str, Any]:
     rows = store.rows
     from collections import Counter, defaultdict
 
-    sig_counts = Counter(r.get("event_signature_id") or "_unsignatured" for r in rows)
+    sig_counts = Counter(
+        sig for r in rows
+        if is_presentable_signature_id(sig := r.get("event_signature_id"))
+    )
     comp_counts = Counter(
         r.get("component_id") or "(unspecified)" for r in rows
     )

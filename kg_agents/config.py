@@ -25,8 +25,12 @@ DATA_DIR.mkdir(exist_ok=True)
 (DATA_DIR / "extraction_summaries").mkdir(exist_ok=True)
 
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-large"
-OPENAI_CHAT_MODEL: str = "gpt-5-mini"
+OPENAI_EMBEDDING_MODEL: str = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+OPENAI_CHAT_MODEL: str = os.environ.get("OPENAI_CHAT_MODEL", "gpt-5-nano")
+# Fast model reserved for short routing/labeling tasks where deep reasoning
+# isn't needed (intent classifier, etc.). Quality of natural-language replies
+# still uses OPENAI_CHAT_MODEL.
+OPENAI_ROUTER_MODEL: str = os.environ.get("OPENAI_ROUTER_MODEL", "gpt-5-nano")
 
 SIMILARITY_THRESHOLD: float = 0.45
 HIGH_CONFIDENCE_THRESHOLD: float = 0.75

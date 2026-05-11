@@ -1,5 +1,96 @@
 # Log Integration Design
 
+## Implementation Status
+
+Implemented end-to-end on the IRC5 default instance. Six incremental phases shipped:
+
+| Phase | Deliverable | Files |
+|-------|-------------|-------|
+| 1 — Data seed | 277-row canonical CSV + embedding index (3072-dim, text-embedding-3-large) | `kg_agents/scripts/{generate_irc5_logs,verify_log_links,embed_logs}.py`, `kg_agents/scripts/log_seed_plan.json`, `kg_agents/data/instances/irc5-default-instance/logs/{machine_logs.csv,log_embeddings.json}` |
+| 2 — Engine | Hybrid retrieval (dense large + sparse TF-IDF + RRF + optional LLM rerank) and analytics | `kg_agents/engine/log_loader.py`, `kg_agents/engine/log_search.py` |
+| 3 — HTTP API | Four endpoints under the existing versioned contract | `kg_agents/routers/logs.py` |
+| 4 — Chat intent routing | Deterministic fast-path router with LLM fallback + four log handlers; existing KG flow preserved | `kg_agents/engine/intent_router.py`, `kg_agents/engine/log_chat.py`, `kg_agents/routers/chat.py` |
+| 5 — Graph overlay | Opt-in `LogEvent` virtual nodes + three virtual edge types, no ontology mutation | `kg_agents/routers/graph.py` |
+| 6 — Fast UX | Fast mode default, structured response templates, timing instrumentation, curated suggested questions | `kg_agents/config.py`, `kg_agents/models.py`, `kg_agents/dev_ui/*`, `kg_agents/routers/chat.py` |
+
+Frontend (`kg_agents/dev_ui/`) extended with: Fast model default, curated suggested question chips, structured markdown rendering for Fast templates, intent badge, expandable Evidence panel, graph overlay toolbar, and auto-sync of overlay query when chat returns evidence. Diamond-shaped LogEvent nodes (teal `#14B8A6`) distinguish history from ontology.
+
+### Five intents handled by the chat router
+
+```text
+troubleshooting_current        -> existing KG flow (unchanged)
+log_history_search             -> log retrieval + Fast structured template, or LLM-composed reply outside Fast
+log_analytics                  -> deterministic summary aggregation + Fast structured template, or LLM-composed reply outside Fast
+work_order_lookup              -> exact WO lookup when possible + Fast structured template, or LLM-composed reply outside Fast
+hybrid_diagnosis_with_history  -> KG flow PLUS a "Past similar events" appendix +
+                                  evidence list, stashed across clarification turns
+```
+
+### Latency notes
+
+The original log-chat path paid for three expensive stages on many turns: LLM intent classifier, log retrieval embedding, and LLM compose. That produced ~9-45s responses depending on branch and network/model latency.
+
+Current Fast mode changes that shape:
+
+- `OPENAI_CHAT_MODEL` defaults to `gpt-5-nano`.
+- Common routes are classified by `classify_intent_fast` without an LLM call.
+- KG query embeddings are deferred until the selected route actually needs the KG.
+- `log_history_search` skips LLM rerank and LLM compose in Fast mode; it uses RRF plus a structured template.
+- `log_analytics` uses aggregate counters plus a structured template; no model call is needed.
+- `work_order_lookup` with an explicit `WO-*` id uses direct row lookup plus a structured template.
+- Each `ChatResponse` includes `timings`, so regressions are visible per stage (`intent_fast_path_s`, `log_history_search_total_s`, `query_embedding_s`, `rerank_alignment_s`, `total_s`, etc.).
+
+Observed smoke-test timings on the local IRC5 seed after the Fast-mode change:
+
+| Branch | Typical Fast result |
+|--------|---------------------|
+| `log_analytics` | ~0.005-0.18s |
+| exact `work_order_lookup` | ~0.005s |
+| `log_history_search` | ~0.15-1.3s, mostly query embedding latency |
+| `hybrid_diagnosis_with_history` | ~2.5-3s when KG rerank/alignment and clarification are involved |
+
+Non-Fast modes keep the same retrieval improvements, but can still call the LLM composer and therefore remain slower.
+
+### Open questions: resolved
+
+1. **`event_signature_id` deterministic vs curated** → curated for IRC5 demo via `log_seed_plan.json`. A deterministic slugify is fine for real ingest, but a stable per-pattern id lets the demo show recurring events cleanly.
+2. **Frontend: separate History panel vs in-chat** → in-chat. An expandable Evidence panel under each assistant message + an intent badge above. The graph overlay is the only "out of chat" surface and is opt-in.
+3. **Work orders vs machine logs: one table or two** → one. `work_order_id` is an optional column on the canonical log row. Sparse search picks WO ids exactly via TF-IDF; a separate WO table would not improve retrieval at MVP scale.
+4. **Log → KG linking strategy** → LLM seed + embedding verification. The generator seeds `linked_failure_mode_id` per scenario, then `verify_log_links.py` recomputes the match with `text-embedding-3-large` and overrides only when the embedding strongly disagrees (delta > 0.04 and score > the FM threshold). Quality flags (`link_inferred_by_embedding`, `link_replaced_by_embedding`) make the decision auditable. About 26% of links were embedding-replaced in the IRC5 seed; spot checks showed most replacements were genuinely more accurate than the LLM seed.
+5. **Minimum convincing demo set** -> covered by 10 canonical queries in `kg_agents/scripts/smoke_test_log_search.py` and 15 broader checks in the integration test suite - see "Test Plan" below.
+
+### Test plan and current results
+
+Two complementary suites live under `kg_agents/scripts/`:
+
+- `smoke_test_log_search.py` — 10 canonical queries against the hybrid retrieval module, useful for inspecting retrieval quality in isolation.
+- `test_log_integration_suite.py` — 15 end-to-end checks against the running FastAPI app (TestClient, no live server needed).
+
+Coverage in the end-to-end suite:
+
+- intent classification across the five intents (allowing analytics/history overlap on ambiguous wording)
+- retrieval top-1 / top-2 accuracy for eight historical questions
+- exact work order id surfacing for three known WOs
+- reply grounding (must cite dates, WO ids, action keywords, counts)
+- severity filter behaviour, no-match path, operator-note signature (no KG link)
+- KG flow not regressed by intent routing
+- multi-turn hybrid + clarification: appendix attaches only to the final answer
+- `GET /logs/summary`, `GET /logs` with filters, `POST /log-search`
+- `GET /graph-data` overlay off by default; overlay on produces LogEvent nodes + virtual edges; query-filtered overlay matches the intended topic
+
+Current results on the IRC5 seed: **15/15 passing**.
+
+Two fixes that made the suite stable with the expanded 277-row seed:
+
+- malformed or unpresentable `event_signature_id` values are filtered out of aggregated search results and analytics summaries;
+- the fast filter extraction no longer treats every occurrence of the word `errors` as a severity filter, so queries like "USB communication errors we have seen" can still retrieve WARN/INFO USB history.
+
+Run the full suite from the repo root:
+
+```bash
+python -m kg_agents.scripts.test_log_integration_suite
+```
+
 ## Context
 
 `kg_agents` currently exposes a FastAPI backend for knowledge-grounded troubleshooting. Each machine or product is represented as an ontology instance under:
@@ -327,7 +418,9 @@ For rare unique events, a signature may map one-to-one with a log row.
 
 ### Model Choice
 
-Use `text-embedding-3-small` for MVP and initial production unless evaluation shows it is insufficient. It is designed for search and supports dimension reduction through the `dimensions` parameter.
+The current IRC5 implementation uses `text-embedding-3-large` for both occurrence and signature embeddings. That keeps retrieval quality high for the demo seed and matches the checked-in `log_embeddings.json`.
+
+For larger or cost-sensitive backfills, evaluate `text-embedding-3-small` or dimension reduction. The retrieval contract does not depend on the embedding model as long as the index is regenerated consistently.
 
 For large backfills, use the OpenAI Batch API so embeddings are generated asynchronously with lower cost and higher throughput.
 
@@ -367,21 +460,21 @@ Recommended query flow:
 
 ```text
 user query
-  -> intent router
+  -> deterministic fast-path intent router, with LLM fallback only when needed
   -> extract filters and entities
   -> run structured filters
   -> run sparse keyword search
   -> run dense embedding search
   -> fuse/rerank candidates
   -> aggregate occurrences
-  -> generate grounded answer
+  -> generate grounded answer or Fast structured template
 ```
 
 Reciprocal rank fusion is a reasonable first approach to combine sparse and dense candidate sets.
 
 ## Agent Behavior
 
-The existing chat endpoint should gain an intent-routing step before the current troubleshooting pipeline.
+The chat endpoint includes an intent-routing step before the current troubleshooting pipeline.
 
 ### Intent Types
 
@@ -412,7 +505,7 @@ The existing chat endpoint should gain an intent-routing step before the current
 "Does this look like something we have already seen?"
 -> hybrid_diagnosis_with_history
 
-"Which IRC5 component has the most repeated warnings?"
+"Which IRC5 component has the most repeated events?"
 -> log_analytics
 
 "What did we do last time the drive module overheated?"
@@ -421,21 +514,26 @@ The existing chat endpoint should gain an intent-routing step before the current
 
 ### Response Shape
 
-Historical responses should include evidence:
+Historical responses should include evidence. In Fast mode the response is rendered as a structured template:
 
 ```text
-Yes. I found 3 similar IRC5 events.
+**Snapshot**
+- Matching occurrences: **12**
+- Best matching pattern: `irc5_communications_ethernet_packet_loss`
+- Most relevant work order: `WO-IRC5-1001`
 
-Most recent:
-- 2026-04-12 09:20 UTC
-- Intermittent Ethernet communication loss
+**Best Match**
+- Date: 2026-04-12
 - Severity: ERROR
-- Work order: WO-IRC5-1001
-- Action: inspected Ethernet cabling, switch port, AXC LED and controller link state
+- Status: open
+- Title: Intermittent Ethernet communication loss
+- Outcome: monitoring
 
-Other similar cases:
-1. 2026-03-28 - FlexPendant disconnected intermittently
-2. 2026-02-19 - Main computer event log error count high
+**Action Taken**
+Inspect controller Ethernet cabling, switch port, AXC LED and link state.
+
+**Other Relevant Patterns**
+- `irc5_communications_ethernet_packet_loss` - 12 occurrences - 2026-04-12 - Intermittent Ethernet communication loss
 ```
 
 The assistant should not force every historical answer into a failure-mode diagnosis. If a graph link exists, it can say:
@@ -455,7 +553,7 @@ Instead, extend graph responses with an optional runtime overlay.
 Example API:
 
 ```http
-GET /v1/kg-agents/instances/{instance_id}/graph-data?include_logs=true&q=ethernet&limit_logs=20
+GET /v1/kg-agents/instances/{instance_id}/graph-data?include_logs=true&log_query=ethernet&limit_logs=20
 ```
 
 Behavior:
@@ -489,9 +587,9 @@ Virtual edges:
 
 The graph UI should never request all logs by default. It should request a filtered overlay based on query, selected node, selected date range, or current chat result.
 
-## API Plan
+## Implemented API
 
-Add APIs under the existing versioned contract:
+APIs under the existing versioned contract:
 
 ```http
 GET /v1/kg-agents/instances/{instance_id}/logs
@@ -529,7 +627,7 @@ Semantic and hybrid search:
   "date_to": null,
   "component_id": null,
   "limit": 10,
-  "include_occurrences": true
+  "use_llm_rerank": false
 }
 ```
 
@@ -564,12 +662,12 @@ downtime_by_component
 severity_distribution
 ```
 
-## MVP Implementation Plan
+## Implemented MVP Plan
 
 ### Phase 1 - Data Contract
 
-1. Create `kg_agents/data/instances/irc5-default-instance/logs/machine_logs.csv`.
-2. Seed realistic IRC5 rows using the canonical schema.
+1. Created `kg_agents/data/instances/irc5-default-instance/logs/machine_logs.csv`.
+2. Seeded realistic IRC5 rows using the canonical schema.
 3. Include explicit examples for:
    - Ethernet communication issue;
    - FlexPendant disconnect;
@@ -582,7 +680,7 @@ severity_distribution
 
 ### Phase 2 - Loader and Normalization
 
-1. Add `kg_agents/engine/log_loader.py`.
+1. Added `kg_agents/engine/log_loader.py`.
 2. Parse CSV with strict field normalization.
 3. Validate required fields:
    - `log_id`;
@@ -595,8 +693,8 @@ severity_distribution
 
 ### Phase 3 - Local Search MVP
 
-1. Implement deterministic keyword search over `semantic_text`, `title`, `body`, `action_taken`, codes, and component names.
-2. Add optional local embedding file:
+1. Implemented sparse keyword search over `semantic_text`, `title`, `body`, `action_taken`, codes, and component names.
+2. Added local embedding file:
 
    ```text
    kg_agents/data/instances/<instance_id>/logs/log_embeddings.json
@@ -612,19 +710,19 @@ severity_distribution
 
 ### Phase 4 - APIs
 
-1. Add `kg_agents/routers/logs.py`.
-2. Register it in `kg_agents/main.py`.
-3. Expose:
+1. Added `kg_agents/routers/logs.py`.
+2. Registered it in `kg_agents/main.py`.
+3. Exposed:
    - `GET /logs`;
    - `POST /log-search`;
    - `GET /logs/summary`.
 
 ### Phase 5 - Chat Intent Router
 
-1. Add a deterministic first-pass intent classifier.
-2. Route historical questions to log search.
-3. Keep current troubleshooting behavior unchanged for normal diagnosis.
-4. Add hybrid mode when user asks about a current issue plus prior occurrences.
+1. Added a deterministic first-pass intent classifier with LLM fallback.
+2. Routed historical questions to log search.
+3. Kept current troubleshooting behavior unchanged for normal diagnosis.
+4. Added hybrid mode when user asks about a current issue plus prior occurrences.
 
 ### Phase 6 - Graph Overlay
 
@@ -649,6 +747,75 @@ When CSV/local JSON is no longer enough:
 4. Partition by `instance_id`, time, and possibly asset.
 5. Store embeddings for signatures first, occurrences second only when needed.
 6. Run embedding generation as background/batch jobs.
+
+## Scaling to 1M Rows for a Real Industrial Case
+
+The current implementation comfortably handles the IRC5 seed (277 rows). For a real factory where a single machine can accumulate hundreds of thousands to millions of log rows over a few years, the architecture needs to change in three specific places. This section documents the analysis and the migration plan - not yet implemented.
+
+### What scales linearly today (and why it breaks)
+
+Three components in the current MVP grow linearly with row count:
+
+1. **`occurrence_embeddings` in memory.** `LogStore` keeps a `dict[log_id, list[float]]` with one 3072-dim vector per row. At 277 rows this is still small. At 1M rows in pure Python list-of-floats this is ~85 GB. Even encoded as numpy float32 it is ~12 GB. The JSON-on-disk format (`log_embeddings.json`) is also unusable at that size - it would be ~12 GB of text.
+2. **`LogStore.rows` and the per-id / per-signature dicts.** A row dict with ~40 fields averages ~1 KB; at 1M rows that is ~1 GB of resident Python objects, plus another ~200 MB for the `rows_by_id` / `rows_by_signature` index dicts. Tolerable on a large box but wasteful, and forces a full reload from CSV on every cache evict.
+3. **`_dense_scores` linear scan in `log_search.py`.** For every history query it iterates the occurrence embedding dict and computes cosine similarity against the query vector. At 1M rows x 3072 dims that is ~3B float multiplications per query, which in numpy/Python lands at **10-30 s per query for the dense scan alone** before any non-Fast model composition is considered.
+
+The sparse TF-IDF index built by scikit-learn handles 1M docs reasonably (build ~1-5 min, ~500 MB - 1 GB resident) but the **first request after process start pays the full build cost** because nothing is cached on disk.
+
+### Embedding cost is not the constraint
+
+Embedding 1M `semantic_text` rows with `text-embedding-3-large` is a one-time job, not a recurring per-query cost. Two paths:
+
+- **Online API**, the same batching loop the current `embed_logs.py` already uses: 1M / 256 ≈ 3,900 batches × ~1-2 s each ≈ **1-2 hours wall clock**, ~$10 in API cost (80 tokens/row × 1M rows × $0.13/Mtok).
+- **OpenAI Batch API**, asynchronous, ~24h turnaround: **~50% cheaper** (~$5) and avoids hitting RPM limits. The current loader does not use this — adding it is ~30 lines.
+
+Either way, embeddings can be regenerated overnight. They are not the bottleneck; the bottleneck is the *retrieval shape* the embeddings feed into.
+
+### The right architecture for 1M rows
+
+The design doc anticipated this in the Embeddings Strategy section: prefer signature-level embeddings over per-occurrence embeddings. A factory with 1M log rows typically has **hundreds, not millions, of distinct patterns** — once normalized into `event_signature_id`. The shift is to embed those, and keep occurrences in structured storage for exact filters, dates, and aggregates.
+
+Concretely, the migration changes three layers:
+
+**Storage layer.** Replace the in-memory `LogStore.rows` plus the CSV reload with an **SQLite database per instance** at `instances/<id>/logs/machine_logs.sqlite`. Tables: `event_occurrences` (1M rows, indexed on `event_signature_id`, `occurred_at`, `component_id`, `work_order_id`) and `event_signatures` (a few thousand rows, with `canonical_text`, `occurrence_count`, `first_seen_at`, `last_seen_at`, `linked_failure_mode_id`). The loader exposes the same `LogStore` interface but reads from SQL on demand instead of holding everything in RAM. Memory becomes O(1) in row count, queries become indexed-scan instead of full-Python-iteration. Postgres is the same model when multi-machine deployments need it.
+
+**Embedding layer.** Stop embedding every `log_id`. Embed only the `event_signatures.canonical_text` — a few hundred to a few thousand vectors. At those volumes the existing `_dense_scores` linear scan (now over signatures, not occurrences) drops to ~10 ms per query and the full embedding index fits in ~25 MB of RAM. Rare, unique events become single-occurrence signatures and are still covered. This is a ~5-line change in `log_search.py` plus a rewrite of `embed_logs.py` to skip the per-occurrence pass.
+
+**Retrieval layer.** The hybrid flow becomes: dense search over signatures (~10 ms) → for each top signature, pull the matching occurrences from SQLite via `WHERE event_signature_id = ?` joined with the structured filters (~5 ms). Sparse TF-IDF still runs over the occurrence text to catch exact tokens like work order ids and error codes; for 1M docs scikit-learn TF-IDF queries land at ~200 ms, but the index should be pickled to disk after first build so subsequent process starts don't pay the build cost again. For Postgres deployments the sparse step can be replaced by native `tsvector` full-text search.
+
+### Latency projection
+
+With this architecture, the Fast-mode per-query budget at 1M rows is dominated by query embedding for history search and by indexed lookup for exact work orders. Analytics stays aggregate-only. Non-Fast modes may still be dominated by the LLM composer.
+
+| Step | 277 rows (Fast today) | 1M rows (signature-based Fast) |
+|------|-----------------|---------------------------|
+| Intent routing | deterministic, ~0 ms | deterministic, ~0 ms |
+| Query embedding for history | ~0.15-1.3 s | ~0.15-1.3 s |
+| Dense scan over signatures/occurrences | current in-memory scan | ~10 ms over signatures |
+| Sparse TF-IDF query | ~5 ms | ~200 ms |
+| Fetch occurrences for top signatures | dict lookup | ~5 ms (SQL) |
+| Aggregation | <1 ms | <1 ms |
+| Compose reply | Fast template, ~0 ms | Fast template, ~0 ms |
+| **End-to-end history** | **~0.15-1.3 s typical** | **~0.4-1.6 s projected** |
+
+Total response time does **not** grow with row count once the retrieval layer is properly indexed. The "the agent gets slower as we add data" outcome only happens if we keep iterating embedding dicts in Python.
+
+### Vector database — when (and when not) it is needed
+
+A dedicated vector store (Qdrant, FAISS, pgvector) becomes relevant only if the use case requires **dense lookup across individual occurrences**, for example "find the single past event whose narrative most resembles this one" rather than "find similar event patterns". For the canonical historical questions this MVP serves — has it happened before, how often, what was done — signature-level dense search is sufficient and adds zero infrastructure. If individual-occurrence semantic match becomes a requirement later, HNSW indexes on the 1M occurrence vectors give ~10 ms top-k retrieval; the integration is a one-time effort.
+
+### Migration plan (when this becomes a real need)
+
+Ordered by effort and value:
+
+1. Rewrite `scripts/embed_logs.py` to embed only `event_signatures`. ~30 lines. Drops embedding cost from $10 to ~$0.01 and embedding time from hours to seconds for the same 1M-row dataset.
+2. Update `engine/log_search.py::_dense_scores` to iterate `store.signature_embeddings` instead of `store.occurrence_embeddings`. ~5 lines.
+3. Add a CSV → SQLite importer in `scripts/` and change `log_loader.py` to back `LogStore` with SQLite on demand. ~100 lines.
+4. Pickle the sparse TF-IDF index to disk so process restart does not rebuild it. ~20 lines.
+5. (Optional) Add OpenAI Batch API support to `embed_logs.py` for the initial signature embedding pass when bootstrapping a large dataset. ~30 lines.
+6. (Optional) Migrate to Postgres with `pgvector` and native full-text search when multi-machine or multi-tenant deployments require it. Larger change, deferred until the constraint shows up.
+
+Steps 1-4 are the 80% that turns the system production-ready for 1M rows on a single machine; together they are roughly half a day of work and require no external services. Steps 5-6 are infrastructure choices that depend on operational scale.
 
 ## Open Questions
 

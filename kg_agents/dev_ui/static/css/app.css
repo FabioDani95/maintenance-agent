@@ -257,6 +257,17 @@
   .assistant-list li {
     padding-left: 2px;
   }
+  .assistant-bullet-list {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    color: #d0d7de;
+  }
+  .assistant-bullet-list li::marker {
+    color: #f0883e;
+  }
   .assistant-action-title {
     font-weight: 700;
     color: #f0f6fc;
@@ -947,3 +958,152 @@
     70%  { box-shadow: 0 0 0 8px rgba(88,166,255,0); }
     100% { box-shadow: 0 0 0 0 rgba(88,166,255,0); }
   }
+
+  /* ── Intent badge ─────────────────────────────────────────── */
+  .intent-badge {
+    display: inline-block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    border: 1px solid;
+    font-weight: 600;
+  }
+  .intent-badge.intent-log_history_search,
+  .intent-badge.intent-work_order_lookup {
+    color: #14B8A6; border-color: #14B8A6; background: rgba(20,184,166,0.08);
+  }
+  .intent-badge.intent-log_analytics {
+    color: #58a6ff; border-color: #58a6ff; background: rgba(88,166,255,0.08);
+  }
+  .intent-badge.intent-hybrid_diagnosis_with_history {
+    color: #f0883e; border-color: #f0883e; background: rgba(240,136,62,0.08);
+  }
+
+  /* ── Log evidence panel ──────────────────────────────────── */
+  .log-evidence {
+    margin-top: 10px;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+  .log-evidence summary {
+    cursor: pointer;
+    padding: 6px 10px;
+    color: #8b949e;
+    user-select: none;
+  }
+  .log-evidence summary:hover { color: #c9d1d9; }
+  .log-evidence-list {
+    padding: 8px 10px;
+    border-top: 1px solid #21262d;
+    color: #c9d1d9;
+    line-height: 1.5;
+  }
+  .log-evidence-item {
+    padding: 8px 10px;
+    border-left: 2px solid #14B8A6;
+    background: rgba(20,184,166,0.03);
+    margin-bottom: 8px;
+    border-radius: 0 4px 4px 0;
+  }
+  .log-evidence-item:last-child { margin-bottom: 0; }
+  .log-evidence-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 10px;
+    color: #8b949e;
+    margin-bottom: 4px;
+  }
+  .log-evidence-meta .log-severity {
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+  }
+  .log-sev-error, .log-sev-fatal { color: #f85149; }
+  .log-sev-warn { color: #d29922; }
+  .log-sev-info { color: #3fb950; }
+  .log-evidence-meta .log-wo {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    color: #58a6ff;
+  }
+  .log-evidence-meta .log-occurrences { color: #8b949e; font-style: italic; }
+  .log-evidence-title {
+    color: #f0883e;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .log-evidence-body {
+    color: #c9d1d9;
+    margin-bottom: 4px;
+  }
+  .log-evidence-action {
+    color: #c9d1d9;
+    font-size: 10.5px;
+    background: rgba(0,0,0,0.2);
+    padding: 4px 6px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+  }
+  .log-evidence-outcome { color: #8b949e; font-size: 10px; }
+  .log-evidence-rationale {
+    color: #6e7681;
+    font-size: 10px;
+    font-style: italic;
+    margin-top: 4px;
+  }
+
+  /* ── Graph overlay controls ──────────────────────────────── */
+  .graph-overlay-controls {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(13,17,23,0.85);
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px 8px;
+    backdrop-filter: blur(4px);
+  }
+  .graph-overlay-controls .overlay-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #c9d1d9;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .graph-overlay-controls .overlay-toggle input { cursor: pointer; }
+  .graph-overlay-controls input[type="text"] {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    width: 240px;
+  }
+  .graph-overlay-controls input[type="text"]:focus {
+    outline: none;
+    border-color: #14B8A6;
+  }
+  .graph-overlay-controls button {
+    background: #14B8A6;
+    color: #0d1117;
+    border: none;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .graph-overlay-controls button:hover { background: #0d9488; }
+  .graph-overlay-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
