@@ -161,8 +161,13 @@ Node and relationship counts for the default instance follow the checked-in `irc
 | POST | `/v1/kg-agents/instances/{instance_id}/chat` | Send a message and get a diagnosis |
 | POST | `/v1/kg-agents/instances/{instance_id}/next-issue` | Return the next ranked possible cause |
 | POST | `/v1/kg-agents/instances/{instance_id}/reset` | Reset the chat session |
+| POST | `/v1/kg-agents/instances/{instance_id}/log-outcome` | Record the result of a selected corrective action for intervention analytics |
+| GET | `/v1/kg-agents/instances/{instance_id}/path-stats` | Return historical outcome stats for a path, failure mode, or action |
 | GET | `/v1/kg-agents/instances/{instance_id}/product-info` | Product metadata and suggested symptoms |
+| POST | `/v1/kg-agents/instances/{instance_id}/reload` | Evict in-memory caches for ontology, embeddings, telemetry, and logs |
 | GET | `/v1/kg-agents/instances/{instance_id}/status` | Ontology status and counts |
+| GET | `/v1/kg-agents/instances/{instance_id}/chat-sessions` | List persisted chat sessions for an instance |
+| GET | `/v1/kg-agents/instances/{instance_id}/chat-sessions/{session_id}` | Return persisted messages for one session |
 
 ### Graph
 
@@ -178,6 +183,99 @@ Node and relationship counts for the default instance follow the checked-in `irc
 | GET | `/v1/kg-agents/instances/{instance_id}/logs/{log_id}` | Single log record |
 | GET | `/v1/kg-agents/instances/{instance_id}/logs` | Filtered listing (`q`, `event_category`, `maintenance_type`, `status`, `severity_min`, `component_id`, `linked_failure_mode_id`, `event_signature_id`, `date_from`, `date_to`, `limit`, `offset`) |
 | POST | `/v1/kg-agents/instances/{instance_id}/log-search` | Hybrid retrieval (dense + sparse + RRF + optional LLM rerank) returning signature-level matches |
+
+### Log API Contract
+
+The log APIs are instance-scoped and are the stable contract for external clients that need machine-history data without going through chat.
+
+`GET /logs/summary` returns:
+
+```json
+{
+  "instance_id": "irc5-default-instance",
+  "row_count": 277,
+  "top_event_signatures": [{"event_signature_id": "irc5_drive_motor_overtemperature", "occurrence_count": 15}],
+  "top_components": [{"component_id": "comp_robot_brakes", "count": 41}],
+  "severity_distribution": {"INFO": 74, "WARN": 103, "ERROR": 94, "FATAL": 6},
+  "events_by_month": {"2026-04": 8},
+  "open_events": 62,
+  "downtime_by_component_min": {"comp_robot_brakes": 1234}
+}
+```
+
+`GET /logs` is structured filtering and pagination. It returns `LogListResponse`:
+
+```json
+{
+  "instance_id": "irc5-default-instance",
+  "total": 12,
+  "limit": 50,
+  "offset": 0,
+  "items": [{ "log_id": "log_irc5_0001", "event_signature_id": "irc5_communications_ethernet_packet_loss" }]
+}
+```
+
+`POST /log-search` is semantic/hybrid retrieval. Request body:
+
+```json
+{
+  "query": "Has Ethernet packet loss happened before?",
+  "date_from": null,
+  "date_to": null,
+  "component_id": null,
+  "linked_failure_mode_id": null,
+  "maintenance_type": null,
+  "event_category": null,
+  "event_signature_id": null,
+  "status": null,
+  "severity_min": null,
+  "limit": 5,
+  "use_llm_rerank": false
+}
+```
+
+Response body:
+
+```json
+{
+  "query": "Has Ethernet packet loss happened before?",
+  "instance_id": "irc5-default-instance",
+  "match_count": 1,
+  "matches": [
+    {
+      "event_signature_id": "irc5_communications_ethernet_packet_loss",
+      "score": 0.0325,
+      "occurrence_count": 12,
+      "first_seen_at": "2024-03-05T10:11:00Z",
+      "last_seen_at": "2026-04-11T15:53:55Z",
+      "linked_failure_mode_id": "fm_ethernet_network_has_problems",
+      "linked_symptom_id": "",
+      "top_match_log": { "log_id": "log_irc5_0007" },
+      "most_recent_log": { "log_id": "log_irc5_0007" },
+      "all_log_ids": ["log_irc5_0001", "log_irc5_0007"],
+      "rerank_rationale": null
+    }
+  ],
+  "diagnostics": {
+    "dense_candidates": 25,
+    "sparse_candidates": 12,
+    "rerank_used": false,
+    "timings": {"total_s": 0.238}
+  }
+}
+```
+
+`LogRecord` contains the canonical CSV fields: `log_id`, source fields, timestamps, `instance_id`, asset/device/equipment fields, event category/status/severity, component and code fields, observed/threshold values, `work_order_id`, `title`, `body`, `action_taken`, `outcome`, duration fields, `semantic_text`, `event_signature_id`, KG link ids, `quality_flags`, and `attributes_json`.
+
+### Chat Response Contract
+
+`POST /chat` still returns the same troubleshooting payload, with additive log fields:
+
+- `intent`: one of `troubleshooting_current`, `log_history_search`, `log_analytics`, `work_order_lookup`, `hybrid_diagnosis_with_history`
+- `log_evidence`: compact list of retrieved log matches used for the answer
+- `timings`: per-stage latency map for observability
+
+Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `intent` and `log_evidence` to decide whether to render a history/evidence panel.
 
 ### Devices
 

@@ -610,6 +610,7 @@ status
 severity_min
 component_id
 linked_failure_mode_id
+event_signature_id
 date_from
 date_to
 limit
@@ -626,6 +627,12 @@ Semantic and hybrid search:
   "date_from": null,
   "date_to": null,
   "component_id": null,
+  "linked_failure_mode_id": null,
+  "maintenance_type": null,
+  "event_category": null,
+  "event_signature_id": null,
+  "status": null,
+  "severity_min": null,
   "limit": 10,
   "use_llm_rerank": false
 }
@@ -635,17 +642,41 @@ Response:
 
 ```json
 {
-  "query": "...",
+  "query": "Has Ethernet packet loss happened before?",
+  "instance_id": "irc5-default-instance",
+  "match_count": 1,
   "matches": [
     {
       "event_signature_id": "irc5_communications_ethernet_packet_loss",
       "score": 0.87,
-      "occurrence_count": 3,
+      "occurrence_count": 12,
+      "first_seen_at": "2024-03-05T10:11:00Z",
       "last_seen_at": "2026-04-12T09:20:00Z",
-      "latest_log": {...},
-      "linked_failure_mode_id": "fm_ethernet_network_has_problems"
+      "linked_failure_mode_id": "fm_ethernet_network_has_problems",
+      "linked_symptom_id": "",
+      "top_match_log": {
+        "log_id": "log_irc5_0001",
+        "occurred_at": "2026-04-12T09:20:00Z",
+        "severity_text": "ERROR",
+        "work_order_id": "WO-IRC5-1001",
+        "title": "Intermittent Ethernet communication loss"
+      },
+      "most_recent_log": {
+        "log_id": "log_irc5_0007",
+        "occurred_at": "2026-04-11T15:53:55Z",
+        "severity_text": "ERROR",
+        "title": "Switch SFP/transceiver dirty or failing causing packet errors"
+      },
+      "all_log_ids": ["log_irc5_0001", "log_irc5_0007"],
+      "rerank_rationale": null
     }
-  ]
+  ],
+  "diagnostics": {
+    "dense_candidates": 25,
+    "sparse_candidates": 12,
+    "rerank_used": false,
+    "timings": {"total_s": 0.238}
+  }
 }
 ```
 
@@ -817,13 +848,13 @@ Ordered by effort and value:
 
 Steps 1-4 are the 80% that turns the system production-ready for 1M rows on a single machine; together they are roughly half a day of work and require no external services. Steps 5-6 are infrastructure choices that depend on operational scale.
 
-## Open Questions
+## Historical Questions: Resolved
 
-1. Should `event_signature_id` be generated deterministically from normalized fields, or curated manually during mock-data creation?
-2. Should the frontend expose a separate "History" panel, or should historical answers only appear through chat?
-3. Should work orders and machine logs be one table in MVP, or separate tables joined by `work_order_id`?
-4. Should log-to-KG linking be rule-based first, embedding-based first, or manually seeded for IRC5?
-5. What is the minimum set of historical questions the demo must answer convincingly?
+1. `event_signature_id` is curated for the IRC5 demo and can be generated deterministically in future ingest pipelines.
+2. Historical answers appear in chat, with an expandable evidence panel and optional graph overlay.
+3. Work orders and machine logs use one canonical row model; `work_order_id` is an optional field.
+4. Log-to-KG links are seeded and then verified by embedding similarity, with quality flags for auditability.
+5. The current convincing demo set is covered by `smoke_test_log_search.py` plus the 15-check integration suite.
 
 ## Recommended MVP Position
 
