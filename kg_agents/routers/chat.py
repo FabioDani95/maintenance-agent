@@ -22,6 +22,13 @@ from kg_agents.engine.graph_traversal import (
     get_troubleshooting_paths_from_error_code,
     get_troubleshooting_paths_from_failure_modes,
 )
+from kg_agents.engine.intent_router import classify_intent
+from kg_agents.engine.log_chat import (
+    fetch_hybrid_history_evidence,
+    handle_log_analytics,
+    handle_log_history_search,
+    handle_work_order_lookup,
+)
 from kg_agents.engine.ontology_loader import OntologyIndex, build_product_metadata
 from kg_agents.engine.query_alignment import align_ranked_groups_to_query, rerank_groups_for_query
 from kg_agents.engine.telemetry_loader import evict_telemetry_cache
@@ -359,6 +366,22 @@ def _handle_clarification_turn(
     )
 
 
+def _apply_intent(
+    response: ChatResponse,
+    intent: str,
+    hybrid_appendix: str = "",
+    hybrid_evidence: list[dict] | None = None,
+) -> ChatResponse:
+    """Stamp the routed intent (and any hybrid-history appendix) onto a
+    KG-flow response. Pure mutation + return for use right before logging."""
+    response.intent = intent
+    if hybrid_appendix:
+        response.reply = response.reply + hybrid_appendix
+    if hybrid_evidence:
+        response.log_evidence = hybrid_evidence
+    return response
+
+
 def _log_chat_exchange(
     instance_id: str,
     session_id: str,
@@ -399,6 +422,9 @@ async def chat(instance_id: str, req: ChatRequest):
     session = _get_session(instance_id, session_id)
 
     response: ChatResponse
+    intent: str = "troubleshooting_current"
+    hybrid_appendix: str = ""
+    hybrid_evidence: list[dict] = []
 
     if _active_clarification(session):
         response = _handle_clarification_turn(
@@ -409,6 +435,7 @@ async def chat(instance_id: str, req: ChatRequest):
             product_meta=product_meta,
             chat_model=chat_model,
         )
+        _apply_intent(response, intent)
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
 
@@ -445,6 +472,7 @@ async def chat(instance_id: str, req: ChatRequest):
                     total_issues=total,
                     telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
                 )
+                _apply_intent(response, intent)
                 _log_chat_exchange(instance_id, session_id, message, response)
                 return response
         _set_active_issue(session, [], {})
@@ -456,8 +484,56 @@ async def chat(instance_id: str, req: ChatRequest):
             ),
             session_id=session_id,
         )
+        _apply_intent(response, intent)
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
+
+    intent_result = classify_intent(message, instance_id, index)
+    intent = intent_result["intent"]
+    intent_filters = intent_result["filters"]
+    intent_query = intent_result["search_query"]
+
+    if intent == "log_history_search":
+        reply, evidence = handle_log_history_search(
+            intent_query, instance_id, intent_filters, chat_model,
+        )
+        _set_active_issue(session, [], {})
+        response = _build_chat_response(
+            instance_id=instance_id, session_id=session_id, reply=reply,
+        )
+        response.intent = intent
+        response.log_evidence = evidence
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
+
+    if intent == "log_analytics":
+        reply, evidence = handle_log_analytics(intent_query, instance_id, chat_model)
+        _set_active_issue(session, [], {})
+        response = _build_chat_response(
+            instance_id=instance_id, session_id=session_id, reply=reply,
+        )
+        response.intent = intent
+        response.log_evidence = evidence
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
+
+    if intent == "work_order_lookup":
+        reply, evidence = handle_work_order_lookup(
+            intent_query, instance_id, intent_filters, chat_model,
+        )
+        _set_active_issue(session, [], {})
+        response = _build_chat_response(
+            instance_id=instance_id, session_id=session_id, reply=reply,
+        )
+        response.intent = intent
+        response.log_evidence = evidence
+        _log_chat_exchange(instance_id, session_id, message, response)
+        return response
+
+    if intent == "hybrid_diagnosis_with_history":
+        hybrid_appendix, hybrid_evidence = fetch_hybrid_history_evidence(
+            intent_query, instance_id, intent_filters,
+        )
 
     query_emb = get_query_embedding(message)
     symptom_embs = embeddings.get("symptoms", {})
@@ -483,6 +559,7 @@ async def chat(instance_id: str, req: ChatRequest):
                 reply=out_of_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
+            _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
             _log_chat_exchange(instance_id, session_id, message, response)
             return response
         if relevance == "unclear":
@@ -492,6 +569,7 @@ async def chat(instance_id: str, req: ChatRequest):
                 reply=unclear_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
+            _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
             _log_chat_exchange(instance_id, session_id, message, response)
             return response
 
@@ -502,6 +580,7 @@ async def chat(instance_id: str, req: ChatRequest):
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
+        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
 
@@ -528,6 +607,7 @@ async def chat(instance_id: str, req: ChatRequest):
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
+        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
 
@@ -544,6 +624,7 @@ async def chat(instance_id: str, req: ChatRequest):
                 unmatched_terms=unmatched_terms,
             ),
         )
+        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
 
@@ -558,6 +639,7 @@ async def chat(instance_id: str, req: ChatRequest):
             session=session,
             reply=str(clarification["question"]),
         )
+        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
         _log_chat_exchange(instance_id, session_id, message, response)
         return response
 
@@ -586,6 +668,7 @@ async def chat(instance_id: str, req: ChatRequest):
         total_issues=total,
         telemetry=build_telemetry_payload(first_group, telemetry_dir=_telemetry_dir(instance_id)),
     )
+    _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
     _log_chat_exchange(instance_id, session_id, message, response)
     return response
 

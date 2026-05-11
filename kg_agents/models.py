@@ -147,6 +147,8 @@ class ChatResponse(BaseModel):
     awaiting_clarification: bool = False
     clarification_question: str | None = None
     clarification_options: list[ClarificationOption] = Field(default_factory=list)
+    intent: str | None = None
+    log_evidence: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class NextIssueRequest(BaseModel):
