@@ -130,9 +130,9 @@ def load_log_store(instance_id: str) -> LogStore | None:
         return None
 
     rows: list[dict[str, Any]] = []
-    with csv_path.open("r", encoding="utf-8") as f:
+    with csv_path.open("r", encoding="utf-8", errors="replace") as f:
         for raw in csv.DictReader(f):
-            rows.append(_coerce(raw))
+            rows.append(_coerce({k: v for k, v in raw.items() if k is not None}))
 
     rows_by_id = {r["log_id"]: r for r in rows if r.get("log_id")}
     rows_by_signature: dict[str, list[dict[str, Any]]] = {}

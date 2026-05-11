@@ -70,8 +70,9 @@ def main() -> int:
         print(f"{args.out} already exists. Use --force to overwrite.")
         return 0
 
-    with args.csv.open("r", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    with args.csv.open("r", encoding="utf-8", errors="replace") as f:
+        reader = csv.DictReader(f)
+        rows = [{k: v for k, v in r.items() if k is not None} for r in reader]
 
     if not rows:
         print("No rows in CSV.")
