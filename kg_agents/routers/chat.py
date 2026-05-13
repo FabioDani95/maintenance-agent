@@ -10,7 +10,13 @@ from time import perf_counter
 
 from fastapi import APIRouter, HTTPException, Query
 
-from kg_agents.config import OPENAI_CHAT_MODEL
+from kg_agents.config import OPENAI_CHAT_MODEL, OPENAI_NON_FAST_CHAT_MODEL
+from kg_agents.engine.conversation_memory import (
+    normalize_memory,
+    response_context,
+    routing_context,
+    update_memory_after_turn,
+)
 from kg_agents.engine.clarification import (
     build_clarification_state,
     invalid_clarification_reply,
@@ -38,6 +44,7 @@ from kg_agents.engine.log_loader import evict_log_cache
 from kg_agents.engine.log_search import evict_search_cache
 from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
+    add_conversational_structure,
     format_answer_single_group,
     low_confidence_response,
     out_of_domain_response,
@@ -148,6 +155,46 @@ def _get_session(instance_id: str, session_id: str) -> dict:
     if key not in _sessions:
         _sessions[key] = _new_session_state()
     return _sessions[key]
+
+
+def _resolve_chat_mode(req: ChatRequest | NextIssueRequest) -> str:
+    if req.mode in {"fast", "non-fast"}:
+        return req.mode
+    legacy_model = (req.model or "").strip().lower()
+    if legacy_model in {"non-fast", "normal", "deep", "thorough", "gpt-5-mini", "gpt-5.4", "gpt-5"}:
+        return "non-fast"
+    return "fast"
+
+
+def _chat_model_for_mode(mode: str) -> str:
+    return OPENAI_CHAT_MODEL if mode == "fast" else OPENAI_NON_FAST_CHAT_MODEL
+
+
+def _load_conversation_memory(
+    instance_id: str,
+    session_id: str,
+    product_meta: dict[str, object],
+) -> dict[str, object]:
+    cached = _get_session(instance_id, session_id).get("conversation_memory")
+    if isinstance(cached, dict):
+        return normalize_memory(cached, product_meta)
+    persisted = chat_log_store.get_conversation_memory(instance_id, session_id)
+    memory = normalize_memory(persisted, product_meta)
+    _get_session(instance_id, session_id)["conversation_memory"] = memory
+    return memory
+
+
+def _save_conversation_memory(
+    instance_id: str,
+    session_id: str,
+    memory: dict[str, object],
+) -> None:
+    _get_session(instance_id, session_id)["conversation_memory"] = memory
+    chat_log_store.upsert_conversation_memory(
+        instance_id=instance_id,
+        session_id=session_id,
+        state=memory,
+    )
 
 
 def _begin_diagnosis(session: dict, message: str) -> None:
@@ -452,7 +499,50 @@ def _finish_chat_response(
     timer: _StageTimer,
     branch: str,
     intent: str,
+    mode: str,
+    memory: dict[str, object],
+    product_meta: dict[str, object],
+    intent_source: str = "",
+    intent_fallback_used: bool = False,
 ) -> ChatResponse:
+    original_reply = response.reply
+    resolved_intent_source = intent_source or branch
+    response.reply, structure_metrics = add_conversational_structure(
+        response.reply,
+        user_message=user_message,
+        session_id=session_id,
+        mode=mode,
+        intent=response.intent or intent,
+        response_context=response_context(memory),
+        current_issue=response.current_issue,
+        awaiting_clarification=response.awaiting_clarification,
+    )
+    response.metrics = {
+        **response.metrics,
+        "mode": mode,
+        "intent": response.intent or intent,
+        "intent_source": resolved_intent_source,
+        "intent_fallback_used": intent_fallback_used,
+        "follow_up_added": bool(structure_metrics.get("follow_up_added")),
+        "context_reference_added": bool(structure_metrics.get("context_reference_added")),
+        "technical_body_preserved": bool(original_reply) and original_reply in response.reply,
+    }
+    session_state = _get_session(instance_id, session_id)
+    session_state["last_intent"] = response.intent or intent
+    session_state["last_intent_source"] = resolved_intent_source
+    session_state["last_intent_fallback_used"] = intent_fallback_used
+    try:
+        updated_memory = update_memory_after_turn(
+            memory,
+            user_message=user_message,
+            response=response,
+            intent=response.intent or intent,
+            mode=mode,
+            product_meta=product_meta,
+        )
+        _save_conversation_memory(instance_id, session_id, updated_memory)
+    except Exception:
+        logger.exception("Failed to update conversation memory")
     _log_chat_exchange(instance_id, session_id, user_message, response)
     timer.mark("chat_log")
     response.timings = timer.snapshot()
@@ -468,6 +558,51 @@ def _finish_chat_response(
     return response
 
 
+def _finish_next_issue_response(
+    *,
+    instance_id: str,
+    session_id: str,
+    response: ChatResponse,
+    mode: str,
+    memory: dict[str, object],
+    product_meta: dict[str, object],
+) -> ChatResponse:
+    response.intent = response.intent or "troubleshooting_current"
+    response.reply, structure_metrics = add_conversational_structure(
+        response.reply,
+        user_message="[next issue]",
+        session_id=session_id,
+        mode=mode,
+        intent=response.intent,
+        response_context=response_context(memory),
+        current_issue=response.current_issue,
+        awaiting_clarification=response.awaiting_clarification,
+    )
+    response.metrics = {
+        **response.metrics,
+        "mode": mode,
+        "intent": response.intent,
+        "intent_source": "next_issue_session_state",
+        "intent_fallback_used": False,
+        "follow_up_added": bool(structure_metrics.get("follow_up_added")),
+        "context_reference_added": bool(structure_metrics.get("context_reference_added")),
+    }
+    try:
+        updated_memory = update_memory_after_turn(
+            memory,
+            user_message="[next issue]",
+            response=response,
+            intent=response.intent,
+            mode=mode,
+            product_meta=product_meta,
+        )
+        _save_conversation_memory(instance_id, session_id, updated_memory)
+    except Exception:
+        logger.exception("Failed to update conversation memory")
+    _log_chat_exchange(instance_id, session_id, "[next issue]", response)
+    return response
+
+
 @router.post("/instances/{instance_id}/chat", response_model=ChatResponse)
 async def chat(instance_id: str, req: ChatRequest):
     timer = _StageTimer()
@@ -480,19 +615,26 @@ async def chat(instance_id: str, req: ChatRequest):
     if not message:
         raise HTTPException(status_code=400, detail="Empty message")
 
-    chat_model = req.model or OPENAI_CHAT_MODEL
+    mode = _resolve_chat_mode(req)
+    chat_model = _chat_model_for_mode(mode)
     index = _load_instance_ontology(instance_id)
     embeddings = _load_instance_embeddings(instance_id)
     product_meta = _product_metadata.get(instance_id, {})
     session = _get_session(instance_id, session_id)
+    memory = _load_conversation_memory(instance_id, session_id, product_meta)
     timer.mark("setup")
 
     response: ChatResponse
     intent: str = "troubleshooting_current"
+    intent_source: str = ""
+    intent_fallback_used = False
     hybrid_appendix: str = ""
     hybrid_evidence: list[dict] = []
 
     if _active_clarification(session):
+        intent = str(session.get("last_intent") or intent)
+        intent_source = str(session.get("last_intent_source") or "clarification_session_state")
+        intent_fallback_used = bool(session.get("last_intent_fallback_used") or False)
         response = _handle_clarification_turn(
             instance_id=instance_id,
             session_id=session_id,
@@ -527,6 +669,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="clarification",
             intent=response.intent or intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     _begin_diagnosis(session, message)
@@ -575,6 +722,11 @@ async def chat(instance_id: str, req: ChatRequest):
                     timer=timer,
                     branch="error_code",
                     intent=intent,
+                    mode=mode,
+                    memory=memory,
+                    product_meta=product_meta,
+                    intent_source=intent_source,
+                    intent_fallback_used=intent_fallback_used,
                 )
         timer.mark("error_code_lookup")
         _set_active_issue(session, [], {})
@@ -596,24 +748,42 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="error_code_unknown",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     query_emb: list[float] | None = None
-    fast_intent_started = perf_counter()
-    intent_result = classify_intent_fast(message)
-    timer.timings["intent_fast_path_s"] = round(perf_counter() - fast_intent_started, 3)
-    if intent_result is not None:
-        timer.timings["intent_classifier_s"] = 0.0
-        timer.timings["query_embedding_s"] = 0.0
-        timer.mark("intent_fast_path")
+    memory_context = routing_context(memory, message)
+    if mode == "fast":
+        fast_intent_started = perf_counter()
+        intent_result = classify_intent_fast(message, memory_context=memory_context)
+        timer.timings["intent_fast_path_s"] = round(perf_counter() - fast_intent_started, 3)
+        if intent_result is not None:
+            intent_source = str(intent_result.get("source") or "deterministic_fast_path")
+            timer.timings["intent_classifier_s"] = 0.0
+            timer.timings["query_embedding_s"] = 0.0
+            timer.mark("intent_fast_path")
+        else:
+            intent_fallback_used = True
+            (intent_result, intent_classifier_s), (query_emb, query_embedding_s) = await asyncio.gather(
+                asyncio.to_thread(_timed_call, classify_intent, message, instance_id, index, memory_context),
+                asyncio.to_thread(_timed_call, get_query_embedding, message),
+            )
+            intent_source = str(intent_result.get("source") or "llm_classifier")
+            timer.timings["intent_classifier_s"] = intent_classifier_s
+            timer.timings["query_embedding_s"] = query_embedding_s
+            timer.mark("intent_and_query_embedding")
     else:
-        # Fallback for ambiguous messages: run intent classification and the
-        # KG query embedding in parallel. The KG flow needs the embedding, and
-        # gathering hides the cheaper embedding call behind the classifier.
+        timer.timings["intent_fast_path_s"] = 0.0
         (intent_result, intent_classifier_s), (query_emb, query_embedding_s) = await asyncio.gather(
-            asyncio.to_thread(_timed_call, classify_intent, message, instance_id, index),
+            asyncio.to_thread(_timed_call, classify_intent, message, instance_id, index, memory_context),
             asyncio.to_thread(_timed_call, get_query_embedding, message),
         )
+        intent_source = str(intent_result.get("source") or "llm_classifier")
+        intent_fallback_used = True
         timer.timings["intent_classifier_s"] = intent_classifier_s
         timer.timings["query_embedding_s"] = query_embedding_s
         timer.mark("intent_and_query_embedding")
@@ -642,6 +812,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="log_history_search",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     if intent == "log_analytics":
@@ -663,6 +838,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="log_analytics",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     if intent == "work_order_lookup":
@@ -686,6 +866,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="work_order_lookup",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     if intent == "hybrid_diagnosis_with_history":
@@ -735,6 +920,11 @@ async def chat(instance_id: str, req: ChatRequest):
                 timer=timer,
                 branch="out_of_domain",
                 intent=intent,
+                mode=mode,
+                memory=memory,
+                product_meta=product_meta,
+                intent_source=intent_source,
+                intent_fallback_used=intent_fallback_used,
             )
         if relevance == "unclear":
             _set_active_issue(session, [], {})
@@ -753,6 +943,11 @@ async def chat(instance_id: str, req: ChatRequest):
                 timer=timer,
                 branch="unclear_domain",
                 intent=intent,
+                mode=mode,
+                memory=memory,
+                product_meta=product_meta,
+                intent_source=intent_source,
+                intent_fallback_used=intent_fallback_used,
             )
 
     if not top_symptoms and not top_failure_modes:
@@ -772,6 +967,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="low_confidence",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     symptom_ids = [sid for sid, _ in top_symptoms]
@@ -808,6 +1008,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="no_paths",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     ranked = group_paths_by_symptom_score(paths, combined_top)
@@ -834,6 +1039,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="alignment_no_fit",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     session["ranked_issues"] = ranked
@@ -864,6 +1074,11 @@ async def chat(instance_id: str, req: ChatRequest):
             timer=timer,
             branch="clarification_prompt",
             intent=intent,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+            intent_source=intent_source,
+            intent_fallback_used=intent_fallback_used,
         )
 
     session["current_issue_idx"] = 0
@@ -904,6 +1119,11 @@ async def chat(instance_id: str, req: ChatRequest):
         timer=timer,
         branch="troubleshooting_current",
         intent=intent,
+        mode=mode,
+        memory=memory,
+        product_meta=product_meta,
+        intent_source=intent_source,
+        intent_fallback_used=intent_fallback_used,
     )
 
 
@@ -912,7 +1132,11 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
     if not req.session_id:
         raise HTTPException(status_code=400, detail="Missing session_id")
 
-    chat_model = req.model or OPENAI_CHAT_MODEL
+    mode = _resolve_chat_mode(req)
+    chat_model = _chat_model_for_mode(mode)
+    _load_instance_ontology(instance_id)
+    product_meta = _product_metadata.get(instance_id, {})
+    memory = _load_conversation_memory(instance_id, req.session_id, product_meta)
     session = _sessions.get(_session_key(instance_id, req.session_id))
     if not session or not session.get("ranked_issues"):
         response = _build_chat_response(
@@ -920,8 +1144,14 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
             reply="No more issues to show. Please describe a new problem.",
             session_id=req.session_id,
         )
-        _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
-        return response
+        return _finish_next_issue_response(
+            instance_id=instance_id,
+            session_id=req.session_id,
+            response=response,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+        )
     if _active_clarification(session):
         response = _build_clarification_response(
             instance_id=instance_id,
@@ -929,11 +1159,15 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
             session=session,
             reply=str(session["clarification"].get("question", "Please answer the clarification question first.")),
         )
-        _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
-        return response
+        return _finish_next_issue_response(
+            instance_id=instance_id,
+            session_id=req.session_id,
+            response=response,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+        )
 
-    _load_instance_ontology(instance_id)
-    product_meta = _product_metadata.get(instance_id, {})
     ranked = session["ranked_issues"]
     next_idx = session["current_issue_idx"] + 1
 
@@ -943,8 +1177,14 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
             reply="Those were all the possible causes I found. If the problem persists, please describe it in more detail.",
             session_id=req.session_id,
         )
-        _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
-        return response
+        return _finish_next_issue_response(
+            instance_id=instance_id,
+            session_id=req.session_id,
+            response=response,
+            mode=mode,
+            memory=memory,
+            product_meta=product_meta,
+        )
 
     session["current_issue_idx"] = next_idx
     group_paths = ranked[next_idx]["paths"]
@@ -969,14 +1209,21 @@ async def next_issue(instance_id: str, req: NextIssueRequest):
         total_issues=total,
         telemetry=build_telemetry_payload(group_paths, telemetry_dir=_telemetry_dir(instance_id)),
     )
-    _log_chat_exchange(instance_id, req.session_id, "[next issue]", response)
-    return response
+    return _finish_next_issue_response(
+        instance_id=instance_id,
+        session_id=req.session_id,
+        response=response,
+        mode=mode,
+        memory=memory,
+        product_meta=product_meta,
+    )
 
 
 @router.post("/instances/{instance_id}/reset")
 async def reset_session(instance_id: str, req: ResetRequest):
     if req.session_id:
         _sessions.pop(_session_key(instance_id, req.session_id), None)
+        chat_log_store.delete_conversation_memory(instance_id, req.session_id)
     return {"ok": True}
 
 

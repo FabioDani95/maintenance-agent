@@ -32,7 +32,7 @@ OPENAI_ROUTER_MODEL=gpt-5-nano   # optional, deterministic fast path handles com
 
 Notes:
 
-- `OPENAI_API_KEY` is required because runtime matching uses OpenAI embeddings for symptom retrieval, candidate cause reranking, log search, and non-Fast reply composition.
+- `OPENAI_API_KEY` is required because runtime matching uses OpenAI embeddings for symptom retrieval, candidate cause reranking, log search, and Guided reply composition.
 - Three model knobs are exposed in `kg_agents/config.py` and can be overridden through env vars: `OPENAI_EMBEDDING_MODEL` (`text-embedding-3-large`), `OPENAI_CHAT_MODEL` (`gpt-5-nano`), and `OPENAI_ROUTER_MODEL` (`gpt-5-nano`).
 - `gpt-5-nano` is the default Fast mode. For log history, analytics, and exact work-order lookups, Fast mode uses deterministic structured templates instead of an LLM composition call. Other chat models can still be selected in the dev UI when a more narrative response is worth the extra latency.
 - Neo4j is not used by the current implementation. Persistence is file-based under `kg_agents/data/`.
@@ -83,7 +83,7 @@ The shared troubleshooting engine now lives inside `kg_agents/engine/`:
 - telemetry payload building
 - deterministic fast-path chat intent routing with LLM fallback for ambiguous cases (routes to KG, log history, log analytics, work-order lookup, or hybrid)
 - maintenance-log loader and hybrid retrieval (dense + sparse TF-IDF + RRF + optional LLM rerank)
-- log-chat handlers with Fast-mode structured templates, non-Fast LLM composition, and an evidence list per assistant turn
+- log-chat handlers with Fast-mode structured templates, Guided LLM composition, and an evidence list per assistant turn
 
 `troubleshooting_agent/` remains in the repository as a legacy compatibility layer. The supported integration contract is still the versioned REST API under `/v1/kg-agents/*`.
 
@@ -308,9 +308,9 @@ User message
   -> deterministic fast-path intent router
   -> optional LLM intent classifier fallback only for ambiguous cases
   -> intent branch:
-       * log_history_search       -> hybrid log retrieval + Fast template, or LLM-composed reply in non-Fast mode
-       * log_analytics            -> aggregate summary + Fast template, or LLM-composed reply in non-Fast mode
-       * work_order_lookup        -> direct WO lookup when id is present + Fast template, or LLM-composed reply in non-Fast mode
+       * log_history_search       -> hybrid log retrieval + Fast template, or LLM-composed reply in Guided mode
+       * log_analytics            -> aggregate summary + Fast template, or LLM-composed reply in Guided mode
+       * work_order_lookup        -> direct WO lookup when id is present + Fast template, or LLM-composed reply in Guided mode
        * hybrid_diagnosis_w/hist  -> KG flow PLUS "Past similar events" appendix
        * troubleshooting_current  -> existing KG flow (default fallback)
   -> KG flow (when applicable):
@@ -351,7 +351,7 @@ Fast-mode behavior:
 - log history uses dense + sparse retrieval with RRF, then renders a structured template
 - log analytics reads aggregate counters and renders a structured template
 - exact work-order queries use direct lookup by `WO-*` id and render a structured template
-- non-Fast models still use the same retrieval and evidence payloads, but may call the LLM to compose a freer narrative response
+- Guided models still use the same retrieval and evidence payloads, but may call the LLM to compose a freer narrative response
 
 The default suggested chat chips are tuned for these fast routes:
 
@@ -382,7 +382,7 @@ Full design notes including data model, retrieval strategy, intent routing, grap
 - Logs are **not** ontology nodes — they live in a CSV alongside the ontology, with an embedding index, and are linked back to the graph only through optional `linked_failure_mode_id` / `linked_symptom_id` fields plus virtual edges in graph responses.
 - Retrieval is **hybrid**: dense (`text-embedding-3-large`) plus sparse TF-IDF with Reciprocal Rank Fusion, with optional LLM rerank for ambiguous non-exact lookups.
 - Intent routing is **fast-path first**: common history, analytics, work-order, hybrid, and troubleshooting phrases are routed deterministically. Ambiguous messages can still fall back to `OPENAI_ROUTER_MODEL`.
-- Fast mode uses deterministic structured templates for `log_history_search`, `log_analytics`, and exact `work_order_lookup`; non-Fast modes can still use LLM composition over the same retrieved evidence.
+- Fast mode uses deterministic structured templates for `log_history_search`, `log_analytics`, and exact `work_order_lookup`; Guided modes can still use LLM composition over the same retrieved evidence.
 - The graph overlay is **opt-in**. The default `/graph-data` response is byte-identical to the pre-log-integration behaviour.
 
 ### Seeding logs for a new instance

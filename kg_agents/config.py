@@ -27,6 +27,7 @@ DATA_DIR.mkdir(exist_ok=True)
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_EMBEDDING_MODEL: str = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
 OPENAI_CHAT_MODEL: str = os.environ.get("OPENAI_CHAT_MODEL", "gpt-5-nano")
+OPENAI_NON_FAST_CHAT_MODEL: str = os.environ.get("OPENAI_NON_FAST_CHAT_MODEL", "gpt-5-mini")
 # Fast model reserved for short routing/labeling tasks where deep reasoning
 # isn't needed (intent classifier, etc.). Quality of natural-language replies
 # still uses OPENAI_CHAT_MODEL.

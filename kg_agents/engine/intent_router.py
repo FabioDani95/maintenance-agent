@@ -117,6 +117,20 @@ _CURRENT_DIAGNOSIS_PATTERNS = (
     "cosa controllo",
     "come risolvo",
 )
+_ANCHOR_TERMS = {
+    "irc5", "robot", "controller", "drive", "motor", "motors", "brake",
+    "voltage", "power", "flexpendant", "pendant", "ethernet", "network",
+    "axis", "joystick", "dsqc", "module", "fan", "thermal", "temperature",
+    "encoder", "resolver", "gearbox", "fieldbus", "io", "i/o",
+}
+_ANCHOR_STOPWORDS = {
+    "happened", "before", "history", "historical", "previous", "previously",
+    "often", "many", "frequency", "frequent", "recurring", "trend", "trends",
+    "count", "counts", "total", "totals", "which", "component", "show",
+    "past", "events", "logs", "have", "seen", "this", "that", "quello",
+    "questa", "questo", "storico", "precedente", "quante", "quanto",
+    "spesso", "frequente", "ricorrente",
+}
 
 
 def _get_client() -> OpenAI:
@@ -156,7 +170,38 @@ def _base_result(intent: str, message: str, rationale: str) -> dict[str, Any]:
     }
 
 
-def classify_intent_fast(message: str) -> dict[str, Any] | None:
+def _has_clear_anchor(text: str, message: str) -> bool:
+    if _WORK_ORDER_RE.search(message):
+        return True
+    if any(term in text for term in _ANCHOR_TERMS):
+        return True
+    words = [
+        word for word in re.findall(r"[a-z0-9_/-]{4,}", text)
+        if word not in _ANCHOR_STOPWORDS
+    ]
+    return bool(words)
+
+
+def _contextual_search_query(message: str, memory_context: dict[str, Any] | None) -> str:
+    if not memory_context or not memory_context.get("has_context_reference"):
+        return message
+    bits = [message.strip()]
+    component = str(memory_context.get("component") or "").strip()
+    symptom = str(memory_context.get("symptom") or "").strip()
+    failure_mode = str(memory_context.get("failure_mode") or "").strip()
+    if component:
+        bits.append(f"component: {component}")
+    if failure_mode:
+        bits.append(f"failure mode: {failure_mode}")
+    elif symptom:
+        bits.append(f"previous symptom: {symptom}")
+    return " | ".join(bit for bit in bits if bit)
+
+
+def classify_intent_fast(
+    message: str,
+    memory_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Fast deterministic intent routing for common cases."""
     text = " ".join((message or "").lower().split())
     if not text:
@@ -168,6 +213,33 @@ def classify_intent_fast(message: str) -> dict[str, Any] | None:
     has_history = any(pattern in text for pattern in _HISTORY_PATTERNS)
     has_analytics = any(pattern in text for pattern in _ANALYTICS_PATTERNS)
     has_current_diagnosis = any(pattern in text for pattern in _CURRENT_DIAGNOSIS_PATTERNS)
+    has_anchor = _has_clear_anchor(text, message)
+
+    # Mixed history + analytics wording with no concrete machine/component
+    # anchor is exactly where the string router is most likely to guess wrong.
+    # In fast mode this is the narrow path that can fall through to the LLM
+    # classifier without putting every turn on the slower path.
+    if has_history and has_analytics and not has_anchor:
+        return None
+
+    if memory_context and memory_context.get("has_context_reference") and not has_anchor:
+        contextual_intent = ""
+        if has_analytics:
+            contextual_intent = "log_analytics"
+        elif has_history and has_current_diagnosis:
+            contextual_intent = "hybrid_diagnosis_with_history"
+        elif has_history:
+            contextual_intent = "log_history_search"
+        elif memory_context.get("last_intent") in VALID_INTENTS:
+            contextual_intent = str(memory_context["last_intent"])
+        if contextual_intent:
+            result = _base_result(
+                contextual_intent,
+                _contextual_search_query(message, memory_context),
+                "context reference resolved from session memory",
+            )
+            result["source"] = "deterministic_fast_path_with_memory"
+            return result
 
     if has_analytics:
         return _base_result("log_analytics", message, "analytics wording detected")
@@ -190,6 +262,7 @@ def classify_intent(
     message: str,
     instance_id: str,
     ontology_index: OntologyIndex,
+    memory_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the routed intent + extracted filters + cleaned search query.
 
@@ -241,9 +314,10 @@ def classify_intent(
     user_payload = {
         "today": today,
         "message": message,
+        "session_context": memory_context or {},
         "schema": {
             "intent": "one of the 5 intent strings above",
-            "search_query": "string optimized for log retrieval",
+            "search_query": "string optimized for log retrieval; use session_context only to resolve pronouns, never to change intent labels or invent filters",
             "filters": {
                 "maintenance_type": "CM | PM | PDM | null",
                 "event_category": "alarm | fault | maintenance | operator_note | condition_monitoring | null",
@@ -284,4 +358,5 @@ def classify_intent(
         "search_query": str(parsed.get("search_query") or message).strip(),
         "filters": filters,
         "rationale": str(parsed.get("rationale") or ""),
+        "source": "llm_classifier",
     }

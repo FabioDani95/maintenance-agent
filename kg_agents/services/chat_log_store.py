@@ -60,6 +60,17 @@ def init_chat_log_db() -> None:
             ON chat_logs(instance_id, created_at)
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_memory (
+              instance_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              state_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (instance_id, session_id)
+            )
+            """
+        )
 
 
 def log_user_message(
@@ -159,3 +170,77 @@ def get_session_messages(
             (instance_id, session_id),
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
+
+
+def get_conversation_memory(instance_id: str, session_id: str) -> dict[str, Any] | None:
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                """
+                SELECT state_json
+                FROM chat_memory
+                WHERE instance_id = ? AND session_id = ?
+                """,
+                (instance_id, session_id),
+            ).fetchone()
+    except sqlite3.OperationalError:
+        init_chat_log_db()
+        with _connect() as conn:
+            row = conn.execute(
+                """
+                SELECT state_json
+                FROM chat_memory
+                WHERE instance_id = ? AND session_id = ?
+                """,
+                (instance_id, session_id),
+            ).fetchone()
+    if not row:
+        return None
+    state = _json_loads(row["state_json"], None)
+    return state if isinstance(state, dict) else None
+
+
+def upsert_conversation_memory(
+    *,
+    instance_id: str,
+    session_id: str,
+    state: dict[str, Any],
+) -> None:
+    now = _utc_now()
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_memory (instance_id, session_id, state_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(instance_id, session_id)
+                DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+                """,
+                (instance_id, session_id, _json_dumps(state), now),
+            )
+    except sqlite3.OperationalError:
+        init_chat_log_db()
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_memory (instance_id, session_id, state_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(instance_id, session_id)
+                DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+                """,
+                (instance_id, session_id, _json_dumps(state), now),
+            )
+
+
+def delete_conversation_memory(instance_id: str, session_id: str) -> None:
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM chat_memory
+                WHERE instance_id = ? AND session_id = ?
+                """,
+                (instance_id, session_id),
+            )
+    except sqlite3.OperationalError:
+        init_chat_log_db()

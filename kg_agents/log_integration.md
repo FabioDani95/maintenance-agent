@@ -49,7 +49,7 @@ Observed smoke-test timings on the local IRC5 seed after the Fast-mode change:
 | `log_history_search` | ~0.15-1.3s, mostly query embedding latency |
 | `hybrid_diagnosis_with_history` | ~2.5-3s when KG rerank/alignment and clarification are involved |
 
-Non-Fast modes keep the same retrieval improvements, but can still call the LLM composer and therefore remain slower.
+Guided modes keep the same retrieval improvements, but can still call the LLM composer and therefore remain slower.
 
 ### Open questions: resolved
 
@@ -789,7 +789,7 @@ Three components in the current MVP grow linearly with row count:
 
 1. **`occurrence_embeddings` in memory.** `LogStore` keeps a `dict[log_id, list[float]]` with one 3072-dim vector per row. At 277 rows this is still small. At 1M rows in pure Python list-of-floats this is ~85 GB. Even encoded as numpy float32 it is ~12 GB. The JSON-on-disk format (`log_embeddings.json`) is also unusable at that size - it would be ~12 GB of text.
 2. **`LogStore.rows` and the per-id / per-signature dicts.** A row dict with ~40 fields averages ~1 KB; at 1M rows that is ~1 GB of resident Python objects, plus another ~200 MB for the `rows_by_id` / `rows_by_signature` index dicts. Tolerable on a large box but wasteful, and forces a full reload from CSV on every cache evict.
-3. **`_dense_scores` linear scan in `log_search.py`.** For every history query it iterates the occurrence embedding dict and computes cosine similarity against the query vector. At 1M rows x 3072 dims that is ~3B float multiplications per query, which in numpy/Python lands at **10-30 s per query for the dense scan alone** before any non-Fast model composition is considered.
+3. **`_dense_scores` linear scan in `log_search.py`.** For every history query it iterates the occurrence embedding dict and computes cosine similarity against the query vector. At 1M rows x 3072 dims that is ~3B float multiplications per query, which in numpy/Python lands at **10-30 s per query for the dense scan alone** before any Guided model composition is considered.
 
 The sparse TF-IDF index built by scikit-learn handles 1M docs reasonably (build ~1-5 min, ~500 MB - 1 GB resident) but the **first request after process start pays the full build cost** because nothing is cached on disk.
 
@@ -816,7 +816,7 @@ Concretely, the migration changes three layers:
 
 ### Latency projection
 
-With this architecture, the Fast-mode per-query budget at 1M rows is dominated by query embedding for history search and by indexed lookup for exact work orders. Analytics stays aggregate-only. Non-Fast modes may still be dominated by the LLM composer.
+With this architecture, the Fast-mode per-query budget at 1M rows is dominated by query embedding for history search and by indexed lookup for exact work orders. Analytics stays aggregate-only. Guided modes may still be dominated by the LLM composer.
 
 | Step | 277 rows (Fast today) | 1M rows (signature-based Fast) |
 |------|-----------------|---------------------------|

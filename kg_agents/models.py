@@ -88,6 +88,7 @@ class MeasurementMappingBatch(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+    mode: Literal["fast", "non-fast"] | None = None
     model: str | None = None
 
 
@@ -150,10 +151,12 @@ class ChatResponse(BaseModel):
     intent: str | None = None
     log_evidence: list[dict[str, Any]] = Field(default_factory=list)
     timings: dict[str, float] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 class NextIssueRequest(BaseModel):
     session_id: str
+    mode: Literal["fast", "non-fast"] | None = None
     model: str | None = None
 
 

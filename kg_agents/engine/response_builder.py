@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from kg_agents.config import OPENAI_CHAT_MODEL
+from kg_agents.models import CurrentIssue
 
 from .ontology_loader import get_product_metadata
 
@@ -130,6 +131,134 @@ def _render_answer(grouped: list[dict[str, Any]]) -> str:
         sections.append("\n".join(lines).rstrip())
 
     return "\n\n".join(sections)
+
+
+_ACKS = {
+    "it": ("Capito.", "Ok, resto sul punto.", "Chiaro."),
+    "en": ("Understood.", "Got it.", "Clear."),
+}
+_CONTEXT_PREFIX = {
+    "it": "Tengo il contesto precedente",
+    "en": "Keeping the previous context",
+}
+_DIAGNOSIS_HEADING = {
+    "it": "**Diagnosi / evidenza**",
+    "en": "**Diagnosis / evidence**",
+}
+_NEXT_STEP_LABEL = {
+    "it": "**Prossimo passo pratico:**",
+    "en": "**Practical next step:**",
+}
+_QUESTION_LABEL = {
+    "it": "**Domanda breve:**",
+    "en": "**Short question:**",
+}
+
+
+def _variant(options: tuple[str, ...], seed: str) -> str:
+    if not options:
+        return ""
+    return options[sum(ord(ch) for ch in seed) % len(options)]
+
+
+def _language(response_context: dict[str, str] | None, user_message: str) -> str:
+    if response_context and response_context.get("language") in {"it", "en"}:
+        return response_context["language"]
+    if re.search(r"\b(cosa|come|guasto|errore|controllo|risolvo|macchina|quello)\b", user_message, re.I):
+        return "it"
+    return "en"
+
+
+def _context_line(lang: str, response_context: dict[str, str] | None, current_issue: CurrentIssue | None) -> str:
+    component = ""
+    if current_issue:
+        component = current_issue.component_name or current_issue.component_id
+    if not component and response_context:
+        component = response_context.get("component", "")
+    if not component:
+        return ""
+    if lang == "it":
+        return f"{_CONTEXT_PREFIX[lang]} sul componente **{component}**."
+    return f"{_CONTEXT_PREFIX[lang]} on **{component}**."
+
+
+def _next_step(lang: str, intent: str | None, current_issue: CurrentIssue | None) -> str:
+    if current_issue and current_issue.action_options:
+        action = current_issue.action_options[0].action_name
+        if lang == "it":
+            return f"parti dalla prima azione elencata (**{action}**) e registra l'esito."
+        return f"start with the first listed action (**{action}**) and record the outcome."
+
+    if intent == "log_analytics":
+        return "usa il pattern piu ricorrente per decidere quale componente verificare per primo." if lang == "it" else "use the most recurring pattern to decide which component to check first."
+    if intent in {"log_history_search", "work_order_lookup", "hybrid_diagnosis_with_history"}:
+        return "confronta il caso piu simile con il sintomo attuale prima di cambiare intervento." if lang == "it" else "compare the closest past case with the current symptom before changing intervention."
+    return "rispondi con il dettaglio osservabile piu specifico se il match non torna." if lang == "it" else "reply with the most specific observable detail if the match is off."
+
+
+def _question(lang: str, intent: str | None, current_issue: CurrentIssue | None) -> str:
+    if current_issue:
+        return "dopo questo controllo il sintomo cambia?" if lang == "it" else "after this check, does the symptom change?"
+    if intent == "log_analytics":
+        return "vuoi filtrare per periodo o componente?" if lang == "it" else "do you want to filter by time range or component?"
+    if intent in {"log_history_search", "work_order_lookup", "hybrid_diagnosis_with_history"}:
+        return "e lo stesso comportamento che vedi ora?" if lang == "it" else "is this the same behavior you see now?"
+    return "quale componente o segnale osservi direttamente?" if lang == "it" else "which component or signal do you observe directly?"
+
+
+def add_conversational_structure(
+    reply: str,
+    *,
+    user_message: str,
+    session_id: str,
+    mode: str,
+    intent: str | None = None,
+    response_context: dict[str, str] | None = None,
+    current_issue: CurrentIssue | None = None,
+    awaiting_clarification: bool = False,
+) -> tuple[str, dict[str, Any]]:
+    """Wrap deterministic technical output with a thin conversational frame.
+
+    The original diagnostic body is kept verbatim under the evidence heading;
+    this function only adds acknowledgement, continuity, next-step, and a short
+    follow-up question.
+    """
+    body = (reply or "").strip()
+    if not body:
+        return reply, {"follow_up_added": False, "context_reference_added": False}
+
+    lang = _language(response_context, user_message)
+    seed = f"{session_id}:{user_message}:{mode}"
+    ack = _variant(_ACKS[lang], seed)
+    context = _context_line(lang, response_context, current_issue)
+
+    if awaiting_clarification:
+        intro = " ".join(part for part in (ack, context) if part)
+        if lang == "it":
+            structured = f"{intro} Per evitare una diagnosi fuori bersaglio:\n\n{body}"
+        else:
+            structured = f"{intro} To keep the diagnosis focused:\n\n{body}"
+        return structured.strip(), {
+            "follow_up_added": True,
+            "context_reference_added": bool(context),
+            "language": lang,
+        }
+
+    next_step = _next_step(lang, intent, current_issue)
+    question = _question(lang, intent, current_issue)
+    intro = " ".join(part for part in (ack, context) if part)
+    structured = (
+        f"{intro}\n\n"
+        f"{_DIAGNOSIS_HEADING[lang]}\n\n"
+        f"{body}\n\n"
+        f"{_NEXT_STEP_LABEL[lang]} {next_step}\n\n"
+        f"{_QUESTION_LABEL[lang]} {question}"
+    )
+    return structured.strip(), {
+        "follow_up_added": True,
+        "context_reference_added": bool(context),
+        "language": lang,
+    }
 
 
 def format_answer(
