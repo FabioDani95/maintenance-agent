@@ -17,6 +17,11 @@ from kg_agents.engine.conversation_memory import (
     routing_context,
     update_memory_after_turn,
 )
+from kg_agents.engine.behavior_mode import (
+    SOLVE_CURRENT_PROBLEM,
+    SEARCH_PAST_EVENTS,
+    behavior_mode_for_intent,
+)
 from kg_agents.engine.clarification import (
     build_clarification_state,
     invalid_clarification_reply,
@@ -45,6 +50,7 @@ from kg_agents.engine.log_search import evict_search_cache
 from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
     add_conversational_structure,
+    compose_prioritized_solve_answer,
     format_answer_single_group,
     low_confidence_response,
     out_of_domain_response,
@@ -461,6 +467,7 @@ def _apply_intent(
     """Stamp the routed intent (and any hybrid-history appendix) onto a
     KG-flow response. Pure mutation + return for use right before logging."""
     response.intent = intent
+    response.behavior_mode = behavior_mode_for_intent(intent)
     if hybrid_appendix:
         response.reply = response.reply + hybrid_appendix
     if hybrid_evidence:
@@ -507,12 +514,14 @@ def _finish_chat_response(
 ) -> ChatResponse:
     original_reply = response.reply
     resolved_intent_source = intent_source or branch
+    resolved_intent = response.intent or intent
+    response.behavior_mode = response.behavior_mode or behavior_mode_for_intent(resolved_intent)
     response.reply, structure_metrics = add_conversational_structure(
         response.reply,
         user_message=user_message,
         session_id=session_id,
         mode=mode,
-        intent=response.intent or intent,
+        intent=resolved_intent,
         response_context=response_context(memory),
         current_issue=response.current_issue,
         awaiting_clarification=response.awaiting_clarification,
@@ -520,7 +529,8 @@ def _finish_chat_response(
     response.metrics = {
         **response.metrics,
         "mode": mode,
-        "intent": response.intent or intent,
+        "intent": resolved_intent,
+        "behavior_mode": response.behavior_mode,
         "intent_source": resolved_intent_source,
         "intent_fallback_used": intent_fallback_used,
         "follow_up_added": bool(structure_metrics.get("follow_up_added")),
@@ -528,7 +538,8 @@ def _finish_chat_response(
         "technical_body_preserved": bool(original_reply) and original_reply in response.reply,
     }
     session_state = _get_session(instance_id, session_id)
-    session_state["last_intent"] = response.intent or intent
+    session_state["last_intent"] = resolved_intent
+    session_state["last_behavior_mode"] = response.behavior_mode
     session_state["last_intent_source"] = resolved_intent_source
     session_state["last_intent_fallback_used"] = intent_fallback_used
     try:
@@ -536,7 +547,7 @@ def _finish_chat_response(
             memory,
             user_message=user_message,
             response=response,
-            intent=response.intent or intent,
+            intent=resolved_intent,
             mode=mode,
             product_meta=product_meta,
         )
@@ -551,7 +562,7 @@ def _finish_chat_response(
         instance_id,
         session_id,
         branch,
-        response.intent or intent,
+        resolved_intent,
         response.timings.get("total_s", 0.0),
         response.timings,
     )
@@ -568,6 +579,7 @@ def _finish_next_issue_response(
     product_meta: dict[str, object],
 ) -> ChatResponse:
     response.intent = response.intent or "troubleshooting_current"
+    response.behavior_mode = response.behavior_mode or behavior_mode_for_intent(response.intent)
     response.reply, structure_metrics = add_conversational_structure(
         response.reply,
         user_message="[next issue]",
@@ -582,6 +594,7 @@ def _finish_next_issue_response(
         **response.metrics,
         "mode": mode,
         "intent": response.intent,
+        "behavior_mode": response.behavior_mode,
         "intent_source": "next_issue_session_state",
         "intent_fallback_used": False,
         "follow_up_added": bool(structure_metrics.get("follow_up_added")),
@@ -790,8 +803,9 @@ async def chat(instance_id: str, req: ChatRequest):
     intent = intent_result["intent"]
     intent_filters = intent_result["filters"]
     intent_query = intent_result["search_query"]
+    behavior_mode = behavior_mode_for_intent(intent)
 
-    if intent == "log_history_search":
+    if behavior_mode == SEARCH_PAST_EVENTS and intent == "log_history_search":
         reply, evidence, handler_timings = handle_log_history_search(
             intent_query, instance_id, intent_filters, chat_model,
         )
@@ -803,6 +817,7 @@ async def chat(instance_id: str, req: ChatRequest):
         )
         timer.mark("response_build")
         response.intent = intent
+        response.behavior_mode = behavior_mode
         response.log_evidence = evidence
         return _finish_chat_response(
             instance_id=instance_id,
@@ -819,7 +834,7 @@ async def chat(instance_id: str, req: ChatRequest):
             intent_fallback_used=intent_fallback_used,
         )
 
-    if intent == "log_analytics":
+    if behavior_mode == SEARCH_PAST_EVENTS and intent == "log_analytics":
         reply, evidence, handler_timings = handle_log_analytics(intent_query, instance_id, chat_model)
         timer.add_nested("log_analytics", handler_timings)
         timer.mark("log_analytics_handler")
@@ -829,6 +844,7 @@ async def chat(instance_id: str, req: ChatRequest):
         )
         timer.mark("response_build")
         response.intent = intent
+        response.behavior_mode = behavior_mode
         response.log_evidence = evidence
         return _finish_chat_response(
             instance_id=instance_id,
@@ -845,7 +861,7 @@ async def chat(instance_id: str, req: ChatRequest):
             intent_fallback_used=intent_fallback_used,
         )
 
-    if intent == "work_order_lookup":
+    if behavior_mode == SEARCH_PAST_EVENTS and intent == "work_order_lookup":
         reply, evidence, handler_timings = handle_work_order_lookup(
             intent_query, instance_id, intent_filters, chat_model,
         )
@@ -857,6 +873,7 @@ async def chat(instance_id: str, req: ChatRequest):
         )
         timer.mark("response_build")
         response.intent = intent
+        response.behavior_mode = behavior_mode
         response.log_evidence = evidence
         return _finish_chat_response(
             instance_id=instance_id,
@@ -879,6 +896,12 @@ async def chat(instance_id: str, req: ChatRequest):
         )
         timer.add_nested("hybrid_history", handler_timings)
         timer.mark("hybrid_history_search")
+    elif behavior_mode == SOLVE_CURRENT_PROBLEM and mode == "non-fast":
+        _, hybrid_evidence, handler_timings = fetch_hybrid_history_evidence(
+            intent_query, instance_id, intent_filters,
+        )
+        timer.add_nested("solve_history", handler_timings)
+        timer.mark("solve_history_search")
 
     if query_emb is None:
         query_emb, query_embedding_s = _timed_call(get_query_embedding, message)
@@ -1092,6 +1115,25 @@ async def chat(instance_id: str, req: ChatRequest):
         model=chat_model,
         product_meta=product_meta,
     )
+    if mode == "non-fast":
+        try:
+            composed_reply = compose_prioritized_solve_answer(
+                paths=first_group,
+                user_message=message,
+                log_evidence=hybrid_evidence,
+                model=chat_model,
+                product_meta=product_meta,
+            )
+            if composed_reply:
+                reply = composed_reply
+                # The guided answer already folds past-event evidence into the
+                # prioritisation. Keep evidence in the payload, but avoid a
+                # duplicated appendix in the visible reply.
+                hybrid_appendix = ""
+            timer.mark("solve_compose")
+        except Exception:
+            logger.exception("Failed to compose non-fast solve-current answer")
+            timer.mark("solve_compose_failed")
     if total > 1:
         reply += f"\n\n---\n*Possible cause 1 of {total}. Use \"Next\" to see the next most likely cause.*"
     timer.mark("response_render")

@@ -41,6 +41,14 @@ RRF_K = 60
 RERANK_TOP_N = 12
 DEFAULT_RESULT_LIMIT = 5
 _SIGNATURE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_:-]*$")
+_SOLUTION_QUERY_RE = re.compile(
+    r"\b("
+    r"solution|fix|fixed|resolve|resolved|repair|repaired|"
+    r"what\s+did\s+we\s+do|what\s+was\s+done|last\s+time|previous\s+fix"
+    r")\b",
+    re.IGNORECASE,
+)
+_RECENCY_QUERY_RE = re.compile(r"\b(last\s+time|latest|most\s+recent)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -59,6 +67,51 @@ def is_presentable_signature_id(signature_id: str | None) -> bool:
     if not signature_id or signature_id == "_unsignatured":
         return False
     return bool(_SIGNATURE_ID_PATTERN.fullmatch(signature_id))
+
+
+def _is_solution_query(query: str) -> bool:
+    return bool(_SOLUTION_QUERY_RE.search(query or ""))
+
+
+def _is_recency_solution_query(query: str) -> bool:
+    return bool(_RECENCY_QUERY_RE.search(query or ""))
+
+
+def _outcome_score(row: dict[str, Any]) -> int:
+    outcome = str(row.get("outcome") or "").lower()
+    status = str(row.get("status") or "").lower()
+    score = 0
+    if outcome == "resolved":
+        score += 50
+    elif "partial" in outcome:
+        score += 25
+    elif "monitor" in outcome:
+        score += 10
+    if status in {"closed", "completed", "resolved"}:
+        score += 20
+    elif status == "open":
+        score -= 10
+    return score
+
+
+def _solution_row_score(row: dict[str, Any], query: str) -> tuple:
+    action = str(row.get("action_taken") or "").strip()
+    action_score = min(len(action), 240) if action else -100
+    outcome_score = _outcome_score(row)
+    occurred_at = str(row.get("occurred_at") or "")
+    if _is_recency_solution_query(query):
+        return (action_score > 0, occurred_at, outcome_score, action_score)
+    return (action_score > 0, outcome_score, action_score, occurred_at)
+
+
+def _select_top_match_log(
+    query: str,
+    anchor_row: dict[str, Any],
+    all_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not _is_solution_query(query) or not all_rows:
+        return anchor_row
+    return max(all_rows, key=lambda row: _solution_row_score(row, query))
 
 
 def _get_client() -> OpenAI:
@@ -297,6 +350,7 @@ def _aggregate_by_signature(
     store: LogStore,
     score_key: str,
     limit: int,
+    query: str = "",
 ) -> list[dict[str, Any]]:
     """Collapse occurrence-level results into signature-level matches.
 
@@ -310,21 +364,29 @@ def _aggregate_by_signature(
             continue
         score = row.get(score_key, 0.0)
         existing = by_sig.get(sig)
-        if existing is None or score > existing["_top_score"]:
+        if existing is None:
             by_sig[sig] = {
                 "_top_score": score,
                 "_anchor_row": row,
+                "_matched_rows": [row],
             }
+            continue
+        existing["_matched_rows"].append(row)
+        if score > existing["_top_score"]:
+            existing["_top_score"] = score
+            existing["_anchor_row"] = row
 
     matches: list[dict[str, Any]] = []
     for sig, data in by_sig.items():
         all_rows = store.rows_by_signature.get(sig, [])
+        matched_rows = data.get("_matched_rows") or []
         most_recent = all_rows[0] if all_rows else data["_anchor_row"]
-        top_match = data["_anchor_row"]
+        top_match = _select_top_match_log(query, data["_anchor_row"], all_rows)
         meta = store.signature_meta.get(sig, {})
         matches.append({
             "event_signature_id": sig,
             "score": round(float(data["_top_score"]), 4),
+            "matched_occurrence_count": len(matched_rows),
             "occurrence_count": len(all_rows),
             "first_seen_at": meta.get("first_seen_at"),
             "last_seen_at": meta.get("last_seen_at"),
@@ -337,6 +399,7 @@ def _aggregate_by_signature(
             "linked_symptom_id": top_match.get("linked_symptom_id") or "",
             "top_match_log": top_match,
             "most_recent_log": most_recent,
+            "matched_log_ids": [r["log_id"] for r in matched_rows if r.get("log_id")],
             "all_log_ids": [r["log_id"] for r in all_rows],
             "rerank_rationale": top_match.get("rerank_rationale"),
         })
@@ -441,7 +504,7 @@ def search_logs(
         score_key = "fused_score"
     mark("llm_rerank" if use_llm_rerank and candidate_rows else "skip_rerank")
 
-    matches = _aggregate_by_signature(reranked, store, score_key, limit)
+    matches = _aggregate_by_signature(reranked, store, score_key, limit, query=query)
     mark("aggregate")
 
     return {

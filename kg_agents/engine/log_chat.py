@@ -21,6 +21,11 @@ from .log_search import search_logs, summarize_logs
 
 _client: OpenAI | None = None
 _WORK_ORDER_RE = re.compile(r"\bWO-[A-Za-z0-9][A-Za-z0-9-]*\b", re.IGNORECASE)
+_SOLUTION_QUESTION_RE = re.compile(
+    r"\b(solution|fix|fixed|resolve|resolved|repair|repaired|"
+    r"what\s+did\s+we\s+do|what\s+was\s+done|last\s+time|previous\s+fix)\b",
+    re.IGNORECASE,
+)
 
 
 class _HandlerTimer:
@@ -72,16 +77,21 @@ def _format_duration(value: Any) -> str:
     return f"{value} min"
 
 
+def _is_solution_question(query: str) -> bool:
+    return bool(_SOLUTION_QUESTION_RE.search(query or ""))
+
+
 def _history_template(query: str, matches: list[dict[str, Any]]) -> str:
     total = sum(int(m.get("occurrence_count") or 0) for m in matches)
     top_match = matches[0].get("top_match_log") or {}
+    answer_label = "Most Relevant Fix" if _is_solution_question(query) else "Best Match"
     lines = [
         "**Snapshot**",
         f"- Matching occurrences: **{total}**",
         f"- Best matching pattern: `{_fmt(matches[0].get('event_signature_id'))}`",
         f"- Most relevant work order: `{_fmt(top_match.get('work_order_id'))}`",
         "",
-        "**Best Match**",
+        f"**{answer_label}**",
         f"- Date: {_date(top_match.get('occurred_at'))}",
         f"- Severity: {_fmt(top_match.get('severity_text'))}",
         f"- Status: {_fmt(top_match.get('status'))}",
@@ -258,6 +268,7 @@ def _evidence_items(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out.append({
             "event_signature_id": m.get("event_signature_id"),
             "score": m.get("score"),
+            "matched_occurrence_count": m.get("matched_occurrence_count"),
             "occurrence_count": m.get("occurrence_count"),
             "linked_failure_mode_id": m.get("linked_failure_mode_id"),
             "linked_symptom_id": m.get("linked_symptom_id"),
@@ -267,6 +278,7 @@ def _evidence_items(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "log_id": top.get("log_id"),
                 "occurred_at": top.get("occurred_at"),
                 "severity_text": top.get("severity_text"),
+                "status": top.get("status"),
                 "title": top.get("title"),
                 "body": top.get("body"),
                 "action_taken": top.get("action_taken"),
@@ -278,8 +290,10 @@ def _evidence_items(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "log_id": recent.get("log_id"),
                 "occurred_at": recent.get("occurred_at"),
                 "severity_text": recent.get("severity_text"),
+                "status": recent.get("status"),
                 "title": recent.get("title"),
             },
+            "matched_log_ids": m.get("matched_log_ids", []),
             "all_log_ids": m.get("all_log_ids", []),
             "rerank_rationale": m.get("rerank_rationale"),
         })

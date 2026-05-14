@@ -28,6 +28,9 @@ const State = {
   rightCollapsed: false,
   // KG
   kgInited: false,
+  // history sort
+  historySort: { col: "occurred_at", dir: "desc" },
+  historySortedRows: [],
   // recent actions log
   recentActions: [],
 };
@@ -64,13 +67,35 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Replace [MANUAL:title:page] tokens with clickable links (DigiFactor parity)
+// Build the manual URL from a title + page-bearing reference.
+// Mirrors KGChatPanel.tsx SourceLink in the web-client.
+function buildManualUrl(title, reference) {
+  if (!title) return null;
+  const ref = String(reference || "");
+  if (/^https?:\/\//i.test(ref)) return ref;
+  const pageMatch = ref.match(/(\d+)/);
+  const base = `/manuals/${encodeURIComponent(title)}.pdf`;
+  return pageMatch ? `${base}#page=${pageMatch[1]}` : base;
+}
+
+// Replace [MANUAL:title:page] tokens AND plain "Source: <title> — p. <n>" /
+// "Source: <title>, p. <n>" patterns with clickable links.
 function processManualTokens(text) {
   if (!text) return text;
-  return text.replace(/\[MANUAL:([^:\]]+):(\d+)\]/g, (_, title, page) => {
+  let out = text.replace(/\[MANUAL:([^:\]]+):(\d+)\]/g, (_, title, page) => {
     const url = `/manuals/${encodeURIComponent(title)}.pdf#page=${page}`;
     return `[${title} — p. ${page}](${url})`;
   });
+  // "Source: IRC5 — p. 47" or "Source: IRC5, p. 47" or "Source: IRC5 p.47"
+  out = out.replace(
+    /Source:\s+([^—,\n]+?)\s*(?:—|,|-)?\s*p\.?\s*(\d+)/gi,
+    (_, title, page) => {
+      const cleanTitle = title.trim();
+      const url = `/manuals/${encodeURIComponent(cleanTitle)}.pdf#page=${page}`;
+      return `Source: [${cleanTitle} — p. ${page}](${url})`;
+    }
+  );
+  return out;
 }
 
 // Strip markdown formatting from short strings (used as plain values in
@@ -82,6 +107,14 @@ function stripMarkdown(s) {
     .replace(/\*([^*]+)\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+function evidenceTopLog(match) {
+  return match?.top_match_log || match?.top_match || null;
+}
+
+function evidenceRecentLog(match) {
+  return match?.most_recent_log || match?.most_recent || null;
 }
 
 // Inline markdown — bold/code/links only, no block elements (paragraphs, lists).
@@ -102,16 +135,16 @@ function renderMarkdownInline(src) {
 }
 
 // Tiny markdown renderer (paragraphs, bold, code, lists, links)
-// Normalize inline numbered lists: "1. Foo. 2. Bar. 3. Baz" → newline-separated.
-// The backend sometimes concatenates steps on a single line; we want each
-// "N. …" on its own line so the markdown list regex kicks in.
+// Normalize numbered lists from messy backend output:
+//   (a) "1. Foo. 2. Bar. 3. Baz" on one line → split into newline-separated items
+//   (b) "1. Foo\nMake sure …\nIf X then Y" → fold continuation lines into the
+//       same list item (so they render under the same number, not as loose
+//       paragraphs).
 function normalizeInlineNumberedList(s) {
   if (!s) return s;
-  // Insert newline before " N. " (or " N) " or "; N. ") that follows
-  // sentence-ending punctuation or whitespace, when several such markers
-  // appear on the same line.
-  return s.replace(/([^\n])\s+(?=\d+[.)]\s)/g, (match, prev, offset, full) => {
-    // Cheap heuristic: only split if the *line* contains ≥2 "N." markers.
+
+  // (a) Same-line multi-numbered split
+  s = s.replace(/([^\n])\s+(?=\d+[.)]\s)/g, (match, prev, offset, full) => {
     const lineStart = full.lastIndexOf("\n", offset) + 1;
     const lineEnd = full.indexOf("\n", offset);
     const line = full.slice(lineStart, lineEnd === -1 ? full.length : lineEnd);
@@ -119,6 +152,45 @@ function normalizeInlineNumberedList(s) {
     if (count < 2) return match;
     return prev + "\n";
   });
+
+  // (b) Fold continuation lines after a numbered item until blank line or new "N."
+  const lines = s.split("\n");
+  const out = [];
+  let inItem = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (/^\d+[.)]\s/.test(trimmed)) {
+      // New list item starts here
+      out.push(line);
+      inItem = true;
+      continue;
+    }
+    if (inItem) {
+      if (trimmed === "") {
+        // Blank line → end of list item block
+        out.push(line);
+        inItem = false;
+        continue;
+      }
+      // Don't fold lines that look like list-leaving structural content:
+      // headings, "Source:", links-only, code fences.
+      if (/^(?:#{1,6}\s|Source:\s|```)/i.test(trimmed)) {
+        out.push("");      // close current item
+        out.push(line);
+        inItem = false;
+        continue;
+      }
+      // Fold continuation into previous list item. We use a literal <br> so
+      // that the downstream list splitter (which still tokenizes by \n) keeps
+      // the continuation inside the same <li>. escapeHtml has already run by
+      // this point, so <br> here is intentional raw HTML.
+      out[out.length - 1] = out[out.length - 1] + "<br>" + trimmed;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
 }
 
 function renderMarkdown(src) {
@@ -256,12 +328,29 @@ function wireGlobalUI() {
     $$("#history-mode .seg-btn").forEach(x => x.classList.toggle("active", x === b));
     runHistoryQuery();
   }));
+  // History sort
+  initHistorySort();
   // History filters
   $("#hf-apply").addEventListener("click", () => runHistoryQuery(0));
+  const applyFilters = $("#hf-apply-filters");
+  if (applyFilters) applyFilters.addEventListener("click", () => runHistoryQuery(0));
   $("#hf-clear").addEventListener("click", () => {
     ["hf-q","hf-severity","hf-status","hf-event-category","hf-maintenance-type","hf-from","hf-to"]
       .forEach(id => { const e = $("#"+id); e.value = ""; });
     runHistoryQuery(0);
+  });
+  const toggleFilters = $("#hf-toggle-filters");
+  if (toggleFilters) toggleFilters.addEventListener("click", () => {
+    const wrap = $("#history-filters");
+    if (wrap) {
+      wrap.classList.toggle("hidden");
+      toggleFilters.classList.toggle("active", !wrap.classList.contains("hidden"));
+    }
+  });
+  // Enter on the hero search box triggers search
+  const heroInput = $("#hf-q");
+  if (heroInput) heroInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); runHistoryQuery(0); }
   });
   // Outcome buttons
   $$(".outcome-btn").forEach(b => b.addEventListener("click", () => onLogOutcome(b.dataset.outcome, b)));
@@ -471,6 +560,7 @@ async function loadInstanceContext(instanceId) {
     populateHistoryFilters();
     renderCaseCard();
     discoverInstanceManuals();
+    await resumePersistedSession();
   } catch (e) {
     toast("Failed to load instance context: " + e.message, "error");
   }
@@ -615,16 +705,42 @@ function renderRecentSessions(sessions) {
 async function resumeSession(sessionId) {
   try {
     const data = await apiGet(`/instances/${State.instanceId}/chat-sessions/${sessionId}`);
-    State.sessionId = sessionId;
-    persistSessionId();
-    $("#thread").innerHTML = "";
-    (data.messages || []).forEach(m => appendThread(m.role, m.content));
-    $("#meta-session").textContent = shortId(sessionId);
+    restoreSessionMessages(sessionId, data.messages || []);
     toast("Session resumed");
     logAction(`resumed session ${shortId(sessionId)}`);
   } catch (e) {
     toast("Failed to resume: " + e.message, "error");
   }
+}
+
+async function resumePersistedSession() {
+  if (!State.sessionId) return;
+  try {
+    const data = await apiGet(`/instances/${State.instanceId}/chat-sessions/${State.sessionId}`);
+    restoreSessionMessages(State.sessionId, data.messages || []);
+  } catch {
+    clearSessionId();
+    State.sessionId = null;
+  }
+}
+
+function restoreSessionMessages(sessionId, messages) {
+  State.sessionId = sessionId;
+  persistSessionId();
+  $("#thread").innerHTML = "";
+  (messages || []).forEach(m => appendThread(m.role, m.content));
+  const lastAssistant = [...(messages || [])].reverse().find(m => m.role === "assistant" && m.payload);
+  if (lastAssistant?.payload) {
+    State.lastResponse = lastAssistant.payload;
+    State.lastIntent = lastAssistant.payload.intent || null;
+    State.lastBehaviorMode = lastAssistant.payload.behavior_mode || null;
+    renderCaseCard();
+    renderActionPlan();
+    renderEvidence();
+    renderManualsAndWO();
+    primeTrendsFromResponse(lastAssistant.payload);
+  }
+  $("#meta-session").textContent = shortId(sessionId);
 }
 
 function populateHistoryFilters() {
@@ -670,6 +786,7 @@ async function onSend() {
   if (!State.instanceId) { toast("Pick an asset first", "error"); return; }
 
   inp.value = "";
+  State.lastUserQuery = message;
   appendThread("user", message);
   const placeholder = appendTypingIndicator();
 
@@ -735,21 +852,129 @@ async function onResetCase() {
 function handleChatResponse(resp) {
   State.lastResponse = resp;
   State.lastIntent = resp.intent || "troubleshooting_current";
-  appendThread("assistant", resp.reply || "(no reply)", resp);
+  const mode = resp.behavior_mode
+    || (["log_history_search","log_analytics","work_order_lookup"].includes(resp.intent)
+        ? "search_past_events" : "solve_current_problem");
+  State.lastBehaviorMode = mode;
+
+  // Thread render depends on the product behaviour
+  if (mode === "search_past_events") {
+    appendSearchRedirect(resp, State.lastUserQuery || "");
+  } else {
+    appendThread("assistant", resp.reply || "(no reply)", resp);
+  }
+
   $("#meta-session").textContent = shortId(resp.session_id);
   $("#meta-intent").textContent = resp.intent || "—";
   $("#meta-last").textContent = new Date().toTimeString().slice(0, 8);
   $("#meta-timing").textContent = resp.timings?.total_s ? resp.timings.total_s + "s" : "—";
-  logAction(`chat: ${resp.intent || "—"}${resp.awaiting_clarification ? " (clarify)" : ""}`);
+  logAction(`${mode === "search_past_events" ? "search" : "solve"}: ${resp.intent || "—"}${resp.awaiting_clarification ? " (clarify)" : ""}`);
   renderCaseCard();
   renderActionPlan();
   renderEvidence();
-  // Manuals + WO derive from log_evidence
   renderManualsAndWO();
-  // Trends: re-populate signal list from telemetry
   primeTrendsFromResponse(resp);
-  // Intent-aware default tab
   routeIntentToTab(resp);
+}
+
+function appendSearchRedirect(resp, query) {
+  const wrap = $("#thread");
+  const matches = (resp.log_evidence || []).length;
+  const summary = matches
+    ? `Found <strong>${matches}</strong> log signature${matches === 1 ? "" : "s"} matching your query.`
+    : `No matches in the current logs, but the query was treated as a search.`;
+  const node = el("div", { class: "msg redirect" }, [
+    el("div", { class: "redirect-head" }, [
+      el("i", { class: "fa fa-search" }),
+      "Search past events",
+    ]),
+  ]);
+  const body = el("div", { class: "redirect-body" });
+  body.innerHTML = summary;
+  node.appendChild(body);
+  const cta = el("button", { class: "redirect-cta", onclick: () => openSearchFromChat(query) }, [
+    el("i", { class: "fa fa-arrow-right" }),
+    "Open in Search",
+  ]);
+  node.appendChild(cta);
+  wrap.appendChild(node);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function openSearchFromChat(query) {
+  if (query) $("#hf-q").value = query;
+  // Switch to semantic mode BEFORE setActiveTab so the initial load uses the right mode
+  $$("#history-mode .seg-btn").forEach(b => b.classList.toggle("active", b.dataset.mode === "semantic"));
+  setActiveTab("history");
+  // Show a transient banner so the user understands where the results came from
+  const banner = $("#search-redirect");
+  if (banner) {
+    banner.innerHTML = "";
+    banner.appendChild(el("i", { class: "fa fa-link" }));
+    const txt = el("span", {});
+    txt.innerHTML = `Showing results from the assistant for: <strong>${escapeHtml(query || "(empty query)")}</strong>`;
+    banner.appendChild(txt);
+    banner.classList.remove("hidden");
+    setTimeout(() => banner.classList.add("hidden"), 7000);
+  }
+  runHistoryQuery(0);
+}
+
+function hasTrendData(resp = State.lastResponse) {
+  const signals = resp?.telemetry?.signals;
+  return !!signals && Object.values(signals).some(v => Array.isArray(v) && v.length > 0);
+}
+
+function trendSignalNames(resp = State.lastResponse) {
+  const signals = resp?.telemetry?.signals || {};
+  return Object.keys(signals).filter(name => Array.isArray(signals[name]) && signals[name].length > 0);
+}
+
+function defaultTrendSignal(resp = State.lastResponse) {
+  const names = trendSignalNames(resp);
+  if (!names.length) return null;
+  const issue = resp?.current_issue || {};
+  const actions = issue.action_options || [];
+  const context = [
+    issue.failure_mode_name,
+    issue.component_name,
+    issue.component_id,
+    ...actions.slice(0, 3).map(a => `${a.action_name || ""} ${a.instruction_text || ""}`),
+  ].join(" ").toLowerCase();
+  const contextTokens = new Set((context.match(/[a-z0-9]+/g) || []).filter(t => t.length >= 3));
+  let best = names[0];
+  let bestScore = -1;
+  names.forEach(name => {
+    const tokens = (name.toLowerCase().match(/[a-z0-9]+/g) || []).filter(t => t.length >= 3);
+    let score = 0;
+    tokens.forEach(t => {
+      if (contextTokens.has(t)) score += 3;
+      else if ([...contextTokens].some(ct => ct.includes(t) || t.includes(ct))) score += 1;
+    });
+    if (/temp|temperature|thermal|overheat/.test(context) && /temp|temperature|thermal/.test(name)) score += 2;
+    if (/fan|cooling/.test(context) && /fan|cooling/.test(name)) score += 2;
+    if (score > bestScore) {
+      bestScore = score;
+      best = name;
+    }
+  });
+  return best;
+}
+
+function openTrendsFromChat(signalName) {
+  const names = trendSignalNames();
+  const selected = signalName && names.includes(signalName) ? signalName : defaultTrendSignal();
+  if (selected) {
+    State.selectedSignal = selected;
+    const sel = $("#trends-signal-select");
+    if (sel) sel.value = selected;
+  }
+  setActiveTab("trends");
+  renderTrends();
+  const banner = $("#trends-banner");
+  if (banner && selected) {
+    banner.classList.add("hidden");
+  }
 }
 
 function routeIntentToTab(resp) {
@@ -771,7 +996,9 @@ function renderCaseCard() {
   const intentChip = $("#intent-chip");
   intentChip.className = "intent-chip";
   if (!resp) {
-    intentChip.textContent = "no case";
+    intentChip.textContent = "—";
+    const modeChip = $("#mode-chip");
+    if (modeChip) { modeChip.className = "mode-chip mode-none"; modeChip.innerHTML = '<i class="fa fa-circle-notch"></i> no case'; }
     $("#case-issue-name").textContent = "Ask something to start a diagnosis.";
     $("#case-component").textContent = "";
     ["cta-next-issue","cta-similar","cta-workorders","cta-reset"].forEach(id => $("#"+id).disabled = true);
@@ -779,6 +1006,22 @@ function renderCaseCard() {
   }
   intentChip.textContent = (resp.intent || "—").replace(/_/g, " ");
   if (resp.intent) intentChip.classList.add("intent-" + resp.intent);
+
+  // Behavior mode chip (the coarse product behaviour)
+  const modeChip = $("#mode-chip");
+  if (modeChip) {
+    modeChip.className = "mode-chip";
+    if (resp.behavior_mode === "search_past_events") {
+      modeChip.classList.add("mode-search");
+      modeChip.innerHTML = '<i class="fa fa-search"></i> Search';
+    } else if (resp.behavior_mode === "solve_current_problem") {
+      modeChip.classList.add("mode-solve");
+      modeChip.innerHTML = '<i class="fa fa-tools"></i> Solve';
+    } else {
+      modeChip.classList.add("mode-none");
+      modeChip.innerHTML = '<i class="fa fa-circle-notch"></i> no case';
+    }
+  }
 
   const issue = resp.current_issue;
   if (issue) {
@@ -863,13 +1106,27 @@ function renderActionPlan() {
       card.appendChild(el("div", { class: "action-name" }, [opt.action_name]));
       if (opt.source_title || opt.source_reference) {
         const src = el("div", { class: "action-source" });
-        if (opt.source_title) src.appendChild(document.createTextNode(opt.source_title + " "));
-        if (opt.source_reference) {
-          src.appendChild(el("a", {
-            onclick: () => openManual(opt.source_reference, opt.source_title)
-          }, [opt.source_reference]));
+        src.appendChild(document.createTextNode("Source: "));
+        const url = buildManualUrl(opt.source_title, opt.source_reference);
+        const pageMatch = String(opt.source_reference || "").match(/(\d+)/);
+        const label = pageMatch
+          ? `${opt.source_title || "manual"} — p. ${pageMatch[1]}`
+          : (opt.source_title || opt.source_reference || "manual");
+        if (url) {
+          src.appendChild(el("a", { onclick: () => openManual(url, label) }, [label]));
+        } else {
+          src.appendChild(document.createTextNode(label));
         }
         card.appendChild(src);
+      }
+      if (hasTrendData(resp)) {
+        const signals = trendSignalNames(resp);
+        const trend = el("div", { class: "action-source action-trend-source" });
+        trend.appendChild(document.createTextNode("Trends: "));
+        trend.appendChild(el("a", {
+          onclick: () => openTrendsFromChat(defaultTrendSignal(resp))
+        }, [`Open correlated time series${signals.length ? ` (${signals.length})` : ""}`]));
+        card.appendChild(trend);
       }
       if (opt.instruction_text) {
         const instr = el("div", { class: "action-instr markdown-body" });
@@ -948,8 +1205,8 @@ function renderEvidence() {
   list.innerHTML = "";
 
   evidence.forEach(m => {
-    const top = m.top_match_log || {};
-    const recent = m.most_recent_log || {};
+    const top = evidenceTopLog(m) || {};
+    const recent = evidenceRecentLog(m) || {};
     const card = el("article", { class: "ev-card" });
     card.appendChild(el("div", { class: "ev-card-head" }, [
       el("span", {
@@ -1001,9 +1258,14 @@ function renderEvidence() {
 // ============== History (browse + semantic) ==============
 async function runHistoryQuery(offset = 0) {
   if (!State.instanceId) return;
+  const requestId = (State.historyRequestSeq || 0) + 1;
+  State.historyRequestSeq = requestId;
+  const isLatest = () => State.historyRequestSeq === requestId;
   const tbody = $("#history-tbody");
+  const searchBtn = $("#hf-apply");
   const mode = $$("#history-mode .seg-btn").find(b => b.classList.contains("active"))?.dataset.mode || "browse";
-  tbody.innerHTML = '<tr><td colspan="7" class="td-empty">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Loading…</td></tr>';
+  if (searchBtn) searchBtn.disabled = true;
   try {
     if (mode === "browse") {
       const params = new URLSearchParams();
@@ -1017,11 +1279,12 @@ async function runHistoryQuery(offset = 0) {
       params.set("limit", "50");
       params.set("offset", String(offset || 0));
       const data = await apiGet(`/instances/${State.instanceId}/logs?` + params.toString());
+      if (!isLatest()) return;
       renderHistoryRows(data.items || []);
       renderHistoryPager(data.total, data.offset, data.limit);
     } else {
       const q = $("#hf-q").value.trim();
-      if (!q) { tbody.innerHTML = '<tr><td colspan="7" class="td-empty">Type a query for semantic search.</td></tr>'; return; }
+      if (!q) { tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Type a query for semantic search.</td></tr>'; return; }
       const body = {
         query: q,
         date_from: $("#hf-from").value || undefined,
@@ -1031,35 +1294,93 @@ async function runHistoryQuery(offset = 0) {
         status: $("#hf-status").value || undefined,
         severity_min: $("#hf-severity").value ? parseInt($("#hf-severity").value, 10) : undefined,
         limit: 20,
-        use_llm_rerank: true,
+        use_llm_rerank: false,
       };
       const data = await apiPost(`/instances/${State.instanceId}/log-search`, body);
-      // Flatten matches to their top_match_log
-      const rows = (data.matches || []).map(m => m.top_match_log);
+      if (!isLatest()) return;
+      // Fetch all occurrences for each matched signature in parallel
+      const sigIds = (data.matches || []).map(m => m.event_signature_id).filter(Boolean);
+      let rows = [];
+      if (sigIds.length) {
+        const fetches = sigIds.map(sid =>
+          apiGet(`/instances/${State.instanceId}/logs?event_signature_id=${encodeURIComponent(sid)}&limit=500`)
+            .then(r => r.items || []).catch(() => [])
+        );
+        const pages = await Promise.all(fetches);
+        if (!isLatest()) return;
+        rows = pages.flat().sort((a, b) => (b.occurred_at || "").localeCompare(a.occurred_at || ""));
+      }
+      if (!rows.length) rows = (data.matches || []).map(m => m.top_match_log).filter(Boolean);
       renderHistoryRows(rows);
-      $("#history-pager").innerHTML = `<span>${data.match_count} signature matches (top occurrence shown)</span>`;
+      const total = rows.length;
+      $("#history-pager").innerHTML = `<span>${data.match_count} signature match${data.match_count !== 1 ? "es" : ""} — ${total} occurrence${total !== 1 ? "s" : ""}</span>`;
     }
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="td-empty">Error: ${escapeHtml(e.message)}</td></tr>`;
+    if (!isLatest()) return;
+    tbody.innerHTML = `<tr><td colspan="8" class="td-empty">Error: ${escapeHtml(e.message)}</td></tr>`;
+  } finally {
+    if (isLatest() && searchBtn) searchBtn.disabled = false;
   }
 }
 
+function sortHistoryRows(rows) {
+  const { col, dir } = State.historySort;
+  const sorted = [...rows].sort((a, b) => {
+    let va = a[col] ?? (col === "title" ? (a.event_name || "") : "");
+    let vb = b[col] ?? (col === "title" ? (b.event_name || "") : "");
+    if (col === "severity_number") { va = Number(va) || 0; vb = Number(vb) || 0; }
+    const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return dir === "asc" ? cmp : -cmp;
+  });
+  return sorted;
+}
+
+function updateHistorySortHeaders() {
+  $$("#history-table th[data-sort-col]").forEach(th => {
+    const col = th.dataset.sortCol;
+    th.classList.remove("th-sort-asc", "th-sort-desc");
+    if (col === State.historySort.col) th.classList.add(`th-sort-${State.historySort.dir}`);
+  });
+}
+
+function initHistorySort() {
+  $$("#history-table th[data-sort-col]").forEach(th => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.sortCol;
+      if (State.historySort.col === col) {
+        State.historySort.dir = State.historySort.dir === "asc" ? "desc" : "asc";
+      } else {
+        State.historySort.col = col;
+        State.historySort.dir = col === "occurred_at" || col === "severity_number" ? "desc" : "asc";
+      }
+      updateHistorySortHeaders();
+      renderHistoryRows(State.historySortedRows);
+    });
+  });
+}
+
 function renderHistoryRows(rows) {
+  State.historySortedRows = (rows || []).filter(Boolean);
+  const sorted = sortHistoryRows(State.historySortedRows);
+  updateHistorySortHeaders();
   const tbody = $("#history-tbody");
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="td-empty">No results.</td></tr>';
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">No results.</td></tr>';
     return;
   }
   tbody.innerHTML = "";
-  rows.forEach(r => {
+  sorted.filter(Boolean).forEach(r => {
     const tr = el("tr");
     const sevN = r.severity_number || 0;
+    const actionText = r.action_taken || "";
+    const actionShort = actionText.length > 60 ? actionText.slice(0, 60) + "…" : actionText;
     tr.appendChild(el("td", {}, [fmtDate(r.occurred_at)]));
     tr.appendChild(el("td", {}, [el("span", { class: `sev-pill sev-${sevN}` }, [String(sevN)])]));
     tr.appendChild(el("td", {}, [r.title || r.event_name || ""]));
     tr.appendChild(el("td", {}, [r.component_name_raw || ""]));
+    tr.appendChild(el("td", {}, [r.maintenance_type || r.event_category || ""]));
+    tr.appendChild(el("td", { title: actionText }, [actionShort]));
     tr.appendChild(el("td", {}, [r.status || ""]));
-    tr.appendChild(el("td", {}, [r.work_order_id || ""]));
     tr.appendChild(el("td", {}, [r.outcome || ""]));
     tr.addEventListener("click", () => showLogDetail(r.log_id));
     tr.style.cursor = "pointer";
@@ -1107,7 +1428,7 @@ function primeTrendsFromResponse(resp) {
   }
   Object.keys(tel.signals).forEach(name => sel.appendChild(el("option", { value: name }, [name])));
   if (!State.selectedSignal || !tel.signals[State.selectedSignal]) {
-    State.selectedSignal = Object.keys(tel.signals)[0] || null;
+    State.selectedSignal = defaultTrendSignal(resp) || Object.keys(tel.signals)[0] || null;
   }
   sel.value = State.selectedSignal || "";
 }
@@ -1240,9 +1561,11 @@ function renderTrends() {
   const ev = State.lastResponse?.log_evidence || [];
   if (!ev.length) wrap.innerHTML = '<div class="panel-empty">No event markers.</div>';
   ev.forEach(m => {
-    const t = m.most_recent_log?.occurred_at || m.last_seen_at;
+    const top = evidenceTopLog(m) || {};
+    const recent = evidenceRecentLog(m) || {};
+    const t = recent.occurred_at || m.last_seen_at;
     const line = el("div", { class: "mk" }, [
-      `${fmtDate(t)} — ${m.top_match_log?.title || m.event_signature_id} (${m.occurrence_count}×)`
+      `${fmtDate(t)} — ${top.title || m.event_signature_id} (${m.occurrence_count}×)`
     ]);
     wrap.appendChild(line);
   });
@@ -1268,12 +1591,19 @@ function renderManualsAndWO() {
     sources.forEach(o => {
       const c = el("div", { class: "manual-card" });
       c.appendChild(el("div", { class: "mc-title" }, [o.source_title || o.source_reference || "Source"]));
-      if (o.source_reference) {
+      const url = buildManualUrl(o.source_title, o.source_reference);
+      const pageMatch = String(o.source_reference || "").match(/(\d+)/);
+      if (url) {
+        const label = pageMatch ? `Open at p. ${pageMatch[1]}` : "Open manual";
         const src = el("div", { class: "mc-src" });
-        src.appendChild(el("a", { onclick: () => openManual(o.source_reference, o.source_title) }, [o.source_reference]));
+        src.appendChild(el("a", { onclick: () => openManual(url, o.source_title) }, [label]));
         c.appendChild(src);
       }
-      if (o.instruction_text) c.appendChild(el("div", { class: "mc-excerpt" }, [o.instruction_text]));
+      if (o.instruction_text) {
+        const ex = el("div", { class: "mc-excerpt markdown-body" });
+        ex.innerHTML = renderMarkdown(o.instruction_text);
+        c.appendChild(ex);
+      }
       manuals.appendChild(c);
     });
   }
@@ -1283,7 +1613,7 @@ function renderManualsAndWO() {
   wo.innerHTML = "";
   const woMap = new Map();
   evidence.forEach(m => {
-    const candidates = [m.top_match_log, m.most_recent_log];
+    const candidates = [evidenceTopLog(m), evidenceRecentLog(m)];
     candidates.forEach(c => {
       if (!c || !c.work_order_id) return;
       if (!woMap.has(c.work_order_id)) woMap.set(c.work_order_id, c);
@@ -1318,29 +1648,34 @@ async function discoverInstanceManuals() {
   if (!wrap) return;
   wrap.innerHTML = "";
   const p = State.productMeta || {};
-  const candidates = [];
-  const push = (name) => {
+  const primary = [];
+  const fallback = [];
+  const push = (list, name) => {
     if (!name) return;
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (!candidates.includes(trimmed)) candidates.push(trimmed);
+    if (!primary.includes(trimmed) && !fallback.includes(trimmed)) list.push(trimmed);
   };
-  push(p.product_short_name);
-  push(p.product_name);
-  if (p.product_name) push(p.product_name + " manual");
-  if (p.product_name) push(p.product_name + " series manual");
+  push(primary, p.product_short_name);
+  push(primary, p.product_name);
   // Known products in the seed
-  if (/bambu/i.test(p.product_name || "")) push("Bambu Lab P1 series manual");
-  if (/irc/i.test(p.product_short_name || p.product_name || "")) push("IRC5");
+  if (/bambu/i.test(p.product_name || "")) push(primary, "Bambu Lab P1 series manual");
+  if (/irc/i.test(p.product_short_name || p.product_name || "")) push(primary, "IRC5");
+  if (p.product_name) push(fallback, p.product_name + " manual");
+  if (p.product_name) push(fallback, p.product_name + " series manual");
 
   const found = [];
-  await Promise.all(candidates.map(async name => {
-    const url = `/manuals/${encodeURIComponent(name)}.pdf`;
-    try {
-      const res = await fetch(url, { method: "HEAD" });
-      if (res.ok) found.push({ name, url });
-    } catch {}
-  }));
+  const probe = async (names) => {
+    for (const name of names) {
+      const url = `/manuals/${encodeURIComponent(name)}.pdf`;
+      try {
+        const res = await fetch(url, { method: "HEAD" });
+        if (res.ok && !found.some(m => m.url === url)) found.push({ name, url });
+      } catch {}
+    }
+  };
+  await probe(primary);
+  if (!found.length) await probe(fallback);
 
   if (!found.length) return;
   wrap.appendChild(el("div", { class: "manuals-section-label" }, ["Reference manuals"]));
@@ -1390,6 +1725,16 @@ function appendThread(role, text, extra) {
       if (extra.issue_number && extra.total_issues) {
         node.appendChild(el("div", { class: "msg-issue-counter" },
           [`Possible cause ${extra.issue_number} of ${extra.total_issues}`]));
+      }
+      if (extra.current_issue && hasTrendData(extra)) {
+        const signals = trendSignalNames(extra);
+        node.appendChild(el("button", {
+          class: "msg-trends-link",
+          onclick: () => openTrendsFromChat(defaultTrendSignal(extra))
+        }, [
+          el("i", { class: "fa fa-chart-area" }),
+          `Open correlated trends${signals.length ? ` (${signals.length})` : ""}`,
+        ]));
       }
       const scores = extra.highlight?.scores || extra.scores;
       if (scores && Object.keys(scores).length) {

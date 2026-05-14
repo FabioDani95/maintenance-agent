@@ -155,7 +155,8 @@
           <div class="op-card op-case" id="case-card">
             <div class="op-card-label">
               Active case
-              <span class="intent-chip" id="intent-chip">no case</span>
+              <span class="mode-chip mode-none" id="mode-chip" title="Behavior mode"><i class="fa fa-circle-notch"></i> no case</span>
+              <span class="intent-chip" id="intent-chip" title="Detailed intent">—</span>
               <span class="confidence-chip hidden" id="confidence-chip"></span>
             </div>
             <div class="case-issue" id="case-issue-name">Ask something to start a diagnosis.</div>
@@ -251,14 +252,22 @@
 
           <!-- HISTORY -->
           <div class="tab-panel" data-panel="history">
-            <div class="history-controls">
-              <div class="seg" id="history-mode">
-                <button class="seg-btn active" data-mode="browse">Browse</button>
-                <button class="seg-btn" data-mode="semantic">Semantic search</button>
+            <div class="search-hero card">
+              <div class="search-hero-row">
+                <i class="fa fa-search search-hero-icon"></i>
+                <input type="search" id="hf-q" placeholder="Search past events — signatures, work orders, components…" autocomplete="off"/>
+                <button class="btn btn-primary" id="hf-apply"><i class="fa fa-search"></i> Search</button>
               </div>
+              <div class="search-hero-controls">
+                <div class="seg" id="history-mode">
+                  <button class="seg-btn active" data-mode="browse"><i class="fa fa-table"></i> Browse</button>
+                  <button class="seg-btn" data-mode="semantic"><i class="fa fa-brain"></i> Semantic</button>
+                </div>
+                <button class="btn btn-sm btn-ghost" id="hf-toggle-filters"><i class="fa fa-sliders-h"></i> Filters</button>
+              </div>
+              <div class="search-redirect hidden" id="search-redirect"></div>
             </div>
-            <div class="history-filters card">
-              <input type="search" id="hf-q" placeholder="Query / text…"/>
+            <div class="history-filters card hidden" id="history-filters">
               <select id="hf-severity">
                 <option value="">Any severity</option>
                 <option value="1">≥ 1</option>
@@ -271,18 +280,18 @@
               <select id="hf-maintenance-type"><option value="">Any maintenance</option></select>
               <input type="date" id="hf-from" title="From"/>
               <input type="date" id="hf-to" title="To"/>
-              <button class="btn btn-sm btn-primary" id="hf-apply"><i class="fa fa-filter"></i> Apply</button>
+              <button class="btn btn-sm btn-primary" id="hf-apply-filters"><i class="fa fa-filter"></i> Apply filters</button>
               <button class="btn btn-sm btn-ghost" id="hf-clear">Clear</button>
             </div>
             <div class="history-table-wrap card">
               <table class="history-table" id="history-table">
                 <thead>
                   <tr>
-                    <th>Date</th><th>Sev</th><th>Title</th><th>Component</th><th>Status</th><th>WO</th><th>Outcome</th>
+                    <th data-sort-col="occurred_at" class="th-sort th-sort-desc">Date</th><th data-sort-col="severity_number" class="th-sort">Sev</th><th data-sort-col="title" class="th-sort">Title</th><th data-sort-col="component_name_raw" class="th-sort">Component</th><th data-sort-col="maintenance_type" class="th-sort">Type</th><th>Action taken</th><th data-sort-col="status" class="th-sort">Status</th><th data-sort-col="outcome" class="th-sort">Outcome</th>
                   </tr>
                 </thead>
                 <tbody id="history-tbody">
-                  <tr><td colspan="7" class="td-empty">Apply filters or type a query.</td></tr>
+                  <tr><td colspan="8" class="td-empty">Apply filters or type a query.</td></tr>
                 </tbody>
               </table>
             </div>

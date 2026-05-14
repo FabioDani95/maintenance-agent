@@ -117,6 +117,29 @@ _CURRENT_DIAGNOSIS_PATTERNS = (
     "cosa controllo",
     "come risolvo",
 )
+_AMBIGUOUS_HISTORY_SOLUTION_PATTERNS = (
+    "recover the solution",
+    "retrieve the solution",
+    "recover solution",
+    "retrieve solution",
+    "find the solution",
+    "find previous fix",
+    "previous fix",
+    "previous solution",
+    "solution used",
+    "fix used",
+    "what was done",
+    "what did we do",
+    "how did we solve",
+    "how was it solved",
+    "how was this solved",
+    "how did we resolve",
+    "how was it resolved",
+    "recupera soluzione",
+    "recuperare soluzione",
+    "soluzione usata",
+    "cosa abbiamo fatto",
+)
 _ANCHOR_TERMS = {
     "irc5", "robot", "controller", "drive", "motor", "motors", "brake",
     "voltage", "power", "flexpendant", "pendant", "ethernet", "network",
@@ -170,6 +193,28 @@ def _base_result(intent: str, message: str, rationale: str) -> dict[str, Any]:
     }
 
 
+def _has_solution_history_signal(text: str) -> bool:
+    return any(pattern in text for pattern in _AMBIGUOUS_HISTORY_SOLUTION_PATTERNS)
+
+
+def _has_explicit_current_repair_signal(text: str) -> bool:
+    return any(
+        pattern in text
+        for pattern in (
+            "how do i fix",
+            "how to fix",
+            "what should i check",
+            "what do i check",
+            "diagnose",
+            "troubleshoot",
+            "fix it now",
+            "solve this now",
+            "current issue",
+            "right now",
+        )
+    )
+
+
 def _has_clear_anchor(text: str, message: str) -> bool:
     if _WORK_ORDER_RE.search(message):
         return True
@@ -213,6 +258,7 @@ def classify_intent_fast(
     has_history = any(pattern in text for pattern in _HISTORY_PATTERNS)
     has_analytics = any(pattern in text for pattern in _ANALYTICS_PATTERNS)
     has_current_diagnosis = any(pattern in text for pattern in _CURRENT_DIAGNOSIS_PATTERNS)
+    has_solution_history = _has_solution_history_signal(text)
     has_anchor = _has_clear_anchor(text, message)
 
     # Mixed history + analytics wording with no concrete machine/component
@@ -252,9 +298,18 @@ def classify_intent_fast(
     if has_history:
         return _base_result("log_history_search", message, "history wording detected")
 
-    # In this app, the common case is a current troubleshooting question. If
-    # the message has no explicit log/history/analytics signals, skip the LLM
-    # classifier and route directly to the KG flow.
+    # Phrases like "recover the solution" are intentionally routed through the
+    # LLM classifier. They can mean "find how it was fixed before" or "solve my
+    # current issue"; the string router does not have enough context to decide.
+    if has_solution_history:
+        return None
+
+    # Ambiguous anchored maintenance questions are cheap enough to classify
+    # with the router LLM in fast mode. Keep deterministic defaulting only for
+    # messages without a clear technical anchor.
+    if has_anchor:
+        return None
+
     return _base_result("troubleshooting_current", message, "default troubleshooting route")
 
 
@@ -308,7 +363,18 @@ def classify_intent(
         "hard filter here would exclude valid neighbouring events. Resolve "
         "relative dates against TODAY into ISO 8601 (YYYY-MM-DD). severity_min "
         "uses the OpenTelemetry-style scale (INFO=10, WARN=14, ERROR=18, "
-        "FATAL=22). Return only valid JSON."
+        "FATAL=22).\n\n"
+        "Examples:\n"
+        "- 'Recover the solution used for Ethernet packet loss' => "
+        "log_history_search.\n"
+        "- 'What did we do last time the drive overheated?' => "
+        "log_history_search.\n"
+        "- 'Has this FlexPendant disconnect happened before?' => "
+        "log_history_search.\n"
+        "- 'The drive is overheating now; also check if it happened before' => "
+        "hybrid_diagnosis_with_history.\n"
+        "- 'How do I fix drive overheating?' => troubleshooting_current.\n"
+        "Return only valid JSON."
     )
 
     user_payload = {
@@ -344,6 +410,17 @@ def classify_intent(
     intent = parsed.get("intent", "")
     if intent not in VALID_INTENTS:
         intent = "troubleshooting_current"
+
+    text = " ".join((message or "").lower().split())
+    if (
+        _has_solution_history_signal(text)
+        and not _has_explicit_current_repair_signal(text)
+        and intent in {"troubleshooting_current", "hybrid_diagnosis_with_history"}
+    ):
+        intent = "log_history_search"
+        parsed["rationale"] = (
+            "solution-history wording detected; prefer past log retrieval over current diagnosis"
+        )
 
     raw_filters = parsed.get("filters") or {}
     filters: dict[str, Any] = {}
