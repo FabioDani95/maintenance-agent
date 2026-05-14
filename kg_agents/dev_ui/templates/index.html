@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>DigiFactor — Knowledge Agents</title>
+<title>DigiFactor — Knowledge Agents · Mission Control</title>
 <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Onest:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -69,360 +69,126 @@
         <span class="bc-current" id="bc-instance">—</span>
       </div>
       <div class="bc-right">
-        <label class="bc-ctrl">
-          <span>Mode</span>
-          <select id="chat-mode-select">
-            <option value="fast" selected>Fast</option>
-            <option value="non-fast">Guided</option>
-          </select>
-        </label>
-        <label class="bc-ctrl">
-          <span>Role</span>
-          <select id="density-select">
-            <option value="operator" selected>Operator</option>
-            <option value="service">Service</option>
-          </select>
-        </label>
         <button class="bc-btn" id="new-case-btn"><i class="fa fa-plus"></i> New case</button>
       </div>
     </header>
 
-    <!-- Workspace: left col + center + right col -->
+    <!-- 3-column workspace: Sessions · Spine · Inspector -->
     <div class="workspace" id="workspace">
 
-      <!-- Asset rail -->
-      <aside class="asset-rail">
-        <div class="rail-section">
-          <div class="rail-label">Asset</div>
-          <select id="instance-select" class="rail-select"></select>
-          <div class="asset-summary">
-            <div class="status-pill" id="health-pill">—</div>
-            <div class="asset-meta">
-              <span id="asset-meta-open">0 open</span>
-              <span id="asset-meta-updated">—</span>
-            </div>
-            <div class="asset-kg-stats">
-              <div class="kg-stat"><span class="kg-stat-v" id="kg-node-count">—</span><span class="kg-stat-l">nodes</span></div>
-              <div class="kg-stat"><span class="kg-stat-v" id="kg-edge-count">—</span><span class="kg-stat-l">edges</span></div>
-            </div>
+      <!-- ============== LEFT: ASSET + SESSIONS ============== -->
+      <aside class="sessions-rail">
+        <div class="asset-pulse">
+          <div class="ap-row">
+            <select class="ap-select" id="instance-select">
+              <option>Loading…</option>
+            </select>
+          </div>
+          <div class="ap-meta">
+            <span class="status-pill" id="ap-status-pill"><i class="fa fa-circle"></i> —</span>
+            <span class="ap-mini" id="ap-uptime"></span>
+          </div>
+          <div class="ap-stats">
+            <div class="ap-stat"><div class="v" id="ap-kg-nodes">—</div><div class="l">KG nodes</div></div>
+            <div class="ap-stat"><div class="v" id="ap-open-wo">—</div><div class="l">open WOs</div></div>
+            <div class="ap-stat"><div class="v" id="ap-events-7d">—</div><div class="l">events / 7d</div></div>
           </div>
         </div>
 
-        <div class="rail-section">
-          <div class="rail-label">Quick filters</div>
-          <nav class="quick-nav">
-            <button class="qn-btn active" data-tab="action-plan"><i class="fa fa-play"></i>Open case</button>
-            <button class="qn-btn" data-tab="evidence"><i class="fa fa-star"></i>Evidence</button>
-            <button class="qn-btn" data-tab="history"><i class="fa fa-table"></i>History</button>
-            <button class="qn-btn" data-tab="trends"><i class="fa fa-chart-area"></i>Trends</button>
-            <button class="qn-btn" data-tab="manuals-wo"><i class="fa fa-file-alt"></i>Manuals &amp; WO</button>
-          </nav>
-        </div>
-
-        <div class="rail-section">
-          <div class="rail-label">Recent sessions</div>
-          <div class="recent-list" id="recent-sessions">
-            <div class="recent-empty">No sessions yet</div>
+        <div class="rail-block">
+          <div class="rail-label">
+            <span>Cases on this asset</span>
+            <!-- saved-filter chip injected by JS -->
+          </div>
+          <div class="session-list" id="session-list">
+            <!-- populated by JS -->
           </div>
         </div>
 
-        <div class="rail-section rail-section-service">
-          <div class="rail-label">Advanced</div>
-          <button class="rail-link" id="open-advanced-btn"><i class="fa fa-project-diagram"></i> Knowledge graph</button>
+        <div class="rail-spacer"></div>
+
+        <div class="rail-foot">
+          <button class="rail-link" id="open-kg-btn"><i class="fa fa-project-diagram"></i> Knowledge graph</button>
           <button class="rail-link" id="reload-btn"><i class="fa fa-sync"></i> Reload caches</button>
         </div>
       </aside>
 
-      <div class="col-resizer" data-resize="left"></div>
+      <div class="col-resizer" data-resize="left" title="Drag to resize · double-click to reset"></div>
 
-      <!-- Center workspace -->
-      <main class="center">
-
-        <!-- Operative header -->
-        <section class="op-header">
-          <div class="op-card op-identity">
-            <div class="op-card-label">Machine identity</div>
-            <div class="op-product-name" id="product-name">—</div>
-            <div class="op-product-sub">
-              <span id="product-type">—</span>
-              <span class="dot">·</span>
-              <span id="product-short">—</span>
-              <span class="dot">·</span>
-              <span id="ontology-version">—</span>
-            </div>
+      <!-- ============== CENTER: CONVERSATION SPINE ============== -->
+      <main class="spine">
+        <div class="spine-scroll" id="spine-scroll">
+          <!-- Case cards rendered by JS -->
+          <div class="spine-empty" id="spine-empty">
+            <div class="spine-empty-icon"><i class="fa fa-stethoscope"></i></div>
+            <div class="spine-empty-title">Mission Control</div>
+            <div class="spine-empty-text">Select an asset and describe the issue below, or search for past events. Each request becomes an independent case card.</div>
           </div>
+        </div>
 
-          <div class="op-card op-case" id="case-card">
-            <div class="op-card-label">
-              Active case
-              <span class="mode-chip mode-none" id="mode-chip" title="Behavior mode"><i class="fa fa-circle-notch"></i> no case</span>
-              <span class="intent-chip" id="intent-chip" title="Detailed intent">—</span>
-              <span class="confidence-chip hidden" id="confidence-chip"></span>
-            </div>
-            <div class="case-issue" id="case-issue-name">Ask something to start a diagnosis.</div>
-            <div class="case-component" id="case-component"></div>
-            <div class="case-cta">
-              <button class="btn btn-sm" id="cta-next-issue" disabled><i class="fa fa-forward"></i> Next possible cause</button>
-              <button class="btn btn-sm" id="cta-similar" disabled><i class="fa fa-history"></i> Similar cases</button>
-              <button class="btn btn-sm" id="cta-workorders" disabled><i class="fa fa-clipboard-list"></i> Work orders</button>
-              <button class="btn btn-sm btn-ghost" id="cta-reset" disabled><i class="fa fa-redo"></i> Reset</button>
-            </div>
+        <!-- Sticky composer -->
+        <div class="composer-dock">
+          <div class="intent-row">
+            <span class="intent-label">What do you need?</span>
+            <button class="intent-pill active" data-intent="diagnose">
+              <i class="fa fa-stethoscope"></i> Troubleshoot now
+            </button>
+            <button class="intent-pill" data-intent="past">
+              <i class="fa fa-clock-rotate-left"></i> Search past events
+            </button>
+            <button class="intent-pill" data-intent="trend" data-soon="1">
+              <i class="fa fa-chart-area"></i> Inspect a signal
+              <span class="soon-tag">In sviluppo</span>
+            </button>
+            <button class="intent-pill" data-intent="manual" data-soon="1">
+              <i class="fa fa-book"></i> Find in manual
+              <span class="soon-tag">In sviluppo</span>
+            </button>
+            <button class="intent-pill" data-intent="erp" data-soon="1" title="ERP records — purchase, BOM, work orders, costs">
+              <i class="fa fa-database"></i> ERP data
+              <span class="soon-tag">In sviluppo</span>
+            </button>
           </div>
-        </section>
-
-        <!-- Composer -->
-        <section class="composer">
           <div class="composer-row">
-            <textarea id="composer-input" rows="1" placeholder="Describe the issue, paste an error code, or ask about history…"></textarea>
-            <button class="btn btn-primary" id="composer-send"><i class="fa fa-paper-plane"></i> Send</button>
+            <textarea id="composer" rows="1"
+              placeholder="Describe the issue, paste an error code, or ask about history…"></textarea>
+            <button class="btn-send" id="send-btn">
+              <i class="fa fa-paper-plane"></i>
+            </button>
           </div>
-          <div class="composer-chips" id="composer-chips"></div>
-        </section>
-
-        <!-- Tabs -->
-        <nav class="tabbar">
-          <button class="tab-btn active" data-tab="action-plan">Action Plan</button>
-          <button class="tab-btn" data-tab="evidence">Evidence</button>
-          <button class="tab-btn" data-tab="history">History</button>
-          <button class="tab-btn" data-tab="trends">Trends</button>
-          <button class="tab-btn" data-tab="manuals-wo">Manuals &amp; WO</button>
-          <button class="tab-btn" data-tab="advanced">Knowledge Graph</button>
-        </nav>
-
-        <section class="tab-area">
-
-          <!-- ACTION PLAN -->
-          <div class="tab-panel active" data-panel="action-plan">
-            <div class="panel-empty" id="ap-empty">
-              <i class="fa fa-comments panel-empty-icon"></i>
-              <div>No active case. Ask a question above to begin.</div>
-            </div>
-
-            <article class="runbook card hidden" id="ap-runbook">
-              <header class="card-header">
-                <h2 id="ap-issue-name">—</h2>
-                <div class="card-sub" id="ap-issue-sub"></div>
-              </header>
-
-              <div class="card-body markdown-body" id="ap-reply"></div>
-
-              <div class="runbook-next hidden" id="ap-next-wrap">
-                <span class="runbook-next-meta" id="ap-next-meta"></span>
-                <button class="btn btn-primary btn-sm" id="ap-next-btn"><i class="fa fa-forward"></i> Next possible cause</button>
-              </div>
-
-              <div class="runbook-clarify hidden" id="ap-clarify">
-                <div class="clarify-question"><i class="fa fa-question-circle"></i> <span id="ap-clarify-q"></span></div>
-                <div class="clarify-options" id="ap-clarify-opts"></div>
-              </div>
-
-              <div class="runbook-actions hidden" id="ap-actions-wrap">
-                <h3>Recommended actions</h3>
-                <div class="action-options" id="ap-action-options"></div>
-              </div>
-
-              <div class="runbook-outcome">
-                <h3>Did this resolve the issue?</h3>
-                <div class="outcome-row">
-                  <button class="btn outcome-btn" data-outcome="resolved"><i class="fa fa-check"></i> Resolved</button>
-                  <button class="btn outcome-btn" data-outcome="partially_resolved"><i class="fa fa-adjust"></i> Partially</button>
-                  <button class="btn outcome-btn" data-outcome="not_resolved"><i class="fa fa-times"></i> Not resolved</button>
-                  <button class="btn outcome-btn" data-outcome="escalated"><i class="fa fa-exclamation-triangle"></i> Escalated</button>
-                </div>
-                <textarea id="outcome-feedback" rows="1" placeholder="Optional feedback…"></textarea>
-                <div class="outcome-status" id="outcome-status"></div>
-              </div>
-            </article>
+          <div class="composer-hint">
+            <span><kbd>↵</kbd> send · <kbd>⇧ ↵</kbd> newline</span>
+            <span class="intent-explain" id="intent-explain">A guided diagnosis card will open in your spine.</span>
           </div>
-
-          <!-- EVIDENCE -->
-          <div class="tab-panel" data-panel="evidence">
-            <div class="evidence-controls">
-              <div class="seg" id="evidence-mode">
-                <button class="seg-btn active" data-mode="top">Top match</button>
-                <button class="seg-btn" data-mode="recent">Most recent</button>
-                <button class="seg-btn" data-mode="all">Full history</button>
-              </div>
-              <div class="evidence-meta" id="evidence-meta"></div>
-            </div>
-            <div class="evidence-list" id="evidence-list">
-              <div class="panel-empty"><i class="fa fa-star panel-empty-icon"></i><div>No log evidence yet.</div></div>
-            </div>
-          </div>
-
-          <!-- HISTORY -->
-          <div class="tab-panel" data-panel="history">
-            <div class="search-hero card">
-              <div class="search-hero-row">
-                <i class="fa fa-search search-hero-icon"></i>
-                <input type="search" id="hf-q" placeholder="Search past events — signatures, work orders, components…" autocomplete="off"/>
-                <button class="btn btn-primary" id="hf-apply"><i class="fa fa-search"></i> Search</button>
-              </div>
-              <div class="search-hero-controls">
-                <div class="seg" id="history-mode">
-                  <button class="seg-btn active" data-mode="browse"><i class="fa fa-table"></i> Browse</button>
-                  <button class="seg-btn" data-mode="semantic"><i class="fa fa-brain"></i> Semantic</button>
-                </div>
-                <button class="btn btn-sm btn-ghost" id="hf-toggle-filters"><i class="fa fa-sliders-h"></i> Filters</button>
-              </div>
-              <div class="search-redirect hidden" id="search-redirect"></div>
-            </div>
-            <div class="history-filters card hidden" id="history-filters">
-              <select id="hf-severity">
-                <option value="">Any severity</option>
-                <option value="1">≥ 1</option>
-                <option value="2">≥ 2</option>
-                <option value="3">≥ 3</option>
-                <option value="4">≥ 4</option>
-              </select>
-              <select id="hf-status"><option value="">Any status</option></select>
-              <select id="hf-event-category"><option value="">Any category</option></select>
-              <select id="hf-maintenance-type"><option value="">Any maintenance</option></select>
-              <input type="date" id="hf-from" title="From"/>
-              <input type="date" id="hf-to" title="To"/>
-              <button class="btn btn-sm btn-primary" id="hf-apply-filters"><i class="fa fa-filter"></i> Apply filters</button>
-              <button class="btn btn-sm btn-ghost" id="hf-clear">Clear</button>
-            </div>
-            <div class="history-table-wrap card">
-              <table class="history-table" id="history-table">
-                <thead>
-                  <tr>
-                    <th data-sort-col="occurred_at" class="th-sort th-sort-desc">Date</th><th data-sort-col="severity_number" class="th-sort">Sev</th><th data-sort-col="title" class="th-sort">Title</th><th data-sort-col="component_name_raw" class="th-sort">Component</th><th data-sort-col="maintenance_type" class="th-sort">Type</th><th>Action taken</th><th data-sort-col="status" class="th-sort">Status</th><th data-sort-col="outcome" class="th-sort">Outcome</th>
-                  </tr>
-                </thead>
-                <tbody id="history-tbody">
-                  <tr><td colspan="8" class="td-empty">Apply filters or type a query.</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="history-pager" id="history-pager"></div>
-          </div>
-
-          <!-- TRENDS -->
-          <div class="tab-panel" data-panel="trends">
-            <div class="trends-controls">
-              <div class="seg" id="trends-range">
-                <button class="seg-btn" data-range="1">1h</button>
-                <button class="seg-btn" data-range="8">8h</button>
-                <button class="seg-btn active" data-range="24">24h</button>
-                <button class="seg-btn" data-range="168">7d</button>
-              </div>
-              <select id="trends-signal-select"></select>
-              <span class="trends-hint">Signals come from the current diagnosis.</span>
-            </div>
-            <div class="trends-banner" id="trends-banner">
-              <i class="fa fa-info-circle"></i>
-              <div class="tb-text">
-                <strong>No failure mode identified yet.</strong>
-                Telemetry signals are shown only once a diagnosis identifies a failure mode
-                with linked measurements. Start a chat about a symptom (e.g. “drive overtemperature”)
-                to surface its time series here.
-              </div>
-            </div>
-            <div class="charts-grid">
-              <div class="card chart-card">
-                <div class="chart-card-head">
-                  <div>
-                    <div class="chart-title" id="chart-main-title">No signal selected</div>
-                    <div class="chart-sub" id="chart-main-sub"></div>
-                  </div>
-                  <div class="chart-tools">
-                    <button class="btn btn-sm btn-ghost" id="chart-reset-zoom" title="Reset zoom">
-                      <i class="fa fa-search-minus"></i> Reset
-                    </button>
-                  </div>
-                </div>
-                <div class="chart-kpis" id="chart-kpis"></div>
-                <div class="chart-canvas-wrap">
-                  <canvas id="chart-main"></canvas>
-                </div>
-                <div class="chart-hint">Scroll to zoom · drag to pan · double-click to reset</div>
-              </div>
-              <div class="card chart-card chart-card-secondary">
-                <div class="chart-card-head">
-                  <div>
-                    <div class="chart-title">Event markers</div>
-                    <div class="chart-sub">Past occurrences linked to the current diagnosis.</div>
-                  </div>
-                </div>
-                <div id="chart-markers" class="markers-list"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- MANUALS & WO -->
-          <div class="tab-panel" data-panel="manuals-wo">
-            <div class="seg" id="mwo-mode">
-              <button class="seg-btn active" data-sub="manuals">Manuals</button>
-              <button class="seg-btn" data-sub="wo">Work orders</button>
-            </div>
-            <div class="mwo-section" id="mwo-manuals">
-              <div class="manuals-reference" id="manuals-reference"></div>
-              <div class="manuals-cited" id="manuals-cited">
-                <div class="panel-empty"><i class="fa fa-file-alt panel-empty-icon"></i><div>No diagnosis sources cited yet.</div></div>
-              </div>
-            </div>
-            <div class="mwo-section hidden" id="mwo-wo">
-              <div class="panel-empty"><i class="fa fa-clipboard-list panel-empty-icon"></i><div>No work orders yet.</div></div>
-            </div>
-          </div>
-
-          <!-- ADVANCED -->
-          <div class="tab-panel" data-panel="advanced">
-            <div class="advanced-warn"><i class="fa fa-project-diagram"></i> Knowledge graph view — drag to pan, scroll to zoom. Click a node for details.</div>
-            <div id="kg-network"></div>
-            <div class="kg-legend" id="kg-legend"></div>
-          </div>
-
-        </section>
+        </div>
       </main>
 
-      <div class="col-resizer" data-resize="right"></div>
+      <div class="col-resizer" data-resize="right" title="Drag to resize · double-click to reset"></div>
 
-      <!-- Right chat panel -->
-      <aside class="chat-panel" id="chat-panel">
-        <div class="chat-head">
-          <span class="chat-title"><i class="fa fa-robot"></i> Assistant</span>
-          <button class="btn-icon" id="right-toggle" title="Collapse"><i class="fa fa-angle-double-right"></i></button>
-        </div>
-
-        <div class="chat-thread" id="thread"></div>
-
-        <div class="chat-input-area">
-          <div class="chat-chips" id="chat-chips"></div>
-          <div class="chat-input-row">
-            <textarea id="chat-input" rows="1" placeholder="Ask the assistant…"></textarea>
-            <button class="btn btn-primary btn-sm" id="chat-send" title="Send"><i class="fa fa-paper-plane"></i></button>
+      <!-- ============== RIGHT: INSPECTOR ============== -->
+      <aside class="inspector" id="inspector">
+        <div class="insp-empty" id="insp-empty">
+          <div class="insp-empty-art">
+            <i class="fa fa-arrow-pointer"></i>
           </div>
+          <div class="insp-empty-title">Inspector</div>
+          <div class="insp-empty-text">Open a chart, manual page, work order or the knowledge graph from any case to pin it here.</div>
         </div>
 
-        <div class="chat-meta right-section-service">
-          <div class="rail-label">Case metadata</div>
-          <dl class="meta-dl">
-            <dt>Session</dt><dd id="meta-session">—</dd>
-            <dt>Intent</dt><dd id="meta-intent">—</dd>
-            <dt>Last run</dt><dd id="meta-last">—</dd>
-            <dt>Total</dt><dd id="meta-timing">—</dd>
-          </dl>
-        </div>
-
-        <div class="chat-recent">
-          <div class="rail-label">Recent actions</div>
-          <ul class="recent-actions" id="recent-actions"></ul>
+        <div class="insp-content" id="insp-content" hidden>
+          <header class="insp-head">
+            <div class="insp-crumb" id="insp-crumb"></div>
+            <div class="insp-actions">
+              <button class="btn-icon" id="insp-external" title="Open in new window" hidden><i class="fa fa-arrow-up-right-from-square"></i></button>
+              <button class="btn-icon" id="insp-close" title="Close"><i class="fa fa-xmark"></i></button>
+            </div>
+          </header>
+          <div class="insp-body" id="insp-body"></div>
         </div>
       </aside>
 
     </div>
   </div>
-</div>
-
-<!-- PDF overlay -->
-<div id="pdf-overlay" class="hidden">
-  <div class="pdf-header">
-    <span class="pdf-title" id="pdf-title"></span>
-    <button id="pdf-close-btn" class="btn-icon"><i class="fa fa-times"></i></button>
-  </div>
-  <iframe id="pdf-iframe"></iframe>
 </div>
 
 <!-- Toast -->

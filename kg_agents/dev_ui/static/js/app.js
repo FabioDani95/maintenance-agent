@@ -1,65 +1,29 @@
 /* ============================================================
-   Maintenance Workspace — vanilla JS
+   Kg-agents — Mission Control
    Backend: kg_agents FastAPI under /v1/kg-agents
    ============================================================ */
 
 const API = "/v1/kg-agents";
 
+/* ---------- State ---------- */
 const State = {
   instanceId: null,
-  sessionId: null,
   productMeta: null,
   status: null,
   logsSummary: null,
-  // last chat response & derived
-  lastResponse: null,
-  lastIntent: null,
-  evidenceMode: "top",
-  // selection in action plan
-  selectedActionId: null,
-  pickedOutcome: null,
-  // chart
-  chart: null,
-  selectedSignal: null,
-  trendsRangeHours: 24,
-  // ui
-  activeTab: "action-plan",
-  density: "operator",
-  rightCollapsed: false,
-  // KG
+  instanceMeta: null,
+  sessions: [],        // from GET /chat-sessions (for left rail)
+  cases: [],           // [{id, kind, question, ts, response, sessionId, mode, outcome}]
+  activeCaseId: null,
+  activeIntent: "diagnose",
+  savedFilterOn: false,
   kgInited: false,
-  // history sort
-  historySort: { col: "occurred_at", dir: "desc" },
-  historySortedRows: [],
-  // recent actions log
-  recentActions: [],
+  kgNetwork: null,
 };
 
-// ============== Utilities ==============
-const $  = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
-
-function el(tag, attrs = {}, children = []) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v;
-    else if (k === "html") node.innerHTML = v;
-    else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
-    else if (v !== null && v !== undefined) node.setAttribute(k, v);
-  }
-  for (const child of [].concat(children)) {
-    if (child == null) continue;
-    node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
-  }
-  return node;
-}
-
-function toast(msg, kind = "info", ms = 2400) {
-  const t = $("#toast");
-  t.textContent = msg;
-  t.className = "toast" + (kind === "error" ? " error" : "");
-  setTimeout(() => t.classList.add("hidden"), ms);
-}
+/* ---------- Utilities ---------- */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function escapeHtml(s) {
   return String(s == null ? "" : s)
@@ -67,39 +31,6 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Build the manual URL from a title + page-bearing reference.
-// Mirrors KGChatPanel.tsx SourceLink in the web-client.
-function buildManualUrl(title, reference) {
-  if (!title) return null;
-  const ref = String(reference || "");
-  if (/^https?:\/\//i.test(ref)) return ref;
-  const pageMatch = ref.match(/(\d+)/);
-  const base = `/manuals/${encodeURIComponent(title)}.pdf`;
-  return pageMatch ? `${base}#page=${pageMatch[1]}` : base;
-}
-
-// Replace [MANUAL:title:page] tokens AND plain "Source: <title> — p. <n>" /
-// "Source: <title>, p. <n>" patterns with clickable links.
-function processManualTokens(text) {
-  if (!text) return text;
-  let out = text.replace(/\[MANUAL:([^:\]]+):(\d+)\]/g, (_, title, page) => {
-    const url = `/manuals/${encodeURIComponent(title)}.pdf#page=${page}`;
-    return `[${title} — p. ${page}](${url})`;
-  });
-  // "Source: IRC5 — p. 47" or "Source: IRC5, p. 47" or "Source: IRC5 p.47"
-  out = out.replace(
-    /Source:\s+([^—,\n]+?)\s*(?:—|,|-)?\s*p\.?\s*(\d+)/gi,
-    (_, title, page) => {
-      const cleanTitle = title.trim();
-      const url = `/manuals/${encodeURIComponent(cleanTitle)}.pdf#page=${page}`;
-      return `Source: [${cleanTitle} — p. ${page}](${url})`;
-    }
-  );
-  return out;
-}
-
-// Strip markdown formatting from short strings (used as plain values in
-// inputs, titles, tooltips where we want the bare text).
 function stripMarkdown(s) {
   if (!s) return "";
   return String(s)
@@ -109,110 +40,28 @@ function stripMarkdown(s) {
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 }
 
-function evidenceTopLog(match) {
-  return match?.top_match_log || match?.top_match || null;
-}
-
-function evidenceRecentLog(match) {
-  return match?.most_recent_log || match?.most_recent || null;
-}
-
-// Inline markdown — bold/code/links only, no block elements (paragraphs, lists).
-// Use for clarification labels, option chips, button content.
 function renderMarkdownInline(src) {
   if (!src) return "";
-  let s = escapeHtml(processManualTokens(src));
+  let s = escapeHtml(src);
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
-    const isPdf = /\.pdf(\?|#|$)/i.test(href);
-    return isPdf
-      ? `<a href="${href}" data-pdf="1">${label}</a>`
-      : `<a href="${href}" target="_blank" rel="noopener">${label}</a>`;
-  });
   return s;
-}
-
-// Tiny markdown renderer (paragraphs, bold, code, lists, links)
-// Normalize numbered lists from messy backend output:
-//   (a) "1. Foo. 2. Bar. 3. Baz" on one line → split into newline-separated items
-//   (b) "1. Foo\nMake sure …\nIf X then Y" → fold continuation lines into the
-//       same list item (so they render under the same number, not as loose
-//       paragraphs).
-function normalizeInlineNumberedList(s) {
-  if (!s) return s;
-
-  // (a) Same-line multi-numbered split
-  s = s.replace(/([^\n])\s+(?=\d+[.)]\s)/g, (match, prev, offset, full) => {
-    const lineStart = full.lastIndexOf("\n", offset) + 1;
-    const lineEnd = full.indexOf("\n", offset);
-    const line = full.slice(lineStart, lineEnd === -1 ? full.length : lineEnd);
-    const count = (line.match(/(?:^|\s)\d+[.)]\s/g) || []).length;
-    if (count < 2) return match;
-    return prev + "\n";
-  });
-
-  // (b) Fold continuation lines after a numbered item until blank line or new "N."
-  const lines = s.split("\n");
-  const out = [];
-  let inItem = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    if (/^\d+[.)]\s/.test(trimmed)) {
-      // New list item starts here
-      out.push(line);
-      inItem = true;
-      continue;
-    }
-    if (inItem) {
-      if (trimmed === "") {
-        // Blank line → end of list item block
-        out.push(line);
-        inItem = false;
-        continue;
-      }
-      // Don't fold lines that look like list-leaving structural content:
-      // headings, "Source:", links-only, code fences.
-      if (/^(?:#{1,6}\s|Source:\s|```)/i.test(trimmed)) {
-        out.push("");      // close current item
-        out.push(line);
-        inItem = false;
-        continue;
-      }
-      // Fold continuation into previous list item. We use a literal <br> so
-      // that the downstream list splitter (which still tokenizes by \n) keeps
-      // the continuation inside the same <li>. escapeHtml has already run by
-      // this point, so <br> here is intentional raw HTML.
-      out[out.length - 1] = out[out.length - 1] + "<br>" + trimmed;
-      continue;
-    }
-    out.push(line);
-  }
-  return out.join("\n");
 }
 
 function renderMarkdown(src) {
   if (!src) return "";
-  let s = escapeHtml(processManualTokens(src));
-  // Break "1. A 2. B 3. C" same-line lists into proper newline-separated items
-  s = normalizeInlineNumberedList(s);
-  // Horizontal rules (---, ***, ___ on their own line)
+  let s = escapeHtml(src);
   s = s.replace(/(?:^|\n)\s*(?:---|\*\*\*|___)\s*(?=\n|$)/g, "\n<hr/>");
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  // Italic: single asterisks (avoid matching inside already-replaced <strong>)
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-  // Open PDF links in overlay; external links in new tab
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
-    const isPdf = /\.pdf(\?|#|$)/i.test(href);
-    if (isPdf) return `<a href="${href}" data-pdf="1">${label}</a>`;
-    return `<a href="${href}" target="_blank" rel="noopener">${label}</a>`;
-  });
-  // headings
   s = s.replace(/^###\s+(.*)$/gm, "<h3>$1</h3>");
-  // lists
+  // [MANUAL:title:page] → clickable chip that opens in inspector
+  s = s.replace(/\[MANUAL:([^\]:]+):(\d+)\]/g, (m, title, page) =>
+    `<button class="manual-link" data-manual-title="${escapeHtml(title)}" data-manual-page="${page}">` +
+    `<i class="fa fa-book-open"></i> §${page} <span>${escapeHtml(title)}</span></button>`
+  );
   s = s.replace(/(?:^|\n)((?:[-*]\s+.+\n?)+)/g, (m, blk) => {
     const items = blk.trim().split(/\n/).map(l => l.replace(/^[-*]\s+/, ""));
     return "\n<ul>" + items.map(i => `<li>${i}</li>`).join("") + "</ul>";
@@ -221,12 +70,24 @@ function renderMarkdown(src) {
     const items = blk.trim().split(/\n/).map(l => l.replace(/^\d+\.\s+/, ""));
     return "\n<ol>" + items.map(i => `<li>${i}</li>`).join("") + "</ol>";
   });
-  // paragraphs
   s = s.split(/\n{2,}/).map(p => {
-    if (/^<(h3|ul|ol|p|table)/.test(p.trim())) return p;
+    if (/^<(h3|ul|ol|p|hr)/.test(p.trim())) return p;
     return "<p>" + p.replace(/\n/g, "<br/>") + "</p>";
   }).join("\n");
   return s;
+}
+
+function manualUrl(title, page) {
+  return "/manuals/" + encodeURIComponent(title + ".pdf") + (page ? "#page=" + page : "");
+}
+
+function pageFromRef(ref) {
+  if (!ref) return null;
+  const s = String(ref).trim();
+  if (!s || s.startsWith("http")) return null;
+  if (/^\d+$/.test(s)) return s;
+  const m = s.match(/(\d+)/);
+  return m ? m[1] : null;
 }
 
 function fmtDate(iso) {
@@ -234,394 +95,6 @@ function fmtDate(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return iso;
   return d.toISOString().slice(0, 16).replace("T", " ");
-}
-
-function shortId(id) { return id ? String(id).slice(0, 8) : "—"; }
-
-function logAction(label) {
-  const now = new Date();
-  State.recentActions.unshift({ time: now.toTimeString().slice(0,5), label });
-  State.recentActions = State.recentActions.slice(0, 8);
-  renderRecentActions();
-}
-
-// ============== API wrappers ==============
-async function api(path, opts = {}) {
-  const res = await fetch(API + path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
-  if (!res.ok) {
-    let detail;
-    try { detail = await res.json(); } catch { detail = await res.text(); }
-    const msg = (detail && (detail.detail || detail.error)) || res.statusText;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-  }
-  return res.json();
-}
-
-const apiGet  = (p)       => api(p);
-const apiPost = (p, body) => api(p, { method: "POST", body: JSON.stringify(body || {}) });
-
-// ============== Boot ==============
-document.addEventListener("DOMContentLoaded", boot);
-
-async function boot() {
-  wireGlobalUI();
-  await loadInstances();
-  if (!State.instanceId) return;
-  await loadInstanceContext(State.instanceId);
-}
-
-function wireGlobalUI() {
-  // Initial density class
-  document.body.classList.add("density-operator");
-
-  // Sidebar collapse
-  $("#sidebar-toggle").addEventListener("click", () => {
-    document.body.classList.toggle("sidebar-collapsed");
-  });
-
-  // Tab buttons
-  $$(".tab-btn").forEach(b => b.addEventListener("click", () => setActiveTab(b.dataset.tab)));
-  $$(".qn-btn").forEach(b => b.addEventListener("click", () => setActiveTab(b.dataset.tab)));
-  // Density
-  $("#density-select").addEventListener("change", e => {
-    State.density = e.target.value;
-    document.body.classList.toggle("density-operator", State.density === "operator");
-    document.body.classList.toggle("density-service",  State.density === "service");
-  });
-  // Right collapse
-  $("#right-toggle").addEventListener("click", () => {
-    State.rightCollapsed = !State.rightCollapsed;
-    document.body.classList.toggle("right-collapsed", State.rightCollapsed);
-  });
-  // Instance select
-  $("#instance-select").addEventListener("change", e => loadInstanceContext(e.target.value));
-  // Composer
-  $("#composer-send").addEventListener("click", onSend);
-  $("#composer-input").addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); }
-  });
-  // CTAs
-  $("#new-case-btn").addEventListener("click", onNewCase);
-  $("#cta-next-issue").addEventListener("click", onNextIssue);
-  $("#ap-next-btn").addEventListener("click", onNextIssue);
-  const resetZoom = $("#chart-reset-zoom");
-  if (resetZoom) resetZoom.addEventListener("click", () => State.chart && State.chart.resetZoom());
-  $("#cta-similar").addEventListener("click", () => {
-    const issue = State.lastResponse?.current_issue;
-    if (!issue) return;
-    $("#composer-input").value = `Has "${issue.failure_mode_name}" happened before? Show me past cases.`;
-    onSend();
-  });
-  $("#cta-workorders").addEventListener("click", () => setActiveTab("manuals-wo", { sub: "wo" }));
-  $("#cta-reset").addEventListener("click", onResetCase);
-  // Evidence mode
-  $$("#evidence-mode .seg-btn").forEach(b => b.addEventListener("click", () => {
-    $$("#evidence-mode .seg-btn").forEach(x => x.classList.toggle("active", x === b));
-    State.evidenceMode = b.dataset.mode;
-    renderEvidence();
-  }));
-  // History mode
-  $$("#history-mode .seg-btn").forEach(b => b.addEventListener("click", () => {
-    $$("#history-mode .seg-btn").forEach(x => x.classList.toggle("active", x === b));
-    runHistoryQuery();
-  }));
-  // History sort
-  initHistorySort();
-  // History filters
-  $("#hf-apply").addEventListener("click", () => runHistoryQuery(0));
-  const applyFilters = $("#hf-apply-filters");
-  if (applyFilters) applyFilters.addEventListener("click", () => runHistoryQuery(0));
-  $("#hf-clear").addEventListener("click", () => {
-    ["hf-q","hf-severity","hf-status","hf-event-category","hf-maintenance-type","hf-from","hf-to"]
-      .forEach(id => { const e = $("#"+id); e.value = ""; });
-    runHistoryQuery(0);
-  });
-  const toggleFilters = $("#hf-toggle-filters");
-  if (toggleFilters) toggleFilters.addEventListener("click", () => {
-    const wrap = $("#history-filters");
-    if (wrap) {
-      wrap.classList.toggle("hidden");
-      toggleFilters.classList.toggle("active", !wrap.classList.contains("hidden"));
-    }
-  });
-  // Enter on the hero search box triggers search
-  const heroInput = $("#hf-q");
-  if (heroInput) heroInput.addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); runHistoryQuery(0); }
-  });
-  // Outcome buttons
-  $$(".outcome-btn").forEach(b => b.addEventListener("click", () => onLogOutcome(b.dataset.outcome, b)));
-  // Trends range
-  $$("#trends-range .seg-btn").forEach(b => b.addEventListener("click", () => {
-    $$("#trends-range .seg-btn").forEach(x => x.classList.toggle("active", x === b));
-    State.trendsRangeHours = parseInt(b.dataset.range, 10);
-    renderTrends();
-  }));
-  $("#trends-signal-select").addEventListener("change", e => {
-    State.selectedSignal = e.target.value;
-    renderTrends();
-  });
-  // M&WO subtabs
-  $$("#mwo-mode .seg-btn").forEach(b => b.addEventListener("click", () => {
-    $$("#mwo-mode .seg-btn").forEach(x => x.classList.toggle("active", x === b));
-    const sub = b.dataset.sub;
-    $("#mwo-manuals").classList.toggle("hidden", sub !== "manuals");
-    $("#mwo-wo").classList.toggle("hidden", sub !== "wo");
-  }));
-  // Reload caches
-  $("#reload-btn").addEventListener("click", onReloadCaches);
-  // Advanced rail
-  $("#open-advanced-btn").addEventListener("click", () => {
-    $("#density-select").value = "service";
-    State.density = "service";
-    document.body.classList.remove("density-operator");
-    setActiveTab("advanced");
-  });
-  // PDF close
-  $("#pdf-close-btn").addEventListener("click", () => {
-    $("#pdf-overlay").classList.add("hidden");
-    $("#pdf-iframe").src = "about:blank";
-  });
-
-  // Chat panel input (right side)
-  const chatInput = $("#chat-input");
-  const chatSend = $("#chat-send");
-  if (chatSend) chatSend.addEventListener("click", onChatSend);
-  if (chatInput) chatInput.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onChatSend(); }
-  });
-
-  // Column resizers
-  initColumnResizers();
-
-  // Global delegate for PDF links inside markdown (chat / runbook / etc.)
-  document.addEventListener("click", e => {
-    const a = e.target.closest && e.target.closest('a[data-pdf="1"]');
-    if (!a) return;
-    e.preventDefault();
-    openManual(a.getAttribute("href"), a.textContent);
-  });
-}
-
-function onChatSend() {
-  const inp = $("#chat-input");
-  const v = (inp.value || "").trim();
-  if (!v) return;
-  $("#composer-input").value = v;
-  inp.value = "";
-  onSend();
-}
-
-function initColumnResizers() {
-  const workspace = $("#workspace");
-  if (!workspace) return;
-  let active = null;
-
-  // Snapshot the current grid template into resolved pixel sizes so that
-  // dragging one column doesn't redistribute space across the others.
-  function freezeColumns() {
-    const cs = getComputedStyle(workspace).gridTemplateColumns.split(/\s+/).map(parseFloat);
-    if (cs.length === 5) {
-      workspace.style.gridTemplateColumns = `${cs[0]}px ${cs[1]}px ${cs[2]}px ${cs[3]}px ${cs[4]}px`;
-    }
-  }
-
-  $$(".col-resizer").forEach(r => {
-    r.addEventListener("mousedown", e => {
-      freezeColumns();
-      active = {
-        which: r.dataset.resize,
-        startX: e.clientX,
-        rect: workspace.getBoundingClientRect(),
-        cols: getComputedStyle(workspace).gridTemplateColumns.split(/\s+/).map(parseFloat),
-      };
-      r.classList.add("dragging");
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      e.preventDefault();
-    });
-  });
-
-  document.addEventListener("mousemove", e => {
-    if (!active) return;
-    const dx = e.clientX - active.startX;
-    const [c0, g0, c1, g1, c2] = active.cols;
-    let left = c0, center = c1, right = c2;
-    if (active.which === "left") {
-      left = Math.max(160, Math.min(c0 + dx, c0 + c1 - 360));
-      center = c0 + c1 - left;
-    } else if (active.which === "right") {
-      // dragging right edge: center grows when dx > 0, right column shrinks
-      center = Math.max(360, Math.min(c1 + dx, c1 + c2 - 200));
-      right = c1 + c2 - center;
-    }
-    workspace.style.gridTemplateColumns = `${left}px ${g0}px ${center}px ${g1}px ${right}px`;
-    if (State.chart) State.chart.resize();
-  });
-
-  document.addEventListener("mouseup", () => {
-    if (!active) return;
-    $$(".col-resizer").forEach(r => r.classList.remove("dragging"));
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    active = null;
-  });
-}
-
-// ============== Tab management ==============
-function setActiveTab(name, opts = {}) {
-  State.activeTab = name;
-  $$(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
-  $$(".qn-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
-  $$(".tab-panel").forEach(p => p.classList.toggle("active", p.dataset.panel === name));
-  if (name === "advanced") loadKGGraph();
-  if (name === "trends") renderTrends();
-  if (name === "history") { if (!State._historyLoaded) { runHistoryQuery(0); State._historyLoaded = true; } }
-  if (name === "manuals-wo" && opts.sub) {
-    $$("#mwo-mode .seg-btn").forEach(x => {
-      const on = x.dataset.sub === opts.sub;
-      x.classList.toggle("active", on);
-    });
-    $("#mwo-manuals").classList.toggle("hidden", opts.sub !== "manuals");
-    $("#mwo-wo").classList.toggle("hidden", opts.sub !== "wo");
-  }
-}
-
-// ============== Instance loading ==============
-async function loadInstances() {
-  try {
-    const data = await apiGet("/instances");
-    const sel = $("#instance-select");
-    sel.innerHTML = "";
-    (data.instances || []).forEach(inst => {
-      const opt = el("option", { value: inst.id }, [inst.name + " — " + inst.agent_name]);
-      sel.appendChild(opt);
-    });
-    if (data.instances && data.instances.length) {
-      // Default: prefer the seeded IRC5 instance (id = "irc5-default-instance",
-      // which has symptom_embeddings.json). Fallback to any IRC5-named
-      // instance, then to the first available.
-      const preferred = data.instances.find(i => i.id === "irc5-default-instance")
-        || data.instances.find(i => (i.name || "").trim().toLowerCase() === "irc5")
-        || data.instances.find(i => /irc5/i.test(i.name || ""))
-        || data.instances[0];
-      State.instanceId = preferred.id;
-      sel.value = State.instanceId;
-      const bcInst = $("#bc-instance");
-      if (bcInst) bcInst.textContent = preferred.name;
-      const bcPlant = $("#bc-plant");
-      if (bcPlant && preferred.agent_name) bcPlant.textContent = preferred.agent_name;
-    }
-  } catch (e) {
-    toast("Failed to load instances: " + e.message, "error");
-  }
-}
-
-async function loadInstanceContext(instanceId) {
-  State.instanceId = instanceId;
-  // Update breadcrumb instance label
-  const sel = $("#instance-select");
-  const opt = sel?.querySelector(`option[value="${instanceId}"]`);
-  if (opt) {
-    const bcInst = $("#bc-instance");
-    if (bcInst) bcInst.textContent = opt.textContent.split(" — ")[0] || opt.textContent;
-  }
-  // Restore last session for this instance (if persisted), so a page refresh
-  // continues the current chat instead of creating a new one in the list.
-  State.sessionId = restoreSessionId();
-  State.lastResponse = null;
-  State.selectedActionId = null;
-  State._historyLoaded = false;
-  $("#thread").innerHTML = "";
-  $("#ap-empty").classList.remove("hidden");
-  $("#ap-runbook").classList.add("hidden");
-  $("#evidence-list").innerHTML = '<div class="panel-empty">No log evidence yet. Run a diagnosis or search history.</div>';
-
-  try {
-    const [prod, status, summary, sessions, instMeta] = await Promise.all([
-      apiGet(`/instances/${instanceId}/product-info`).catch(() => null),
-      apiGet(`/instances/${instanceId}/status`).catch(() => null),
-      apiGet(`/instances/${instanceId}/logs/summary`).catch(() => null),
-      apiGet(`/instances/${instanceId}/chat-sessions?limit=8`).catch(() => null),
-      apiGet(`/instances/${instanceId}`).catch(() => null),
-    ]);
-    State.productMeta = prod;
-    State.status = status;
-    State.logsSummary = summary;
-    State.instanceMeta = instMeta;
-    renderIdentity();
-    renderHealth();
-    renderKGStats();
-    renderChips();
-    renderRecentSessions(sessions?.sessions || []);
-    populateHistoryFilters();
-    renderCaseCard();
-    discoverInstanceManuals();
-    await resumePersistedSession();
-  } catch (e) {
-    toast("Failed to load instance context: " + e.message, "error");
-  }
-}
-
-function renderIdentity() {
-  const p = State.productMeta || {};
-  $("#product-name").textContent = p.product_name || "—";
-  $("#product-type").textContent = p.product_type || "—";
-  $("#product-short").textContent = p.product_short_name || "—";
-  $("#ontology-version").textContent = State.status?.ontology_version ? `ontology v${State.status.ontology_version}` : "";
-}
-
-function renderHealth() {
-  const s = State.logsSummary;
-  const open = s?.open_events || 0;
-  const sev = s?.severity_distribution || {};
-  const hasCrit = (sev["4"] || sev[4] || 0) > 0;
-  const hasWarn = (sev["3"] || sev[3] || 0) > 0;
-  const pill = $("#health-pill");
-  pill.className = "status-pill";
-  if (hasCrit) { pill.classList.add("crit"); pill.textContent = "Critical"; }
-  else if (hasWarn || open > 0) { pill.classList.add("warn"); pill.textContent = "Warning"; }
-  else { pill.classList.add("ok"); pill.textContent = "OK"; }
-  $("#asset-meta-open").textContent = `${open} open event${open === 1 ? "" : "s"}`;
-  $("#asset-meta-updated").textContent = s ? `${s.row_count} logs indexed` : "no log data";
-}
-
-function renderKGStats() {
-  const m = State.instanceMeta || {};
-  const s = State.status || {};
-  const n = m.node_count ?? s.total_nodes ?? "—";
-  const e = m.relationship_count ?? s.total_relationships ?? "—";
-  const nEl = $("#kg-node-count"); if (nEl) nEl.textContent = n;
-  const eEl = $("#kg-edge-count"); if (eEl) eEl.textContent = e;
-}
-
-function renderChips() {
-  const chips = State.productMeta?.suggested_symptoms || [];
-  // Center composer chips
-  const wrap = $("#composer-chips");
-  if (wrap) {
-    wrap.innerHTML = "";
-    chips.forEach(c => {
-      wrap.appendChild(el("span", {
-        class: "chip",
-        onclick: () => { $("#composer-input").value = c.query; $("#composer-input").focus(); }
-      }, [c.label]));
-    });
-  }
-  // Right chat panel chips (mirror)
-  const chatWrap = $("#chat-chips");
-  if (chatWrap) {
-    chatWrap.innerHTML = "";
-    chips.forEach(c => {
-      chatWrap.appendChild(el("span", {
-        class: "chip",
-        onclick: () => { $("#chat-input").value = c.query; $("#chat-input").focus(); }
-      }, [c.label]));
-    });
-  }
 }
 
 function relativeTime(iso) {
@@ -638,1195 +111,1472 @@ function relativeTime(iso) {
 
 function truncate(s, n) {
   if (!s) return "";
-  const trimmed = String(s).replace(/\s+/g, " ").trim();
-  return trimmed.length > n ? trimmed.slice(0, n - 1) + "…" : trimmed;
+  const t = String(s).replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
 }
 
-function renderRecentSessions(sessions) {
-  const list = $("#recent-sessions");
-  list.innerHTML = "";
-  if (!sessions || !sessions.length) {
-    list.appendChild(el("div", { class: "recent-empty" }, ["No chats yet"]));
-    return;
+function toast(msg, ms = 2400) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.add("hidden"), ms);
+}
+
+/* ---------- Mini sparkline SVG ---------- */
+function sparkSVG(values, opts = {}) {
+  const w = opts.width || 56, h = opts.height || 16;
+  const stroke = opts.stroke || "#2563EB";
+  const fill = opts.fill || "rgba(37,99,235,.12)";
+  if (!values || !values.length) return "";
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const stepX = w / (values.length - 1 || 1);
+  const points = values.map((v, i) => {
+    const x = i * stepX;
+    const y = h - ((v - min) / range) * (h - 2) - 1;
+    return [x, y];
+  });
+  const path = points.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  const area = path + ` L ${w},${h} L 0,${h} Z`;
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="${area}" fill="${fill}" stroke="none"/>
+    <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+/* ---------- API wrappers ---------- */
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (!res.ok) {
+    let detail;
+    try { detail = await res.json(); } catch { detail = await res.text(); }
+    const msg = (detail && (detail.detail || detail.error)) || res.statusText;
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
+  return res.json();
+}
+const apiGet  = p       => api(p);
+const apiPost = (p, b)  => api(p, { method: "POST", body: JSON.stringify(b || {}) });
+const apiDel  = p       => api(p, { method: "DELETE" });
 
-  // Real chats only: user message present + at least 2 turns logged
-  // (i.e. one exchange — otherwise it's a half-baked session from a refresh).
-  let candidates = sessions.filter(s =>
-    (s.first_user_message || "").trim().length > 0 &&
-    (s.message_count || 0) >= 2
-  );
+/* ---------- Bookmark store (localStorage) ---------- */
+const BookmarkStore = {
+  key: "mc.bookmarks",
+  get() { try { return new Set(JSON.parse(localStorage.getItem(this.key) || "[]")); } catch { return new Set(); } },
+  save(s) { try { localStorage.setItem(this.key, JSON.stringify([...s])); } catch {} },
+  has(id) { return this.get().has(id); },
+  toggle(id) {
+    const s = this.get();
+    s.has(id) ? s.delete(id) : s.add(id);
+    this.save(s);
+    return s.has(id);
+  },
+};
 
-  // Always keep the currently active session even if it has only 1 msg yet.
-  if (State.sessionId && !candidates.some(s => s.session_id === State.sessionId)) {
-    const active = sessions.find(s => s.session_id === State.sessionId);
-    if (active && (active.first_user_message || "").trim()) candidates.unshift(active);
+/* ---------- Session persistence ---------- */
+function sessionKey() { return State.instanceId ? `kgua_last_${State.instanceId}` : null; }
+function persistSessionId(id) { const k = sessionKey(); if (k && id) try { localStorage.setItem(k, id); } catch {} }
+function restoreSessionId() { const k = sessionKey(); try { return k ? localStorage.getItem(k) : null; } catch { return null; } }
+function clearSessionId() { const k = sessionKey(); if (k) try { localStorage.removeItem(k); } catch {} }
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+document.addEventListener("DOMContentLoaded", boot);
+
+async function boot() {
+  setupComposer();
+  setupResizers();
+  setupInspector();
+  setupSidebar();
+
+  // Close any open case menus on outside click
+  document.addEventListener("click", e => {
+    if (!e.target.closest(".case-menu") && !e.target.closest("[data-act='menu']")) {
+      document.querySelectorAll(".case-menu").forEach(m => { m.hidden = true; });
+    }
+  });
+
+  // new-case btn
+  $("#new-case-btn").addEventListener("click", () => {
+    clearSessionId();
+    toast("New case — type your question below");
+    $("#composer").focus();
+  });
+
+  // KG button in rail footer
+  $("#open-kg-btn").addEventListener("click", () => openInspector("kg"));
+
+  // Reload caches
+  $("#reload-btn").addEventListener("click", async () => {
+    if (!State.instanceId) return;
+    try {
+      await apiPost(`/instances/${State.instanceId}/reload`, {});
+      toast("Caches reloaded");
+      await loadInstanceContext(State.instanceId);
+    } catch (e) { toast("Reload failed: " + e.message); }
+  });
+
+  await loadInstances();
+  if (State.instanceId) await loadInstanceContext(State.instanceId);
+}
+
+function setupSidebar() {
+  const toggle = $("#sidebar-toggle");
+  if (toggle) toggle.addEventListener("click", () => document.body.classList.toggle("sidebar-collapsed"));
+}
+
+/* ============================================================
+   INSTANCES
+   ============================================================ */
+async function loadInstances() {
+  try {
+    const data = await apiGet("/instances");
+    const sel = $("#instance-select");
+    sel.innerHTML = "";
+    (data.instances || []).forEach(inst => {
+      const opt = document.createElement("option");
+      opt.value = inst.id;
+      opt.textContent = inst.name + (inst.agent_name ? " — " + inst.agent_name : "");
+      sel.appendChild(opt);
+    });
+    if (data.instances && data.instances.length) {
+      const preferred = data.instances.find(i => i.id === "irc5-default-instance")
+        || data.instances.find(i => /irc5/i.test(i.name || ""))
+        || data.instances[0];
+      State.instanceId = preferred.id;
+      sel.value = State.instanceId;
+    }
+    sel.addEventListener("change", e => loadInstanceContext(e.target.value));
+  } catch (e) {
+    toast("Failed to load instances: " + e.message);
   }
+}
 
-  // Sort newest first
-  candidates.sort((a, b) => (b.last_message_at || "").localeCompare(a.last_message_at || ""));
+async function loadInstanceContext(instanceId) {
+  State.instanceId = instanceId;
+  State.cases = [];
+  State.activeCaseId = null;
+  State.kgInited = false;
+  if (State.kgNetwork) { State.kgNetwork.destroy(); State.kgNetwork = null; }
 
-  // Dedupe by normalized first_user_message: keep most recent occurrence
-  const seen = new Set();
-  const real = [];
-  for (const s of candidates) {
-    const key = (s.first_user_message || "").trim().toLowerCase().replace(/\s+/g, " ");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    real.push(s);
-    if (real.length >= 8) break;
-  }
+  // Reset spine
+  renderSpine();
 
-  if (!real.length) {
-    list.appendChild(el("div", { class: "recent-empty" }, ["No chats yet"]));
-    return;
-  }
-
-  real.forEach(s => {
-    const item = el("div", {
-      class: "recent-item" + (s.session_id === State.sessionId ? " active" : ""),
-      onclick: () => resumeSession(s.session_id),
-      title: s.first_user_message || "",
-    }, [
-      el("div", { class: "ri-row" }, [
-        el("i", { class: "fa fa-comment ri-icon" }),
-        el("div", { class: "ri-first" }, [truncate(s.first_user_message, 42) || "(empty chat)"]),
-      ]),
-      el("div", { class: "ri-meta" }, [
-        el("span", {}, [`${s.message_count} msg`]),
-        el("span", { class: "ri-dot" }, ["·"]),
-        el("span", {}, [relativeTime(s.last_message_at)]),
-      ]),
+  try {
+    const [status, summary, sessions, instMeta, prod] = await Promise.all([
+      apiGet(`/instances/${instanceId}/status`).catch(() => null),
+      apiGet(`/instances/${instanceId}/logs/summary`).catch(() => null),
+      apiGet(`/instances/${instanceId}/chat-sessions?limit=20`).catch(() => null),
+      apiGet(`/instances/${instanceId}`).catch(() => null),
+      apiGet(`/instances/${instanceId}/product-info`).catch(() => null),
     ]);
-    list.appendChild(item);
+
+    State.status       = status;
+    State.logsSummary  = summary;
+    State.instanceMeta = instMeta;
+    State.productMeta  = prod;
+    State.sessions     = (sessions?.sessions || [])
+      .filter(s => (s.first_user_message || "").trim() && (s.message_count || 0) >= 1)
+      .sort((a, b) => (b.last_message_at || "").localeCompare(a.last_message_at || ""));
+
+    updateBreadcrumb();
+    renderAssetPulse();
+    renderSessions();
+
+    // Try to resume persisted session silently
+    const saved = restoreSessionId();
+    if (saved) {
+      try { await loadSession(saved, true); } catch { clearSessionId(); }
+    }
+  } catch (e) {
+    toast("Failed to load context: " + e.message);
+  }
+}
+
+function updateBreadcrumb() {
+  const sel = $("#instance-select");
+  const opt = sel?.querySelector(`option[value="${State.instanceId}"]`);
+  const label = opt ? (opt.textContent.split(" — ")[0] || opt.textContent) : "—";
+  const bcInst = $("#bc-instance");
+  if (bcInst) bcInst.textContent = label;
+  const bcPlant = $("#bc-plant");
+  if (bcPlant && State.productMeta?.plant_name) bcPlant.textContent = State.productMeta.plant_name;
+}
+
+/* ============================================================
+   ASSET PULSE
+   ============================================================ */
+function renderAssetPulse() {
+  const s = State.logsSummary;
+  const pill = $("#ap-status-pill");
+  if (pill) {
+    const open = s?.open_events || 0;
+    const sev = s?.severity_distribution || {};
+    const hasCrit = (sev["4"] || sev[4] || 0) > 0;
+    const hasWarn = (sev["3"] || sev[3] || 0) > 0;
+    if (hasCrit) {
+      pill.className = "status-pill crit";
+      pill.innerHTML = '<i class="fa fa-circle"></i> Critical fault';
+    } else if (hasWarn || open > 0) {
+      pill.className = "status-pill warn";
+      pill.innerHTML = `<i class="fa fa-circle"></i> ${open} active fault${open === 1 ? "" : "s"}`;
+    } else {
+      pill.className = "status-pill ok";
+      pill.innerHTML = '<i class="fa fa-circle"></i> Healthy';
+    }
+  }
+
+  const m = State.instanceMeta || {};
+  const st = State.status || {};
+  const kg  = $("#ap-kg-nodes");
+  const wo  = $("#ap-open-wo");
+  const evs = $("#ap-events-7d");
+  if (kg)  kg.textContent  = m.node_count ?? st.total_nodes ?? "—";
+  if (wo)  wo.textContent  = s?.open_events ?? "—";
+  if (evs) evs.textContent = s?.row_count ?? "—";
+}
+
+/* ============================================================
+   SESSION RAIL
+   ============================================================ */
+function renderSessions() {
+  const list = $("#session-list");
+  const railLabel = $(".rail-block .rail-label");
+
+  // Inject / update the "Saved" filter chip
+  if (railLabel && !railLabel.querySelector(".saved-filter")) {
+    const f = document.createElement("button");
+    f.className = "saved-filter";
+    f.innerHTML = '<i class="fa-regular fa-bookmark"></i><span>Saved</span>';
+    f.addEventListener("click", () => {
+      State.savedFilterOn = !State.savedFilterOn;
+      f.classList.toggle("active", State.savedFilterOn);
+      f.querySelector("i").className = State.savedFilterOn ? "fa-solid fa-bookmark" : "fa-regular fa-bookmark";
+      renderSessions();
+    });
+    railLabel.appendChild(f);
+  }
+
+  list.innerHTML = "";
+  const bookmarks = BookmarkStore.get();
+  let ordered = State.sessions.slice(); // already newest-first
+  if (State.savedFilterOn) {
+    // match by sessionId stored in local cases, or by session_id on the server session
+    ordered = ordered.filter(s => bookmarks.has(s.session_id));
+  }
+
+  if (!ordered.length) {
+    const empty = document.createElement("div");
+    empty.className = "session-empty";
+    empty.innerHTML = State.savedFilterOn
+      ? '<i class="fa-regular fa-bookmark"></i><div>No saved cases yet.<br/><small>Click ★ on any card to pin it.</small></div>'
+      : '<div style="color:var(--slate-400);font-size:12px;padding:4px 0;">No cases yet. Send a message below.</div>';
+    list.appendChild(empty);
+    return;
+  }
+
+  ordered.forEach(s => {
+    const kind = s.behavior_mode === "search_past_events" ? "past" : "diagnose";
+    const inSpine = State.cases.some(c => c.sessionId === s.session_id);
+    const kindMeta = kind === "past"
+      ? { icon: "fa-clock-rotate-left", label: "Past events" }
+      : { icon: "fa-stethoscope", label: "Diagnose" };
+
+    const div = document.createElement("div");
+    div.className = "session-card" + (inSpine ? " active" : "");
+    div.dataset.kind = kind;
+    div.dataset.sid = s.session_id;
+
+    div.innerHTML = `
+      <div class="sc-head">
+        <span class="sc-kind"><i class="fa ${kindMeta.icon}"></i> ${kindMeta.label}</span>
+        <span class="sc-time">${relativeTime(s.last_message_at || s.created_at)}</span>
+      </div>
+      <div class="sc-title">${escapeHtml(truncate(s.first_user_message || "(empty)", 72))}</div>
+    `;
+
+    div.addEventListener("click", () => {
+      loadSession(s.session_id);
+    });
+    list.appendChild(div);
   });
 }
 
-async function resumeSession(sessionId) {
+/* ============================================================
+   LOAD SESSION → add case card to spine
+   ============================================================ */
+async function loadSession(sessionId, silent = false) {
+  // If already in spine, just scroll to it
+  const existing = State.cases.find(c => c.sessionId === sessionId);
+  if (existing) {
+    scrollToCase(existing.id);
+    return;
+  }
+
   try {
     const data = await apiGet(`/instances/${State.instanceId}/chat-sessions/${sessionId}`);
-    restoreSessionMessages(sessionId, data.messages || []);
-    toast("Session resumed");
-    logAction(`resumed session ${shortId(sessionId)}`);
-  } catch (e) {
-    toast("Failed to resume: " + e.message, "error");
-  }
-}
+    const messages = data.messages || [];
+    const lastUser = [...messages].reverse().find(m => m.role === "user");
+    const lastAssistant = [...messages].reverse().find(m => m.role === "assistant" && m.payload);
 
-async function resumePersistedSession() {
-  if (!State.sessionId) return;
-  try {
-    const data = await apiGet(`/instances/${State.instanceId}/chat-sessions/${State.sessionId}`);
-    restoreSessionMessages(State.sessionId, data.messages || []);
-  } catch {
-    clearSessionId();
-    State.sessionId = null;
-  }
-}
-
-function restoreSessionMessages(sessionId, messages) {
-  State.sessionId = sessionId;
-  persistSessionId();
-  $("#thread").innerHTML = "";
-  (messages || []).forEach(m => appendThread(m.role, m.content));
-  const lastAssistant = [...(messages || [])].reverse().find(m => m.role === "assistant" && m.payload);
-  if (lastAssistant?.payload) {
-    State.lastResponse = lastAssistant.payload;
-    State.lastIntent = lastAssistant.payload.intent || null;
-    State.lastBehaviorMode = lastAssistant.payload.behavior_mode || null;
-    renderCaseCard();
-    renderActionPlan();
-    renderEvidence();
-    renderManualsAndWO();
-    primeTrendsFromResponse(lastAssistant.payload);
-  }
-  $("#meta-session").textContent = shortId(sessionId);
-}
-
-function populateHistoryFilters() {
-  const s = State.logsSummary;
-  if (!s) return;
-  // event categories: derived from top signatures (best-effort fallback)
-  // Severity / status / etc. left as static dropdowns; values from API are dynamic but cardinality is bounded.
-  const statusOpts = ["open", "in_progress", "closed", "resolved"];
-  const evCatOpts = ["alarm", "warning", "event", "maintenance", "info"];
-  const mtOpts = ["corrective", "preventive", "inspection", "calibration"];
-  fillSelect("hf-status", statusOpts);
-  fillSelect("hf-event-category", evCatOpts);
-  fillSelect("hf-maintenance-type", mtOpts);
-}
-function fillSelect(id, opts) {
-  const sel = $("#"+id);
-  // keep first (Any) option
-  const first = sel.querySelector("option");
-  sel.innerHTML = "";
-  sel.appendChild(first);
-  opts.forEach(v => sel.appendChild(el("option", { value: v }, [v])));
-}
-
-// ============== Chat / case flow ==============
-function onNewCase() {
-  clearSessionId();
-  State.sessionId = null;
-  State.lastResponse = null;
-  State.selectedActionId = null;
-  $("#thread").innerHTML = "";
-  $("#ap-empty").classList.remove("hidden");
-  $("#ap-runbook").classList.add("hidden");
-  $("#evidence-list").innerHTML = '<div class="panel-empty">No log evidence yet.</div>';
-  $("#meta-session").textContent = "—";
-  renderCaseCard();
-  toast("New case started");
-}
-
-async function onSend() {
-  const inp = $("#composer-input");
-  const message = (inp.value || "").trim();
-  if (!message) return;
-  if (!State.instanceId) { toast("Pick an asset first", "error"); return; }
-
-  inp.value = "";
-  State.lastUserQuery = message;
-  appendThread("user", message);
-  const placeholder = appendTypingIndicator();
-
-  const mode = $("#chat-mode-select").value;
-  try {
-    const body = { message, session_id: State.sessionId || undefined, mode };
-    const resp = await apiPost(`/instances/${State.instanceId}/chat`, body);
-    if (placeholder) placeholder.remove();
-    State.sessionId = resp.session_id;
-    persistSessionId();
-    handleChatResponse(resp);
-  } catch (e) {
-    if (placeholder) {
-      placeholder.className = "msg assistant";
-      placeholder.textContent = "Error: " + e.message;
+    if (!lastAssistant?.payload) {
+      if (!silent) toast("Session has no completed response yet");
+      return;
     }
-    toast(e.message, "error");
-  }
-}
 
-function sessionKey() { return State.instanceId ? `kgua_session_${State.instanceId}` : null; }
-function persistSessionId() {
-  const k = sessionKey();
-  if (k && State.sessionId) try { localStorage.setItem(k, State.sessionId); } catch {}
-}
-function restoreSessionId() {
-  const k = sessionKey();
-  if (!k) return null;
-  try { return localStorage.getItem(k); } catch { return null; }
-}
-function clearSessionId() {
-  const k = sessionKey();
-  if (k) try { localStorage.removeItem(k); } catch {}
-}
+    const resp = lastAssistant.payload;
+    const question = lastUser?.content || data.first_user_message || "";
+    const kind = resp.behavior_mode === "search_past_events" ? "past" : "diagnose";
+    const ts = new Date(data.last_message_at || data.created_at || Date.now());
+    const timeStr = ts.toTimeString().slice(0, 5);
 
-async function onNextIssue() {
-  if (!State.sessionId) return;
-  const mode = $("#chat-mode-select").value;
-  const placeholder = appendTypingIndicator();
-  try {
-    const resp = await apiPost(`/instances/${State.instanceId}/next-issue`, { session_id: State.sessionId, mode });
-    if (placeholder) placeholder.remove();
-    handleChatResponse(resp);
-    logAction("next possible cause");
+    const caseObj = {
+      id: "case-" + sessionId,
+      kind,
+      question,
+      ts: timeStr,
+      sessionId,
+      response: resp,
+      mode: "fast",
+      outcome: null,
+    };
+
+    State.cases.push(caseObj);
+    persistSessionId(sessionId);
+    State.activeCaseId = caseObj.id;
+
+    renderSpine();
+    renderSessions();
+    if (!silent) scrollToCase(caseObj.id);
   } catch (e) {
-    if (placeholder) {
-      placeholder.className = "msg assistant";
-      placeholder.textContent = "Error: " + e.message;
+    if (!silent) toast("Failed to load session: " + e.message);
+  }
+}
+
+/* ============================================================
+   SPINE RENDER
+   ============================================================ */
+function renderSpine() {
+  const root = $("#spine-scroll");
+  root.innerHTML = "";
+
+  if (!State.cases.length) {
+    const empty = document.createElement("div");
+    empty.className = "spine-empty";
+    empty.id = "spine-empty";
+    empty.innerHTML = `
+      <div class="spine-empty-icon"><i class="fa fa-stethoscope"></i></div>
+      <div class="spine-empty-title">Mission Control</div>
+      <div class="spine-empty-text">Select an asset and describe the issue below, or search for past events. Each request becomes an independent case card.</div>
+    `;
+    root.appendChild(empty);
+    return;
+  }
+
+  // Group by day
+  let lastDay = null;
+  State.cases.forEach(c => {
+    const sessionMeta = State.sessions.find(s => s.session_id === c.sessionId);
+    const dayLabel = getDayLabel(sessionMeta?.last_message_at || sessionMeta?.created_at);
+    if (dayLabel !== lastDay) {
+      const sep = document.createElement("div");
+      sep.className = "day-sep";
+      sep.textContent = dayLabel;
+      root.appendChild(sep);
+      lastDay = dayLabel;
     }
-    toast(e.message, "error");
-  }
-}
-
-async function onResetCase() {
-  if (!State.sessionId) return;
-  try {
-    await apiPost(`/instances/${State.instanceId}/reset`, { session_id: State.sessionId });
-    onNewCase();
-    logAction("reset case");
-  } catch (e) { toast(e.message, "error"); }
-}
-
-function handleChatResponse(resp) {
-  State.lastResponse = resp;
-  State.lastIntent = resp.intent || "troubleshooting_current";
-  const mode = resp.behavior_mode
-    || (["log_history_search","log_analytics","work_order_lookup"].includes(resp.intent)
-        ? "search_past_events" : "solve_current_problem");
-  State.lastBehaviorMode = mode;
-
-  // Thread render depends on the product behaviour
-  if (mode === "search_past_events") {
-    appendSearchRedirect(resp, State.lastUserQuery || "");
-  } else {
-    appendThread("assistant", resp.reply || "(no reply)", resp);
-  }
-
-  $("#meta-session").textContent = shortId(resp.session_id);
-  $("#meta-intent").textContent = resp.intent || "—";
-  $("#meta-last").textContent = new Date().toTimeString().slice(0, 8);
-  $("#meta-timing").textContent = resp.timings?.total_s ? resp.timings.total_s + "s" : "—";
-  logAction(`${mode === "search_past_events" ? "search" : "solve"}: ${resp.intent || "—"}${resp.awaiting_clarification ? " (clarify)" : ""}`);
-  renderCaseCard();
-  renderActionPlan();
-  renderEvidence();
-  renderManualsAndWO();
-  primeTrendsFromResponse(resp);
-  routeIntentToTab(resp);
-}
-
-function appendSearchRedirect(resp, query) {
-  const wrap = $("#thread");
-  const matches = (resp.log_evidence || []).length;
-  const summary = matches
-    ? `Found <strong>${matches}</strong> log signature${matches === 1 ? "" : "s"} matching your query.`
-    : `No matches in the current logs, but the query was treated as a search.`;
-  const node = el("div", { class: "msg redirect" }, [
-    el("div", { class: "redirect-head" }, [
-      el("i", { class: "fa fa-search" }),
-      "Search past events",
-    ]),
-  ]);
-  const body = el("div", { class: "redirect-body" });
-  body.innerHTML = summary;
-  node.appendChild(body);
-  const cta = el("button", { class: "redirect-cta", onclick: () => openSearchFromChat(query) }, [
-    el("i", { class: "fa fa-arrow-right" }),
-    "Open in Search",
-  ]);
-  node.appendChild(cta);
-  wrap.appendChild(node);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-function openSearchFromChat(query) {
-  if (query) $("#hf-q").value = query;
-  // Switch to semantic mode BEFORE setActiveTab so the initial load uses the right mode
-  $$("#history-mode .seg-btn").forEach(b => b.classList.toggle("active", b.dataset.mode === "semantic"));
-  setActiveTab("history");
-  // Show a transient banner so the user understands where the results came from
-  const banner = $("#search-redirect");
-  if (banner) {
-    banner.innerHTML = "";
-    banner.appendChild(el("i", { class: "fa fa-link" }));
-    const txt = el("span", {});
-    txt.innerHTML = `Showing results from the assistant for: <strong>${escapeHtml(query || "(empty query)")}</strong>`;
-    banner.appendChild(txt);
-    banner.classList.remove("hidden");
-    setTimeout(() => banner.classList.add("hidden"), 7000);
-  }
-  runHistoryQuery(0);
-}
-
-function hasTrendData(resp = State.lastResponse) {
-  const signals = resp?.telemetry?.signals;
-  return !!signals && Object.values(signals).some(v => Array.isArray(v) && v.length > 0);
-}
-
-function trendSignalNames(resp = State.lastResponse) {
-  const signals = resp?.telemetry?.signals || {};
-  return Object.keys(signals).filter(name => Array.isArray(signals[name]) && signals[name].length > 0);
-}
-
-function defaultTrendSignal(resp = State.lastResponse) {
-  const names = trendSignalNames(resp);
-  if (!names.length) return null;
-  const issue = resp?.current_issue || {};
-  const actions = issue.action_options || [];
-  const context = [
-    issue.failure_mode_name,
-    issue.component_name,
-    issue.component_id,
-    ...actions.slice(0, 3).map(a => `${a.action_name || ""} ${a.instruction_text || ""}`),
-  ].join(" ").toLowerCase();
-  const contextTokens = new Set((context.match(/[a-z0-9]+/g) || []).filter(t => t.length >= 3));
-  let best = names[0];
-  let bestScore = -1;
-  names.forEach(name => {
-    const tokens = (name.toLowerCase().match(/[a-z0-9]+/g) || []).filter(t => t.length >= 3);
-    let score = 0;
-    tokens.forEach(t => {
-      if (contextTokens.has(t)) score += 3;
-      else if ([...contextTokens].some(ct => ct.includes(t) || t.includes(ct))) score += 1;
-    });
-    if (/temp|temperature|thermal|overheat/.test(context) && /temp|temperature|thermal/.test(name)) score += 2;
-    if (/fan|cooling/.test(context) && /fan|cooling/.test(name)) score += 2;
-    if (score > bestScore) {
-      bestScore = score;
-      best = name;
-    }
+    root.appendChild(buildCase(c));
   });
-  return best;
 }
 
-function openTrendsFromChat(signalName) {
-  const names = trendSignalNames();
-  const selected = signalName && names.includes(signalName) ? signalName : defaultTrendSignal();
-  if (selected) {
-    State.selectedSignal = selected;
-    const sel = $("#trends-signal-select");
-    if (sel) sel.value = selected;
-  }
-  setActiveTab("trends");
-  renderTrends();
-  const banner = $("#trends-banner");
-  if (banner && selected) {
-    banner.classList.add("hidden");
+function getDayLabel(iso) {
+  if (!iso) return "Today";
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = (now.setHours(0,0,0,0) - d.setHours(0,0,0,0)) / 86400000;
+  if (diff <= 0) return "Today";
+  if (diff <= 1) return "Yesterday";
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function scrollToCase(caseId) {
+  const el = document.getElementById(caseId);
+  const root = $("#spine-scroll");
+  if (el && root) {
+    setTimeout(() => {
+      root.scrollTo({ top: Math.max(0, el.offsetTop - 24), behavior: "smooth" });
+      el.animate(
+        [{ boxShadow: "0 0 0 4px rgba(37,99,235,.3)" }, { boxShadow: "0 6px 18px rgba(15,23,42,.10)" }],
+        { duration: 900, easing: "ease-out" }
+      );
+    }, 60);
   }
 }
 
-function routeIntentToTab(resp) {
-  const intent = resp.intent;
-  if (resp.awaiting_clarification) {
-    setActiveTab("action-plan");
-    return;
-  }
-  if (intent === "log_history_search") setActiveTab("evidence");
-  else if (intent === "log_analytics") setActiveTab("history");
-  else if (intent === "work_order_lookup") setActiveTab("manuals-wo", { sub: "wo" });
-  else if (intent === "hybrid_diagnosis_with_history") setActiveTab("action-plan");
-  else setActiveTab("action-plan");
-}
+/* ============================================================
+   BUILD CASE CARD
+   ============================================================ */
+function buildCase(c) {
+  const kindMeta = c.kind === "past"
+    ? { icon: "fa-clock-rotate-left", label: "Past events" }
+    : { icon: "fa-stethoscope", label: "Diagnose" };
 
-// ============== Case card ==============
-function renderCaseCard() {
-  const resp = State.lastResponse;
-  const intentChip = $("#intent-chip");
-  intentChip.className = "intent-chip";
-  if (!resp) {
-    intentChip.textContent = "—";
-    const modeChip = $("#mode-chip");
-    if (modeChip) { modeChip.className = "mode-chip mode-none"; modeChip.innerHTML = '<i class="fa fa-circle-notch"></i> no case'; }
-    $("#case-issue-name").textContent = "Ask something to start a diagnosis.";
-    $("#case-component").textContent = "";
-    ["cta-next-issue","cta-similar","cta-workorders","cta-reset"].forEach(id => $("#"+id).disabled = true);
-    return;
-  }
-  intentChip.textContent = (resp.intent || "—").replace(/_/g, " ");
-  if (resp.intent) intentChip.classList.add("intent-" + resp.intent);
+  const resp = c.response;
+  const isActive = c.id === State.activeCaseId;
+  const isBookmarked = BookmarkStore.has(c.sessionId);
 
-  // Behavior mode chip (the coarse product behaviour)
-  const modeChip = $("#mode-chip");
-  if (modeChip) {
-    modeChip.className = "mode-chip";
-    if (resp.behavior_mode === "search_past_events") {
-      modeChip.classList.add("mode-search");
-      modeChip.innerHTML = '<i class="fa fa-search"></i> Search';
-    } else if (resp.behavior_mode === "solve_current_problem") {
-      modeChip.classList.add("mode-solve");
-      modeChip.innerHTML = '<i class="fa fa-tools"></i> Solve';
-    } else {
-      modeChip.classList.add("mode-none");
-      modeChip.innerHTML = '<i class="fa fa-circle-notch"></i> no case';
+  // Confidence from response scores
+  let confClass = "", confLabel = "";
+  if (resp) {
+    const scores = resp.highlight?.scores || resp.scores;
+    if (scores && Object.keys(scores).length) {
+      const top = Math.max(...Object.values(scores));
+      const pct = Math.round(top * 100);
+      confClass = top >= 0.70 ? "" : top >= 0.50 ? "med" : "low";
+      confLabel = pct + "% match";
     }
   }
+
+  // Sub-labels from intent / behavior_mode
+  const subParts = [];
+  if (resp?.intent) subParts.push(resp.intent.replace(/_/g, " "));
+  if (resp?.current_issue?.component_name) subParts.push(resp.current_issue.component_name);
+
+  const article = document.createElement("article");
+  article.className = "case" + (isActive ? " active" : "") + (!resp ? " loading" : "");
+  article.id = c.id;
+  article.dataset.kind = c.kind;
+  article.dataset.cid = c.id;
+
+  article.innerHTML = `
+    <header class="case-head">
+      <div class="case-icon"><i class="fa ${kindMeta.icon}"></i></div>
+      <div class="case-meta">
+        <div class="case-kind-row">
+          <span>${kindMeta.label}</span>
+          ${confLabel ? `<span class="case-conf ${confClass}">${confLabel}</span>` : ""}
+          ${c.kind === "diagnose" ? `
+            <div class="mode-toggle" data-mode-toggle>
+              <button class="mt-btn active" data-mode="fast"><i class="fa fa-bolt"></i> Fast</button>
+              <button class="mt-btn" data-mode="guided"><i class="fa fa-route"></i> Guided</button>
+            </div>` : ""}
+          <span style="margin-left:auto;color:var(--slate-400);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0">${c.ts}</span>
+        </div>
+        <div class="case-question">${escapeHtml(c.question)}</div>
+        ${subParts.length ? `<div class="case-sub">${subParts.map((s, i) => i === 0 ? `<span>${escapeHtml(s)}</span>` : `<span class="dot">·</span><span>${escapeHtml(s)}</span>`).join("")}</div>` : ""}
+      </div>
+      <div class="case-actions">
+        <button class="btn-icon case-bookmark ${isBookmarked ? "on" : ""}" title="Bookmark" data-act="bookmark">
+          <i class="fa-${isBookmarked ? "solid" : "regular"} fa-bookmark"></i>
+        </button>
+        <div class="case-menu-wrap">
+          <button class="btn-icon case-menu-trigger" title="More" data-act="menu">
+            <i class="fa fa-ellipsis-vertical"></i>
+          </button>
+          <div class="case-menu" hidden>
+            <button class="cm-item" data-menu="rerun"><i class="fa fa-rotate-right"></i> Re-run / ask again</button>
+            <button class="cm-item" data-menu="copylink"><i class="fa fa-link"></i> Copy link</button>
+            <button class="cm-item" data-menu="exportpdf"><i class="fa-regular fa-file-pdf"></i> Export PDF</button>
+            <div class="cm-sep"></div>
+            <button class="cm-item danger" data-menu="delete"><i class="fa fa-trash"></i> Delete case</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="case-body">
+      ${resp ? (c.kind === "past" ? buildPastBody(c) : buildDiagnoseBody(c)) : ""}
+    </div>
+    ${resp && c.kind === "diagnose" ? buildDiagnoseFooter(c) : ""}
+    ${resp && c.kind === "past" ? buildPastFooter(c) : ""}
+  `;
+
+  wireCase(article, c);
+  return article;
+}
+
+/* ============================================================
+   DIAGNOSE BODY
+   ============================================================ */
+function renderActionCard(a, isPrimary) {
+  const pct = a.stats?.total_uses ? Math.round(a.stats.success_rate_pct || 0) : null;
+  const page = pageFromRef(a.source_reference);
+  const manualBtn = (a.source_title && page)
+    ? `<button class="manual-link" data-manual-title="${escapeHtml(a.source_title)}" data-manual-page="${page}"><i class="fa fa-book-open"></i> §${page} <span>${escapeHtml(a.source_title)}</span></button>`
+    : (a.source_title ? `<span class="action-source-text">${escapeHtml(a.source_title)}${a.source_reference ? " — " + escapeHtml(a.source_reference) : ""}</span>` : "");
+  const stats = [
+    pct !== null ? `<span class="stat ok"><b>${pct}%</b> success</span>` : "",
+    a.stats?.total_uses ? `<span class="stat"><b>${a.stats.total_uses}</b> runs</span>` : `<span class="stat new">new</span>`,
+    a.stats?.avg_duration_min ? `<span class="stat">≈ <b>${a.stats.avg_duration_min.toFixed(0)} min</b></span>` : "",
+  ].filter(Boolean).join("");
+  return `
+    <div class="action-card ${isPrimary ? "primary" : "alt"}" data-action-id="${escapeHtml(a.action_id || "")}">
+      <div class="action-card-name">${escapeHtml(a.action_name || "")}</div>
+      ${a.instruction_text ? `<div class="action-card-instr markdown-body">${renderMarkdown(a.instruction_text)}</div>` : ""}
+      <div class="action-card-foot">
+        ${manualBtn}
+        ${stats ? `<div class="action-stats">${stats}</div>` : ""}
+      </div>
+    </div>`;
+}
+
+function buildDiagnoseBody(c) {
+  const resp = c.response;
+  if (!resp) return "";
 
   const issue = resp.current_issue;
-  if (issue) {
-    $("#case-issue-name").textContent = issue.failure_mode_name || "(unnamed failure mode)";
-    $("#case-component").textContent = issue.component_name ? `Component: ${issue.component_name}` : "";
-  } else if (resp.awaiting_clarification) {
-    $("#case-issue-name").textContent = "Awaiting clarification";
-    $("#case-component").textContent = "";
-  } else {
-    $("#case-issue-name").textContent = "(no failure mode resolved)";
-    $("#case-component").textContent = "";
+  const evidence = resp.log_evidence || [];
+  const actions = issue?.action_options || [];
+  const awaiting = resp.awaiting_clarification;
+
+  /* CASE A — clarification needed */
+  if (awaiting) {
+    let html = `<div class="diag-section clarify-section">
+      <div class="diag-section-label"><i class="fa fa-circle-question"></i> I need a quick clarification</div>
+      <div class="clarify-question">${renderMarkdownInline(resp.clarification_question || "Please clarify:")}</div>`;
+    if (resp.clarification_options?.length) {
+      html += `<div class="clarify-options">` +
+        resp.clarification_options.map(o => `
+          <button class="clarify-opt" data-clarify="${escapeHtml(stripMarkdown(o.label || ""))}">
+            <div class="clarify-opt-label">${renderMarkdownInline(o.label || "")}</div>
+            ${o.description ? `<div class="clarify-opt-desc">${escapeHtml(o.description)}</div>` : ""}
+          </button>`).join("") + `</div>`;
+    }
+    html += `</div>`;
+    return html;
   }
 
-  $("#cta-next-issue").disabled = !resp.has_more_issues;
-  $("#cta-similar").disabled    = !issue;
-  $("#cta-workorders").disabled = !(resp.log_evidence && resp.log_evidence.length);
-  $("#cta-reset").disabled      = !State.sessionId;
-
-  // total/issue counter
-  if (resp.issue_number && resp.total_issues) {
-    $("#confidence-chip").textContent = `${resp.issue_number}/${resp.total_issues}`;
-    $("#confidence-chip").classList.remove("hidden");
-  } else {
-    $("#confidence-chip").classList.add("hidden");
-  }
-}
-
-// ============== Action Plan rendering ==============
-function renderActionPlan() {
-  const resp = State.lastResponse;
-  if (!resp) { $("#ap-empty").classList.remove("hidden"); $("#ap-runbook").classList.add("hidden"); return; }
-  $("#ap-empty").classList.add("hidden");
-  $("#ap-runbook").classList.remove("hidden");
-
-  const issue = resp.current_issue;
-  $("#ap-issue-name").innerHTML = renderMarkdownInline(issue?.failure_mode_name || (resp.awaiting_clarification ? "Need a bit more info" : "Diagnosis"));
-  $("#ap-issue-sub").innerHTML = issue?.component_name ? "Component: " + renderMarkdownInline(issue.component_name) : "";
-  $("#ap-reply").innerHTML = renderMarkdown(resp.reply);
-
-  // Inline "Next possible cause" affordance when the backend has more causes
-  const nextWrap = $("#ap-next-wrap");
-  if (resp.has_more_issues && !resp.awaiting_clarification) {
-    nextWrap.classList.remove("hidden");
-    const n = resp.issue_number, t = resp.total_issues;
-    $("#ap-next-meta").textContent = (n && t)
-      ? `Showing cause ${n} of ${t}. Try the next most likely cause if this doesn't fit.`
-      : `More possible causes available.`;
-  } else {
-    nextWrap.classList.add("hidden");
+  /* CASE B — fallback / no structured issue */
+  if (!issue) {
+    return `<div class="diag-fallback markdown-body">${renderMarkdown(resp.reply || "(no diagnosis)")}</div>`;
   }
 
-  // Clarification
-  const clarWrap = $("#ap-clarify");
-  if (resp.awaiting_clarification) {
-    clarWrap.classList.remove("hidden");
-    $("#ap-clarify-q").innerHTML = renderMarkdown(resp.clarification_question || "Please clarify:");
-    const opts = $("#ap-clarify-opts");
-    opts.innerHTML = "";
-    (resp.clarification_options || []).forEach(o => {
-      const btn = el("button", {
-        class: "clarify-opt",
-        title: stripMarkdown(o.description || ""),
-        onclick: () => { $("#composer-input").value = stripMarkdown(o.label); onSend(); }
-      });
-      btn.innerHTML = renderMarkdownInline(o.label || "");
-      opts.appendChild(btn);
-    });
-  } else {
-    clarWrap.classList.add("hidden");
-  }
-
-  // Action options
-  const actWrap = $("#ap-actions-wrap");
-  const opts = issue?.action_options || [];
-  if (opts.length) {
-    actWrap.classList.remove("hidden");
-    const list = $("#ap-action-options");
-    list.innerHTML = "";
-    opts.forEach((opt, i) => {
-      const card = el("div", { class: "action-card" + (i === 0 ? " selected" : "") });
-      if (i === 0 && !State.selectedActionId) State.selectedActionId = opt.action_id;
-      card.appendChild(el("div", { class: "action-name" }, [opt.action_name]));
-      if (opt.source_title || opt.source_reference) {
-        const src = el("div", { class: "action-source" });
-        src.appendChild(document.createTextNode("Source: "));
-        const url = buildManualUrl(opt.source_title, opt.source_reference);
-        const pageMatch = String(opt.source_reference || "").match(/(\d+)/);
-        const label = pageMatch
-          ? `${opt.source_title || "manual"} — p. ${pageMatch[1]}`
-          : (opt.source_title || opt.source_reference || "manual");
-        if (url) {
-          src.appendChild(el("a", { onclick: () => openManual(url, label) }, [label]));
-        } else {
-          src.appendChild(document.createTextNode(label));
-        }
-        card.appendChild(src);
-      }
-      if (hasTrendData(resp)) {
-        const signals = trendSignalNames(resp);
-        const trend = el("div", { class: "action-source action-trend-source" });
-        trend.appendChild(document.createTextNode("Trends: "));
-        trend.appendChild(el("a", {
-          onclick: () => openTrendsFromChat(defaultTrendSignal(resp))
-        }, [`Open correlated time series${signals.length ? ` (${signals.length})` : ""}`]));
-        card.appendChild(trend);
-      }
-      if (opt.instruction_text) {
-        const instr = el("div", { class: "action-instr markdown-body" });
-        instr.innerHTML = renderMarkdown(opt.instruction_text);
-        card.appendChild(instr);
-      }
-      if (opt.stats) {
-        const s = opt.stats;
-        const wrap = el("div", { class: "action-stats" });
-        if (s.total_uses) {
-          const pct = Math.round(s.success_rate_pct || 0);
-          const tone = pct >= 75 ? "ok" : pct >= 50 ? "warn" : "bad";
-          const label = `${pct}% · ${s.total_uses} ${s.total_uses === 1 ? "run" : "runs"}`;
-          wrap.appendChild(el("span", { class: `stats-pill stats-${tone}` }, [label]));
-          if (s.avg_duration_min) {
-            wrap.appendChild(el("span", { class: "stats-meta" }, [`${s.avg_duration_min.toFixed(0)} min avg`]));
-          }
-        } else {
-          wrap.appendChild(el("span", { class: "stats-pill stats-new" }, ["new — no history yet"]));
-        }
-        card.appendChild(wrap);
-      }
-      card.appendChild(el("div", { class: "action-pick" }, [
-        el("button", {
-          class: "btn btn-sm",
-          onclick: () => {
-            State.selectedActionId = opt.action_id;
-            $$(".action-card").forEach((c, j) => c.classList.toggle("selected", c === card));
-          }
-        }, ["Select this action"])
-      ]));
-      list.appendChild(card);
-    });
-  } else {
-    actWrap.classList.add("hidden");
-  }
-
-  // Reset outcome UI
-  $$(".outcome-btn").forEach(b => b.classList.remove("picked"));
-  $("#outcome-feedback").value = "";
-  $("#outcome-status").textContent = "";
-  State.pickedOutcome = null;
-}
-
-async function onLogOutcome(outcome, btn) {
-  if (!State.sessionId) { toast("No active session", "error"); return; }
-  State.pickedOutcome = outcome;
-  $$(".outcome-btn").forEach(b => b.classList.toggle("picked", b === btn));
-  const feedback = $("#outcome-feedback").value.trim();
-  const body = {
-    session_id: State.sessionId,
-    outcome,
-    user_feedback: feedback,
-    selected_action_id: State.selectedActionId || undefined,
-  };
-  $("#outcome-status").textContent = "Saving…";
-  try {
-    const res = await apiPost(`/instances/${State.instanceId}/log-outcome`, body);
-    $("#outcome-status").textContent = `Saved — path success now ${res.stats.success_rate_pct.toFixed(0)}% (${res.stats.total_uses} uses)`;
-    logAction(`outcome: ${outcome}`);
-  } catch (e) {
-    $("#outcome-status").textContent = "Failed: " + e.message;
-  }
-}
-
-// ============== Evidence rendering ==============
-function renderEvidence() {
-  const list = $("#evidence-list");
-  const evidence = State.lastResponse?.log_evidence || [];
-  if (!evidence.length) {
-    list.innerHTML = '<div class="panel-empty">No log evidence in the latest response.</div>';
-    $("#evidence-meta").textContent = "";
-    return;
-  }
-  $("#evidence-meta").textContent = `${evidence.length} signatures`;
-  list.innerHTML = "";
-
+  /* CASE C — structured diagnose */
+  const evidenceCount = evidence.reduce((s, m) => s + (m.occurrence_count || 1), 0);
+  // Aggregate resolved-vs-open from top matches
+  let resolvedCount = 0, openCount = 0, lastSeen = null;
   evidence.forEach(m => {
-    const top = evidenceTopLog(m) || {};
-    const recent = evidenceRecentLog(m) || {};
-    const card = el("article", { class: "ev-card" });
-    card.appendChild(el("div", { class: "ev-card-head" }, [
-      el("span", {
-        class: "ev-sig",
-        onclick: () => {
-          $("#hf-q").value = m.event_signature_id || "";
-          setActiveTab("history");
-          runHistoryQuery(0);
-        }
-      }, [m.event_signature_id || "(no sig)"]),
-      el("span", { class: "ev-count" }, [`${m.occurrence_count || 0}×`]),
-    ]));
-
-    const primary = (State.evidenceMode === "recent") ? recent : top;
-    card.appendChild(el("div", { class: "ev-title" }, [primary.title || primary.event_name || "(untitled)"]));
-    if (primary.body) card.appendChild(el("div", { class: "ev-body" }, [primary.body]));
-
-    const meta = el("div", { class: "ev-meta" });
-    if (primary.occurred_at) meta.appendChild(el("span", {}, [fmtDate(primary.occurred_at)]));
-    if (m.first_seen_at) meta.appendChild(el("span", {}, [`first ${fmtDate(m.first_seen_at)}`]));
-    if (m.last_seen_at) meta.appendChild(el("span", {}, [`last ${fmtDate(m.last_seen_at)}`]));
-    if (primary.component_name_raw) meta.appendChild(el("span", {}, [primary.component_name_raw]));
-    if (m.linked_failure_mode_id) meta.appendChild(el("span", {}, [`FM: ${m.linked_failure_mode_id}`]));
-    if (primary.work_order_id) {
-      meta.appendChild(el("a", {
-        onclick: () => setActiveTab("manuals-wo", { sub: "wo" })
-      }, [`WO ${primary.work_order_id}`]));
-    }
-    if (primary.action_taken) meta.appendChild(el("span", {}, [`action: ${primary.action_taken}`]));
-    if (primary.outcome) meta.appendChild(el("span", {}, [`outcome: ${primary.outcome}`]));
-    card.appendChild(meta);
-
-    if (State.evidenceMode === "all" && m.all_log_ids && m.all_log_ids.length > 1) {
-      const hist = el("div", { class: "ev-history" });
-      hist.appendChild(el("div", { class: "rail-label" }, [`Occurrences (${m.all_log_ids.length})`]));
-      hist.appendChild(el("div", { class: "ev-body" }, [m.all_log_ids.join(", ")]));
-      card.appendChild(hist);
-    }
-
-    if (m.rerank_rationale) {
-      card.appendChild(el("div", { class: "ev-body", style: "margin-top:6px;font-style:italic;color:var(--text-faint)" },
-        [m.rerank_rationale]));
-    }
-
-    list.appendChild(card);
+    const top = m.top_match_log || m.top_match || {};
+    const recent = m.most_recent_log || m.most_recent || {};
+    const oc = (top.outcome || recent.outcome || "").toLowerCase();
+    if (oc.includes("resolved") || oc === "ok" || oc === "closed") resolvedCount++;
+    else if (oc) openCount++;
+    const t = recent.occurred_at || top.occurred_at;
+    if (t && (!lastSeen || t > lastSeen)) lastSeen = t;
   });
-}
+  const evidenceChip = evidence.length
+    ? `<button class="cause-evidence-chip" data-act="show-evidence" title="Open past occurrences in inspector">
+         <i class="fa fa-clock-rotate-left"></i>
+         <b>${evidenceCount}</b> similar past event${evidenceCount === 1 ? "" : "s"}
+         ${resolvedCount ? `<span class="ev-pill ok">${resolvedCount} resolved</span>` : ""}
+         ${lastSeen ? `<span class="muted">last: ${relativeTime(lastSeen)}</span>` : ""}
+         <i class="fa fa-arrow-right" style="font-size:9px;opacity:.5"></i>
+       </button>` : "";
 
-// ============== History (browse + semantic) ==============
-async function runHistoryQuery(offset = 0) {
-  if (!State.instanceId) return;
-  const requestId = (State.historyRequestSeq || 0) + 1;
-  State.historyRequestSeq = requestId;
-  const isLatest = () => State.historyRequestSeq === requestId;
-  const tbody = $("#history-tbody");
-  const searchBtn = $("#hf-apply");
-  const mode = $$("#history-mode .seg-btn").find(b => b.classList.contains("active"))?.dataset.mode || "browse";
-  tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Loading…</td></tr>';
-  if (searchBtn) searchBtn.disabled = true;
-  try {
-    if (mode === "browse") {
-      const params = new URLSearchParams();
-      const q = $("#hf-q").value.trim();        if (q) params.set("q", q);
-      const sev = $("#hf-severity").value;       if (sev) params.set("severity_min", sev);
-      const st = $("#hf-status").value;          if (st) params.set("status", st);
-      const ec = $("#hf-event-category").value;  if (ec) params.set("event_category", ec);
-      const mt = $("#hf-maintenance-type").value;if (mt) params.set("maintenance_type", mt);
-      const df = $("#hf-from").value;            if (df) params.set("date_from", df);
-      const dt = $("#hf-to").value;              if (dt) params.set("date_to", dt);
-      params.set("limit", "50");
-      params.set("offset", String(offset || 0));
-      const data = await apiGet(`/instances/${State.instanceId}/logs?` + params.toString());
-      if (!isLatest()) return;
-      renderHistoryRows(data.items || []);
-      renderHistoryPager(data.total, data.offset, data.limit);
-    } else {
-      const q = $("#hf-q").value.trim();
-      if (!q) { tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Type a query for semantic search.</td></tr>'; return; }
-      const body = {
-        query: q,
-        date_from: $("#hf-from").value || undefined,
-        date_to: $("#hf-to").value || undefined,
-        event_category: $("#hf-event-category").value || undefined,
-        maintenance_type: $("#hf-maintenance-type").value || undefined,
-        status: $("#hf-status").value || undefined,
-        severity_min: $("#hf-severity").value ? parseInt($("#hf-severity").value, 10) : undefined,
-        limit: 20,
-        use_llm_rerank: false,
-      };
-      const data = await apiPost(`/instances/${State.instanceId}/log-search`, body);
-      if (!isLatest()) return;
-      // Fetch all occurrences for each matched signature in parallel
-      const sigIds = (data.matches || []).map(m => m.event_signature_id).filter(Boolean);
-      let rows = [];
-      if (sigIds.length) {
-        const fetches = sigIds.map(sid =>
-          apiGet(`/instances/${State.instanceId}/logs?event_signature_id=${encodeURIComponent(sid)}&limit=500`)
-            .then(r => r.items || []).catch(() => [])
-        );
-        const pages = await Promise.all(fetches);
-        if (!isLatest()) return;
-        rows = pages.flat().sort((a, b) => (b.occurred_at || "").localeCompare(a.occurred_at || ""));
-      }
-      if (!rows.length) rows = (data.matches || []).map(m => m.top_match_log).filter(Boolean);
-      renderHistoryRows(rows);
-      const total = rows.length;
-      $("#history-pager").innerHTML = `<span>${data.match_count} signature match${data.match_count !== 1 ? "es" : ""} — ${total} occurrence${total !== 1 ? "s" : ""}</span>`;
-    }
-  } catch (e) {
-    if (!isLatest()) return;
-    tbody.innerHTML = `<tr><td colspan="8" class="td-empty">Error: ${escapeHtml(e.message)}</td></tr>`;
-  } finally {
-    if (isLatest() && searchBtn) searchBtn.disabled = false;
-  }
-}
+  // "Likely cause" callout
+  const causeBlock = `
+    <div class="diag-section cause-section">
+      <div class="diag-section-label">
+        <i class="fa fa-bullseye"></i> Likely cause
+        ${resp.issue_number && resp.total_issues > 1
+          ? `<span class="cause-pos">cause ${resp.issue_number} of ${resp.total_issues}</span>` : ""}
+      </div>
+      <div class="cause-name">${escapeHtml(issue.failure_mode_name || "—")}</div>
+      ${issue.component_name ? `<div class="cause-component">on <strong>${escapeHtml(issue.component_name)}</strong></div>` : ""}
+      ${evidenceChip}
+    </div>`;
 
-function sortHistoryRows(rows) {
-  const { col, dir } = State.historySort;
-  const sorted = [...rows].sort((a, b) => {
-    let va = a[col] ?? (col === "title" ? (a.event_name || "") : "");
-    let vb = b[col] ?? (col === "title" ? (b.event_name || "") : "");
-    if (col === "severity_number") { va = Number(va) || 0; vb = Number(vb) || 0; }
-    const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
-    return dir === "asc" ? cmp : -cmp;
-  });
-  return sorted;
-}
-
-function updateHistorySortHeaders() {
-  $$("#history-table th[data-sort-col]").forEach(th => {
-    const col = th.dataset.sortCol;
-    th.classList.remove("th-sort-asc", "th-sort-desc");
-    if (col === State.historySort.col) th.classList.add(`th-sort-${State.historySort.dir}`);
-  });
-}
-
-function initHistorySort() {
-  $$("#history-table th[data-sort-col]").forEach(th => {
-    th.addEventListener("click", () => {
-      const col = th.dataset.sortCol;
-      if (State.historySort.col === col) {
-        State.historySort.dir = State.historySort.dir === "asc" ? "desc" : "asc";
-      } else {
-        State.historySort.col = col;
-        State.historySort.dir = col === "occurred_at" || col === "severity_number" ? "desc" : "asc";
-      }
-      updateHistorySortHeaders();
-      renderHistoryRows(State.historySortedRows);
-    });
-  });
-}
-
-function renderHistoryRows(rows) {
-  State.historySortedRows = (rows || []).filter(Boolean);
-  const sorted = sortHistoryRows(State.historySortedRows);
-  updateHistorySortHeaders();
-  const tbody = $("#history-tbody");
-  if (!sorted.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="td-empty">No results.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = "";
-  sorted.filter(Boolean).forEach(r => {
-    const tr = el("tr");
-    const sevN = r.severity_number || 0;
-    const actionText = r.action_taken || "";
-    const actionShort = actionText.length > 60 ? actionText.slice(0, 60) + "…" : actionText;
-    tr.appendChild(el("td", {}, [fmtDate(r.occurred_at)]));
-    tr.appendChild(el("td", {}, [el("span", { class: `sev-pill sev-${sevN}` }, [String(sevN)])]));
-    tr.appendChild(el("td", {}, [r.title || r.event_name || ""]));
-    tr.appendChild(el("td", {}, [r.component_name_raw || ""]));
-    tr.appendChild(el("td", {}, [r.maintenance_type || r.event_category || ""]));
-    tr.appendChild(el("td", { title: actionText }, [actionShort]));
-    tr.appendChild(el("td", {}, [r.status || ""]));
-    tr.appendChild(el("td", {}, [r.outcome || ""]));
-    tr.addEventListener("click", () => showLogDetail(r.log_id));
-    tr.style.cursor = "pointer";
-    tbody.appendChild(tr);
-  });
-}
-
-function renderHistoryPager(total, offset, limit) {
-  const wrap = $("#history-pager");
-  wrap.innerHTML = "";
-  const start = Math.min(total, offset + 1);
-  const end = Math.min(total, offset + limit);
-  wrap.appendChild(el("span", {}, [`${start}–${end} of ${total}`]));
-  if (offset > 0)
-    wrap.appendChild(el("button", { class: "btn btn-sm", onclick: () => runHistoryQuery(Math.max(0, offset - limit)) }, ["← Prev"]));
-  if (end < total)
-    wrap.appendChild(el("button", { class: "btn btn-sm", onclick: () => runHistoryQuery(offset + limit) }, ["Next →"]));
-}
-
-async function showLogDetail(logId) {
-  if (!logId) return;
-  try {
-    const r = await apiGet(`/instances/${State.instanceId}/logs/${logId}`);
-    const msg = [
-      r.title || r.event_name,
-      r.occurred_at,
-      r.body,
-      r.action_taken ? "Action: " + r.action_taken : "",
-      r.outcome ? "Outcome: " + r.outcome : "",
-      r.work_order_id ? "WO: " + r.work_order_id : "",
-    ].filter(Boolean).join("\n\n");
-    alert(msg);
-  } catch (e) { toast(e.message, "error"); }
-}
-
-// ============== Trends ==============
-function primeTrendsFromResponse(resp) {
-  const tel = resp?.telemetry;
-  const sel = $("#trends-signal-select");
-  sel.innerHTML = "";
-  if (!tel || !tel.signals) {
-    sel.appendChild(el("option", { value: "" }, ["(no signals)"]));
-    State.selectedSignal = null;
-    return;
-  }
-  Object.keys(tel.signals).forEach(name => sel.appendChild(el("option", { value: name }, [name])));
-  if (!State.selectedSignal || !tel.signals[State.selectedSignal]) {
-    State.selectedSignal = defaultTrendSignal(resp) || Object.keys(tel.signals)[0] || null;
-  }
-  sel.value = State.selectedSignal || "";
-}
-
-function renderTrends() {
-  const tel = State.lastResponse?.telemetry;
-  const canvas = $("#chart-main");
-  const banner = $("#trends-banner");
-  const sigName = State.selectedSignal;
-
-  // The backend stores tel.signals[name] as a flat array of {t, v} points.
-  const sigArray = sigName && tel?.signals?.[sigName];
-  const hasData = Array.isArray(sigArray) && sigArray.length > 0;
-
-  $("#chart-main-title").textContent = sigName || "No signal selected";
-  if (banner) banner.classList.toggle("hidden", !!hasData);
-  if (!hasData) {
-    if (State.chart) { State.chart.destroy(); State.chart = null; }
-    $("#chart-main-sub").textContent = "";
-    $("#chart-kpis").innerHTML = "";
-    $("#chart-markers").innerHTML = '<div class="panel-empty"><i class="fa fa-chart-area panel-empty-icon"></i><div>Run a diagnosis to see linked measurements.</div></div>';
-    return;
+  // "Try this first" + alternatives
+  let actionsBlock = "";
+  if (actions.length) {
+    const primary = renderActionCard(actions[0], true);
+    const altsHtml = actions.length > 1
+      ? `<details class="alt-actions">
+           <summary><i class="fa fa-chevron-right"></i> ${actions.length - 1} alternative action${actions.length - 1 === 1 ? "" : "s"} to try</summary>
+           <div class="alt-actions-list">${actions.slice(1).map(a => renderActionCard(a, false)).join("")}</div>
+         </details>` : "";
+    actionsBlock = `
+      <div class="diag-section action-section">
+        <div class="diag-section-label"><i class="fa fa-screwdriver-wrench"></i> Try this first</div>
+        ${primary}
+        ${altsHtml}
+      </div>`;
   }
 
-  // Parse points
-  const points = sigArray
-    .map(p => ({ x: new Date(p.t || p.timestamp), y: Number(p.v ?? p.value) }))
-    .filter(p => !isNaN(p.x.getTime()) && !isNaN(p.y));
-
-  // Window by selected range (relative to the latest data point, not "now",
-  // because the seed CSVs are not real-time).
-  let filtered = points;
-  if (points.length) {
-    const latest = points[points.length - 1].x.getTime();
-    const cutoff = latest - State.trendsRangeHours * 3600 * 1000;
-    filtered = points.filter(p => p.x.getTime() >= cutoff);
-    if (!filtered.length) filtered = points; // fallback: show everything
-  }
-
-  // KPI tiles from server-side stats
-  const stats = tel.stats?.[sigName] || {};
-  const kpiWrap = $("#chart-kpis");
-  kpiWrap.innerHTML = "";
-  const mkKpi = (label, value, extra = "") => el("div", { class: "kpi" + extra }, [
-    el("span", { class: "kpi-label" }, [label]),
-    el("span", { class: "kpi-value" }, [value]),
-  ]);
-  if (stats.last != null)  kpiWrap.appendChild(mkKpi("Last",  String(stats.last)));
-  if (stats.mean != null)  kpiWrap.appendChild(mkKpi("Mean",  String(stats.mean)));
-  if (stats.min != null)   kpiWrap.appendChild(mkKpi("Min",   String(stats.min)));
-  if (stats.max != null)   kpiWrap.appendChild(mkKpi("Max",   String(stats.max)));
-  if (stats.std != null)   kpiWrap.appendChild(mkKpi("σ",     String(stats.std)));
-  if (stats.trend) {
-    const arrow = stats.trend === "rising" ? "↑" : stats.trend === "falling" ? "↓" : "→";
-    kpiWrap.appendChild(mkKpi("Trend", `${arrow} ${stats.trend}`, ` trend-${stats.trend}`));
-  }
-
-  // Sub-label: range covered + point count
-  if (filtered.length) {
-    const t0 = filtered[0].x.toISOString().slice(0, 16).replace("T", " ");
-    const t1 = filtered[filtered.length - 1].x.toISOString().slice(0, 16).replace("T", " ");
-    $("#chart-main-sub").textContent = `${filtered.length} samples · ${t0} → ${t1} UTC`;
-  } else {
-    $("#chart-main-sub").textContent = "";
-  }
-
-  if (State.chart) State.chart.destroy();
-  State.chart = new Chart(canvas, {
-    type: "line",
-    data: {
-      datasets: [{
-        label: sigName,
-        data: filtered,
-        borderColor: "#2563EB",
-        backgroundColor: "rgba(37,99,235,.10)",
-        borderWidth: 1.6,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        pointHoverBackgroundColor: "#2563EB",
-        tension: 0.25,
-        fill: true,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 250 },
-      interaction: { mode: "nearest", axis: "x", intersect: false },
-      scales: {
-        x: {
-          type: "time",
-          time: { tooltipFormat: "yyyy-MM-dd HH:mm:ss", displayFormats: { hour: "HH:mm", day: "MM-dd" } },
-          title: { display: true, text: "Time", color: "#64748B", font: { size: 11, weight: "600" } },
-          ticks: { color: "#64748B", maxRotation: 0, autoSkipPadding: 16 },
-          grid: { color: "#E2E8F0" },
-        },
-        y: {
-          title: { display: true, text: sigName, color: "#64748B", font: { size: 11, weight: "600" } },
-          ticks: { color: "#64748B" },
-          grid: { color: "#E2E8F0" },
-        },
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: "#0F172A", titleColor: "#fff", bodyColor: "#E2E8F0",
-          borderColor: "#334155", borderWidth: 1, padding: 10,
-          callbacks: { label: ctx => ` ${sigName}: ${ctx.parsed.y}` },
-        },
-        zoom: {
-          pan:  { enabled: true, mode: "x", modifierKey: null },
-          zoom: {
-            wheel: { enabled: true, speed: 0.08 },
-            pinch: { enabled: true },
-            drag:  { enabled: false },
-            mode: "x",
-          },
-          limits: { x: { minRange: 60 * 1000 } },
-        },
-      },
-      onDoubleClick: () => State.chart && State.chart.resetZoom(),
-    },
-  });
-  // Native dblclick fallback (Chart.js doesn't proxy onDoubleClick by default)
-  canvas.ondblclick = () => State.chart && State.chart.resetZoom();
-
-  // Markers from log_evidence
-  const wrap = $("#chart-markers");
-  wrap.innerHTML = "";
-  const ev = State.lastResponse?.log_evidence || [];
-  if (!ev.length) wrap.innerHTML = '<div class="panel-empty">No event markers.</div>';
-  ev.forEach(m => {
-    const top = evidenceTopLog(m) || {};
-    const recent = evidenceRecentLog(m) || {};
-    const t = recent.occurred_at || m.last_seen_at;
-    const line = el("div", { class: "mk" }, [
-      `${fmtDate(t)} — ${top.title || m.event_signature_id} (${m.occurrence_count}×)`
-    ]);
-    wrap.appendChild(line);
-  });
+  return causeBlock + actionsBlock;
 }
 
-// ============== Manuals & WO ==============
-function renderManualsAndWO() {
-  const evidence = State.lastResponse?.log_evidence || [];
-  const issue = State.lastResponse?.current_issue;
+function buildDiagnoseFooter(c) {
+  const resp = c.response;
+  const hasMore = !!resp?.has_more_issues;
 
-  // Manuals: derive from action_options sources (keeps reference manuals above intact)
-  const manuals = $("#manuals-cited") || $("#mwo-manuals");
-  manuals.innerHTML = "";
-  const sources = (issue?.action_options || []).filter(o => o.source_title || o.source_reference);
-  if (!sources.length) {
-    manuals.appendChild(el("div", { class: "manuals-section-label" }, ["Cited in current diagnosis"]));
-    manuals.appendChild(el("div", { class: "panel-empty" }, [
-      el("i", { class: "fa fa-quote-left panel-empty-icon" }),
-      el("div", {}, ["No manual excerpts cited yet."])
-    ]));
-  } else {
-    manuals.appendChild(el("div", { class: "manuals-section-label" }, ["Cited in current diagnosis"]));
-    sources.forEach(o => {
-      const c = el("div", { class: "manual-card" });
-      c.appendChild(el("div", { class: "mc-title" }, [o.source_title || o.source_reference || "Source"]));
-      const url = buildManualUrl(o.source_title, o.source_reference);
-      const pageMatch = String(o.source_reference || "").match(/(\d+)/);
-      if (url) {
-        const label = pageMatch ? `Open at p. ${pageMatch[1]}` : "Open manual";
-        const src = el("div", { class: "mc-src" });
-        src.appendChild(el("a", { onclick: () => openManual(url, o.source_title) }, [label]));
-        c.appendChild(src);
-      }
-      if (o.instruction_text) {
-        const ex = el("div", { class: "mc-excerpt markdown-body" });
-        ex.innerHTML = renderMarkdown(o.instruction_text);
-        c.appendChild(ex);
-      }
-      manuals.appendChild(c);
-    });
+  if (c.outcome === "resolved") {
+    return `
+      <div class="case-foot foot-resolved">
+        <span class="foot-state-label"><i class="fa-solid fa-circle-check"></i> Case resolved · feedback recorded</span>
+        <div class="case-foot-right">
+          <button class="ghost-btn" data-act="reopen"><i class="fa fa-rotate-left"></i> Reopen</button>
+        </div>
+      </div>`;
   }
 
-  // Work orders: derive from log_evidence
-  const wo = $("#mwo-wo");
-  wo.innerHTML = "";
-  const woMap = new Map();
+  if (c.outcome === "not_resolved") {
+    return `
+      <div class="case-foot foot-not-resolved">
+        <span class="foot-state-label"><i class="fa-solid fa-circle-xmark"></i> Marked not resolved</span>
+        <div class="case-foot-right">
+          ${hasMore ? `<button class="primary-btn" data-act="next-cause"><i class="fa fa-forward"></i> Try next likely cause</button>` : ""}
+          <button class="ghost-btn" data-act="follow-up"><i class="fa fa-comments"></i> Ask follow-up</button>
+        </div>
+      </div>`;
+  }
+
+  // Default — awaiting outcome
+  return `
+    <div class="case-foot">
+      <span class="foot-state-label">After running the action above:</span>
+      <button class="outcome-btn ok" data-out="resolved">
+        <i class="fa-solid fa-check"></i> It worked
+      </button>
+      <button class="outcome-btn ${hasMore ? "next" : "no"}" data-out="not_resolved">
+        <i class="fa-solid fa-${hasMore ? "forward" : "xmark"}"></i>
+        ${hasMore ? "Didn't work — try next" : "Didn't work"}
+      </button>
+      <div class="case-foot-right">
+        <button class="ghost-btn" data-act="follow-up" title="Continue this case with a follow-up question">
+          <i class="fa fa-comments"></i> Ask follow-up
+        </button>
+      </div>
+    </div>`;
+}
+
+/* ============================================================
+   PAST EVENTS BODY
+   ============================================================ */
+function buildPastBody(c) {
+  const resp = c.response;
+  if (!resp) return "";
+
+  const evidence = resp.log_evidence || [];
+  const total = evidence.reduce((s, m) => s + (m.occurrence_count || 1), 0);
+  const sigCount = evidence.length;
+
+  // Collect event rows
+  const rows = [];
   evidence.forEach(m => {
-    const candidates = [evidenceTopLog(m), evidenceRecentLog(m)];
-    candidates.forEach(c => {
-      if (!c || !c.work_order_id) return;
-      if (!woMap.has(c.work_order_id)) woMap.set(c.work_order_id, c);
-    });
+    const top = m.top_match_log || m.top_match || {};
+    const recent = m.most_recent_log || m.most_recent || {};
+    if (top.log_id || top.occurred_at) rows.push({ ...top, _sig: m.event_signature_id, _count: m.occurrence_count });
+    if (recent.log_id && recent.log_id !== top.log_id) rows.push({ ...recent, _sig: m.event_signature_id });
   });
-  if (!woMap.size) {
-    wo.appendChild(el("div", { class: "panel-empty" }, ["No work orders referenced in the latest log evidence."]));
-    return;
-  }
-  woMap.forEach((r, woId) => {
-    const c = el("div", { class: "wo-card" });
-    c.appendChild(el("div", { class: "wo-head" }, [
-      el("span", { class: "wo-id" }, [woId]),
-      el("span", { class: "wo-meta" }, [
-        [r.maintenance_type, r.status, r.outcome].filter(Boolean).join(" · ") || "—"
-      ]),
-    ]));
-    c.appendChild(el("div", { class: "wo-title" }, [r.title || r.event_name || "(untitled)"]));
-    const meta = [];
-    if (r.actual_duration_min) meta.push(`${r.actual_duration_min} min`);
-    if (r.action_taken) meta.push(r.action_taken);
-    if (meta.length) c.appendChild(el("div", { class: "wo-body" }, [meta.join(" — ")]));
-    wo.appendChild(c);
-  });
+  rows.sort((a, b) => (b.occurred_at || "").localeCompare(a.occurred_at || ""));
+
+  const tableHtml = rows.length ? `
+    <table class="events-table">
+      <thead>
+        <tr>
+          <th>When</th><th>Sev</th><th>Title</th><th>Component</th><th>Action taken</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 12).map(r => `
+          <tr>
+            <td><span style="font-family:var(--font-mono);color:var(--slate-500);font-size:11px;">${fmtDate(r.occurred_at)}</span></td>
+            <td><span class="sev-pill s${r.severity_number || 0}">${r.severity_number || "—"}</span></td>
+            <td><div class="ev-title-cell">${escapeHtml(r.title || r.event_name || "")}</div></td>
+            <td><span class="ev-comp">${escapeHtml(r.component_name_raw || "")}</span></td>
+            <td>${escapeHtml(r.action_taken || "—")}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>
+  ` : `<div style="color:var(--slate-500);font-style:italic;padding:8px 0;">${renderMarkdown(resp.reply || "No events found.")}</div>`;
+
+  return `
+    <div class="past-summary">
+      <div class="past-summary-card">
+        <div class="psc-label">Total events</div>
+        <div class="psc-value">${total}</div>
+        <div class="psc-sub">${sigCount} distinct signature${sigCount !== 1 ? "s" : ""}</div>
+      </div>
+      <div class="past-summary-card">
+        <div class="psc-label">Most recent</div>
+        <div class="psc-value" style="font-size:13px;margin-top:6px;">${rows[0] ? fmtDate(rows[0].occurred_at) : "—"}</div>
+      </div>
+      <div class="past-summary-card">
+        <div class="psc-label">Top component</div>
+        <div class="psc-value" style="font-size:12px;margin-top:6px;">${evidence[0]?.top_match_log?.component_name_raw || evidence[0]?.top_match?.component_name_raw || "—"}</div>
+      </div>
+    </div>
+    ${tableHtml}
+  `;
 }
 
-// Discover which PDF manuals exist for the current instance, via HEAD probes
-// against the static /manuals/ mount. We can't list the directory, so we
-// generate likely filenames from product metadata.
-async function discoverInstanceManuals() {
-  const wrap = $("#manuals-reference");
-  if (!wrap) return;
-  wrap.innerHTML = "";
-  const p = State.productMeta || {};
-  const primary = [];
-  const fallback = [];
-  const push = (list, name) => {
-    if (!name) return;
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (!primary.includes(trimmed) && !fallback.includes(trimmed)) list.push(trimmed);
-  };
-  push(primary, p.product_short_name);
-  push(primary, p.product_name);
-  // Known products in the seed
-  if (/bambu/i.test(p.product_name || "")) push(primary, "Bambu Lab P1 series manual");
-  if (/irc/i.test(p.product_short_name || p.product_name || "")) push(primary, "IRC5");
-  if (p.product_name) push(fallback, p.product_name + " manual");
-  if (p.product_name) push(fallback, p.product_name + " series manual");
+function buildPastFooter(c) {
+  return `
+    <div class="case-foot">
+      <span class="case-foot-label">Want to act on this?</span>
+      <button class="outcome-btn" data-act="spawn-diag">
+        <i class="fa fa-stethoscope"></i> Start a diagnosis from a row
+      </button>
+      <div class="case-foot-right">
+        <button class="next-cause-cta" data-act="export-csv">
+          <i class="fa fa-file-export"></i> Export CSV
+        </button>
+      </div>
+    </div>
+  `;
+}
 
-  const found = [];
-  const probe = async (names) => {
-    for (const name of names) {
-      const url = `/manuals/${encodeURIComponent(name)}.pdf`;
+/* ============================================================
+   WIRE CASE INTERACTIONS
+   ============================================================ */
+function wireCase(article, c) {
+  // Resolve current selected action freshly from DOM each time
+  const getSelectedActionId = () => {
+    const sel = article.querySelector(".action-card.primary[data-action-id]")
+             || article.querySelector(".action-card[data-action-id]");
+    return sel?.dataset.actionId || c.response?.current_issue?.action_options?.[0]?.action_id || null;
+  };
+
+  // Refresh just the footer (without re-wiring — delegation handles it)
+  const refreshFooter = () => {
+    const f = article.querySelector(".case-foot");
+    if (f) f.outerHTML = buildDiagnoseFooter(c);
+  };
+
+  article.addEventListener("click", async e => {
+    // Mode toggle
+    const mt = e.target.closest(".mt-btn");
+    if (mt) {
+      const toggle = mt.closest("[data-mode-toggle]");
+      toggle.querySelectorAll(".mt-btn").forEach(b => b.classList.remove("active"));
+      mt.classList.add("active");
+      c.mode = mt.dataset.mode;
+      toast(mt.dataset.mode === "fast"
+        ? "Fast mode — one-shot recommendation"
+        : "Guided mode — step-by-step questions");
+      return;
+    }
+
+    // Manual link chip — must come BEFORE generic action-card handler
+    const ml = e.target.closest(".manual-link");
+    if (ml) {
+      e.stopPropagation();
+      openInspector("pdf", { title: ml.dataset.manualTitle, page: ml.dataset.manualPage });
+      return;
+    }
+
+    // Outcome buttons (worked / didn't work)
+    const out = e.target.closest("[data-out]");
+    if (out) {
+      const k = out.dataset.out; // "resolved" | "not_resolved"
+      out.disabled = true;
+      out.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving…';
+      const selId = getSelectedActionId();
       try {
-        const res = await fetch(url, { method: "HEAD" });
-        if (res.ok && !found.some(m => m.url === url)) found.push({ name, url });
-      } catch {}
+        await apiPost(`/instances/${State.instanceId}/log-outcome`, {
+          session_id: c.sessionId,
+          outcome: k,
+          selected_action_id: selId || undefined,
+        });
+        c.outcome = k;
+        toast(k === "resolved" ? "✓ Marked as resolved" : "Marked as not resolved");
+        refreshFooter();
+        // Auto-fetch next likely cause if user said it didn't work and there is one
+        if (k === "not_resolved" && c.response?.has_more_issues) {
+          await handleNextCause(c, article);
+        }
+      } catch (err) {
+        toast("Failed to save outcome: " + err.message);
+        refreshFooter();
+      }
+      return;
     }
-  };
-  await probe(primary);
-  if (!found.length) await probe(fallback);
 
-  if (!found.length) return;
-  wrap.appendChild(el("div", { class: "manuals-section-label" }, ["Reference manuals"]));
-  found.forEach(m => {
-    const card = el("div", { class: "ref-manual" }, [
-      el("div", { class: "ref-manual-info" }, [
-        el("div", { class: "ref-manual-icon" }, [el("i", { class: "fa fa-file-pdf" })]),
-        el("div", { class: "ref-manual-meta" }, [
-          el("div", { class: "ref-manual-name" }, [m.name + ".pdf"]),
-          el("div", { class: "ref-manual-sub" }, [p.product_type || "Reference document"]),
-        ]),
-      ]),
-      el("div", { class: "ref-manual-actions" }, [
-        el("button", {
-          class: "btn btn-sm btn-primary",
-          onclick: () => openManual(m.url, m.name + ".pdf")
-        }, [el("i", { class: "fa fa-book-open" }), " Open"]),
-        el("a", {
-          class: "btn btn-sm btn-ghost",
-          href: m.url, target: "_blank", rel: "noopener",
-          title: "Open in new tab"
-        }, [el("i", { class: "fa fa-external-link-alt" })]),
-      ]),
-    ]);
-    wrap.appendChild(card);
+    // Reopen (resolved → undo)
+    const reopen = e.target.closest("[data-act='reopen']");
+    if (reopen) {
+      c.outcome = null;
+      refreshFooter();
+      return;
+    }
+
+    // Follow-up — focus composer with this case's session_id
+    const fu = e.target.closest("[data-act='follow-up']");
+    if (fu) {
+      const ta = $("#composer");
+      const issueName = c.response?.current_issue?.failure_mode_name || "this issue";
+      const compName  = c.response?.current_issue?.component_name;
+      const action = c.response?.current_issue?.action_options?.[0]?.action_name;
+      ta.value = `I tried "${action || "the suggested action"}" for ${issueName}${compName ? " on " + compName : ""}, but the symptom persists. What else should I check?`;
+      ta.dispatchEvent(new Event("input"));
+      ta.focus();
+      // Tag composer with session id so onSend continues the case
+      ta.dataset.continueSessionId = c.sessionId;
+      toast("Edit the question, then press Enter to continue this case");
+      return;
+    }
+
+    // Action select (primary swap)
+    const actionEl = e.target.closest(".action-card[data-action-id]");
+    if (actionEl) {
+      article.querySelectorAll(".action-card").forEach(el => el.classList.remove("primary"));
+      article.querySelectorAll(".action-card").forEach(el => el.classList.add("alt"));
+      actionEl.classList.add("primary");
+      actionEl.classList.remove("alt");
+      return;
+    }
+
+    // Clarification option
+    const clarify = e.target.closest(".clarify-opt");
+    if (clarify) {
+      const text = clarify.dataset.clarify;
+      if (text) {
+        $("#composer").value = text;
+        $("#composer").dispatchEvent(new Event("input"));
+        onSend(c.sessionId);
+      }
+      return;
+    }
+
+    // Evidence chip → open inspector with full past-occurrences panel
+    const evi = e.target.closest("[data-act='show-evidence']");
+    if (evi) {
+      openInspector("evidence", { caseObj: c });
+      return;
+    }
+
+    // "Diagnose this" from a past-evidence row → spawn new case using row title
+    const dthis = e.target.closest("[data-act='diagnose-row']");
+    if (dthis) {
+      const seed = dthis.dataset.seed || "";
+      if (seed) {
+        const ta = $("#composer");
+        ta.value = seed;
+        ta.dispatchEvent(new Event("input"));
+        delete ta.dataset.continueSessionId;
+        ta.focus();
+        toast("Question prefilled — press Enter to spawn a new diagnose case");
+      }
+      return;
+    }
+
+    // Next possible cause (manual trigger)
+    const nc = e.target.closest("[data-act='next-cause']");
+    if (nc && !nc.disabled) {
+      await handleNextCause(c, article);
+      return;
+    }
+
+    // Spawn diagnosis from past card
+    const sd = e.target.closest("[data-act='spawn-diag']");
+    if (sd) { toast("Click a row in the table, then use 'Troubleshoot now'"); return; }
+
+    // Export CSV
+    const ex = e.target.closest("[data-act='export-csv']");
+    if (ex) { toast("Export CSV — coming soon"); return; }
+
+    // Bookmark
+    const bm = e.target.closest("[data-act='bookmark']");
+    if (bm) {
+      const on = BookmarkStore.toggle(c.sessionId);
+      const icon = bm.querySelector("i");
+      icon.className = on ? "fa-solid fa-bookmark" : "fa-regular fa-bookmark";
+      bm.classList.toggle("on", on);
+      toast(on ? "★ Case bookmarked" : "Bookmark removed");
+      renderSessions();
+      return;
+    }
+
+    // Three-dots menu open
+    const mtrig = e.target.closest("[data-act='menu']");
+    if (mtrig) {
+      e.stopPropagation();
+      const menu = mtrig.parentElement.querySelector(".case-menu");
+      const wasOpen = !menu.hidden;
+      document.querySelectorAll(".case-menu").forEach(m => { m.hidden = true; });
+      menu.hidden = wasOpen;
+      return;
+    }
+
+    // Menu items
+    const item = e.target.closest(".cm-item");
+    if (item) {
+      item.closest(".case-menu").hidden = true;
+      const action = item.dataset.menu;
+      if (action === "rerun") {
+        const ta = $("#composer");
+        ta.value = c.question;
+        ta.dispatchEvent(new Event("input"));
+        ta.focus();
+        const pill = document.querySelector(`.intent-pill[data-intent="${c.kind}"]`);
+        if (pill && !pill.dataset.soon) {
+          document.querySelectorAll(".intent-pill").forEach(p => p.classList.remove("active"));
+          pill.classList.add("active");
+          State.activeIntent = c.kind;
+          updateIntentExplain();
+        }
+        toast("Question reloaded — press Enter to re-run");
+      } else if (action === "copylink") {
+        const url = location.href.split("#")[0] + "#case=" + c.sessionId;
+        navigator.clipboard?.writeText(url).then(
+          () => toast("🔗 Link copied"),
+          () => toast("Link: " + url)
+        ) ?? toast("Link: " + url);
+      } else if (action === "exportpdf") {
+        toast("🖨 Opening print dialog…");
+        setTimeout(() => window.print(), 300);
+      } else if (action === "delete") {
+        if (confirm(`Delete this case?\n\n"${c.question}"\n\nThis cannot be undone.`)) {
+          // Remove from local state
+          const idx = State.cases.findIndex(x => x.id === c.id);
+          if (idx >= 0) State.cases.splice(idx, 1);
+          // Remove bookmark if any
+          const bs = BookmarkStore.get();
+          if (bs.has(c.sessionId)) { bs.delete(c.sessionId); BookmarkStore.save(bs); }
+          if (c.sessionId === restoreSessionId()) clearSessionId();
+          renderSpine();
+          renderSessions();
+          toast("Case deleted");
+        }
+      }
+    }
   });
 }
 
-function openManual(ref, title) {
-  if (!ref) return;
-  let url;
-  if (ref.startsWith("http")) url = ref;
-  else if (ref.startsWith("/manuals/")) url = ref;
-  else url = `/manuals/${ref}`;
-  $("#pdf-overlay").classList.remove("hidden");
-  $("#pdf-title").textContent = title || decodeURIComponent(url.split("/").pop().split("#")[0]);
-  $("#pdf-iframe").src = url;
-}
-
-// ============== Thread + recent actions ==============
-function appendThread(role, text, extra) {
-  const wrap = $("#thread");
-  const node = el("div", { class: "msg " + role });
-  if (role === "assistant") {
-    node.innerHTML = renderMarkdown(text);
-    if (extra) {
-      if (extra.issue_number && extra.total_issues) {
-        node.appendChild(el("div", { class: "msg-issue-counter" },
-          [`Possible cause ${extra.issue_number} of ${extra.total_issues}`]));
-      }
-      if (extra.current_issue && hasTrendData(extra)) {
-        const signals = trendSignalNames(extra);
-        node.appendChild(el("button", {
-          class: "msg-trends-link",
-          onclick: () => openTrendsFromChat(defaultTrendSignal(extra))
-        }, [
-          el("i", { class: "fa fa-chart-area" }),
-          `Open correlated trends${signals.length ? ` (${signals.length})` : ""}`,
-        ]));
-      }
-      const scores = extra.highlight?.scores || extra.scores;
-      if (scores && Object.keys(scores).length) {
-        const top = Math.max(...Object.values(scores));
-        const pct = Math.round(top * 100);
-        const color = top >= 0.75 ? "var(--green-500)" : top >= 0.55 ? "var(--yellow-400)" : "var(--red-400)";
-        const wrapBar = el("div", { class: "msg-confidence" }, [
-          `Match confidence: ${pct}%`,
-          el("div", { class: "msg-confidence-bar" }, [
-            el("div", { class: "msg-confidence-fill", style: `width:${pct}%;background:${color}` })
-          ])
-        ]);
-        node.appendChild(wrapBar);
-      }
-    }
-  } else {
-    node.textContent = text;
-  }
-  wrap.appendChild(node);
-  wrap.scrollTop = wrap.scrollHeight;
-  return node;
-}
-
-function appendTypingIndicator() {
-  const wrap = $("#thread");
-  const node = el("div", { class: "msg typing" }, [
-    el("span", { class: "dots" }, [
-      el("span", { class: "dot" }), el("span", { class: "dot" }), el("span", { class: "dot" }),
-    ]),
-    el("span", { class: "label" }, ["Thinking…"]),
-  ]);
-  wrap.appendChild(node);
-  wrap.scrollTop = wrap.scrollHeight;
-  return node;
-}
-
-function renderRecentActions() {
-  const ul = $("#recent-actions");
-  ul.innerHTML = "";
-  State.recentActions.forEach(a => {
-    ul.appendChild(el("li", {}, [
-      el("span", { class: "ra-time" }, [a.time]),
-      a.label,
-    ]));
-  });
-}
-
-// ============== Reload ==============
-async function onReloadCaches() {
-  if (!State.instanceId) return;
+/* ============================================================
+   NEXT POSSIBLE CAUSE
+   ============================================================ */
+async function handleNextCause(c, article) {
+  if (!c.sessionId) return;
+  const ncBtn = article.querySelector("[data-act='next-cause']");
+  if (ncBtn) { ncBtn.disabled = true; ncBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Loading next cause…'; }
   try {
-    await apiPost(`/instances/${State.instanceId}/reload`, {});
-    toast("Caches reloaded");
-    await loadInstanceContext(State.instanceId);
-  } catch (e) { toast(e.message, "error"); }
+    const resp = await apiPost(`/instances/${State.instanceId}/next-issue`, {
+      session_id: c.sessionId,
+      mode: c.mode || "fast",
+    });
+    c.response = resp;
+    c.outcome = null; // fresh cause → fresh feedback
+    const bodyEl = article.querySelector(".case-body");
+    if (bodyEl) bodyEl.innerHTML = buildDiagnoseBody(c);
+    const footEl = article.querySelector(".case-foot");
+    if (footEl) footEl.outerHTML = buildDiagnoseFooter(c);
+    toast("Next possible cause loaded");
+  } catch (e) {
+    toast("Failed: " + e.message);
+    if (ncBtn) { ncBtn.disabled = false; ncBtn.innerHTML = '<i class="fa fa-forward"></i> Try next likely cause'; }
+  }
 }
 
-// ============== Advanced (KG) ==============
+/* ============================================================
+   COMPOSER
+   ============================================================ */
+const intentMeta = {
+  diagnose: { explain: "A guided diagnosis card will open in your spine." },
+  past:     { explain: "A past-events card with history and filters will open." },
+};
+
+function setupComposer() {
+  const pills = $$(".intent-pill");
+  pills.forEach(b => {
+    b.addEventListener("click", () => {
+      if (b.dataset.soon) {
+        toast("🚧 Funzionalità in sviluppo — disponibile a breve");
+        return;
+      }
+      pills.forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      State.activeIntent = b.dataset.intent;
+      updateIntentExplain();
+    });
+  });
+
+  const ta = $("#composer");
+  ta.addEventListener("input", () => {
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+  });
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(ta.dataset.continueSessionId || null); }
+  });
+  $("#send-btn").addEventListener("click", () => onSend(ta.dataset.continueSessionId || null));
+  ta.addEventListener("input", () => {
+    // Clear continueSessionId once the user starts editing (so the next plain send opens a new case)
+    if (ta.dataset.continueWatermark !== ta.value && ta.dataset.continueSessionId) {
+      // Keep it for one send if the value still matches the prefilled prompt; clear once user types beyond it
+      // (No-op kept simple — clear it when the user wipes the textarea entirely.)
+      if (!ta.value.trim()) delete ta.dataset.continueSessionId;
+    }
+  });
+
+  // Read deeplink #case= on load
+  const hash = location.hash.match(/#case=(.+)/);
+  if (hash) setTimeout(() => loadSession(hash[1]), 500);
+}
+
+function updateIntentExplain() {
+  const el = $("#intent-explain");
+  if (el) el.textContent = (intentMeta[State.activeIntent] || intentMeta.diagnose).explain;
+}
+
+/* ---------- SEND ---------- */
+async function onSend(continueSessionId = null) {
+  const ta = $("#composer");
+  const message = (ta.value || "").trim();
+  if (!message) { toast("Type your question first"); return; }
+  if (!State.instanceId) { toast("Pick an asset first"); return; }
+
+  ta.value = "";
+  ta.style.height = "auto";
+  delete ta.dataset.continueSessionId; // consumed
+
+  // Create a loading placeholder case
+  const now = new Date();
+  const ts = now.toTimeString().slice(0, 5);
+  const tempId = "case-tmp-" + Date.now();
+  const kind = State.activeIntent === "past" ? "past" : "diagnose";
+
+  const caseObj = {
+    id: tempId,
+    kind,
+    question: message,
+    ts,
+    sessionId: continueSessionId || null,
+    response: null,
+    mode: "fast",
+    outcome: null,
+  };
+
+  State.cases.push(caseObj);
+  State.activeCaseId = tempId;
+  renderSpine();
+  scrollToCase(tempId);
+
+  const sendBtn = $("#send-btn");
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const body = {
+      message,
+      session_id: continueSessionId || undefined,
+      mode: caseObj.mode,
+    };
+    const resp = await apiPost(`/instances/${State.instanceId}/chat`, body);
+    const realSessionId = resp.session_id;
+    const realKind = resp.behavior_mode === "search_past_events" ? "past" : "diagnose";
+
+    // Update the case in State.cases
+    const idx = State.cases.findIndex(x => x.id === tempId);
+    if (idx >= 0) {
+      State.cases[idx].sessionId = realSessionId;
+      State.cases[idx].id = "case-" + realSessionId;
+      State.cases[idx].kind = realKind;
+      State.cases[idx].response = resp;
+      State.activeCaseId = State.cases[idx].id;
+    }
+
+    persistSessionId(realSessionId);
+
+    // Update sessions list
+    const existingSession = State.sessions.find(s => s.session_id === realSessionId);
+    if (!existingSession) {
+      State.sessions.unshift({
+        session_id: realSessionId,
+        first_user_message: message,
+        message_count: 2,
+        last_message_at: new Date().toISOString(),
+        behavior_mode: resp.behavior_mode,
+      });
+    } else {
+      existingSession.last_message_at = new Date().toISOString();
+      existingSession.message_count = (existingSession.message_count || 0) + 2;
+    }
+
+    renderSpine();
+    renderSessions();
+    scrollToCase(State.activeCaseId);
+  } catch (e) {
+    // Mark case as error
+    const idx = State.cases.findIndex(x => x.id === tempId);
+    if (idx >= 0) {
+      State.cases[idx].response = { reply: "Error: " + e.message };
+      State.cases[idx].kind = "diagnose";
+      renderSpine();
+    }
+    toast("Error: " + e.message);
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+/* ============================================================
+   INSPECTOR
+   ============================================================ */
+// Tracks current inspector content for the "open in new window" button
+const InspState = { kind: null, payload: null };
+
+function setupInspector() {
+  const insp = $("#inspector");
+
+  $("#insp-close").addEventListener("click", e => {
+    e.stopPropagation();
+    closeInspector();
+  });
+
+  $("#insp-external").addEventListener("click", () => {
+    if (InspState.kind === "pdf") {
+      const { title, page } = InspState.payload;
+      window.open(manualUrl(title, page), "_blank", "noopener");
+    } else if (InspState.kind === "kg") {
+      openKGWindow();
+    }
+  });
+
+  insp.addEventListener("click", () => {
+    if (window.innerWidth <= 1080 && !insp.classList.contains("overlay")) {
+      insp.classList.add("overlay");
+      return;
+    }
+    if (document.body.classList.contains("inspector-collapsed")) {
+      document.body.classList.remove("inspector-collapsed");
+    }
+  });
+}
+
+function openInspector(kind, payload) {
+  const insp = $("#inspector");
+  document.body.classList.remove("inspector-collapsed");
+  if (window.innerWidth <= 1080) insp.classList.add("overlay");
+
+  InspState.kind = kind;
+  InspState.payload = payload || {};
+
+  $("#insp-empty").hidden = true;
+  $("#insp-content").hidden = false;
+  const crumb   = $("#insp-crumb");
+  const body    = $("#insp-body");
+  const extBtn  = $("#insp-external");
+
+  if (kind === "kg") {
+    extBtn.hidden = false;
+    crumb.innerHTML = `
+      <span class="insp-icon"><i class="fa fa-project-diagram"></i></span>
+      <span class="insp-kind">KNOWLEDGE GRAPH</span>
+      <span class="insp-name">Asset network</span>
+    `;
+    body.innerHTML = `
+      <div class="insp-kg" id="kg-container"></div>
+      <div class="kg-legend" id="kg-legend-inner"></div>
+    `;
+    loadKGGraph();
+
+  } else if (kind === "pdf") {
+    const { title, page } = payload || {};
+    const url = manualUrl(title, page);
+    extBtn.hidden = false;
+    crumb.innerHTML = `
+      <span class="insp-icon"><i class="fa fa-file-pdf"></i></span>
+      <span class="insp-kind">MANUAL</span>
+      <span class="insp-name">${escapeHtml(title || "Document")}${page ? " · §" + page : ""}</span>
+    `;
+    body.innerHTML = `<div class="insp-pdf"><iframe src="${encodeURI(url)}" title="${escapeHtml(title || "Manual")}"></iframe></div>`;
+
+  } else if (kind === "evidence") {
+    extBtn.hidden = true; // no external view for evidence (yet)
+    const c = payload?.caseObj;
+    const issue = c?.response?.current_issue || {};
+    crumb.innerHTML = `
+      <span class="insp-icon"><i class="fa fa-clock-rotate-left"></i></span>
+      <span class="insp-kind">PAST OCCURRENCES</span>
+      <span class="insp-name">${escapeHtml(issue.failure_mode_name || "Evidence")}${issue.component_name ? " · " + escapeHtml(issue.component_name) : ""}</span>
+    `;
+    body.innerHTML = renderEvidencePanel(c);
+  }
+}
+
+/* ---------- Evidence panel renderer ---------- */
+function renderEvidencePanel(c) {
+  const resp = c?.response || {};
+  const evidence = resp.log_evidence || [];
+  if (!evidence.length) {
+    return `<div class="ev-panel-empty">No past evidence available for this diagnosis.</div>`;
+  }
+
+  // Pick the global "top" — first item is highest score per backend ordering
+  const head = evidence[0];
+  const topLog = head.top_match_log || head.top_match || {};
+  const recentLog = head.most_recent_log || head.most_recent || {};
+
+  const sevPill = sev => sev != null ? `<span class="sev-pill s${sev}">${sev}</span>` : "—";
+  const fmtOutcome = oc => {
+    const s = (oc || "").toLowerCase();
+    if (!s) return `<span class="ev-out unk">unknown</span>`;
+    if (s.includes("resolved") || s === "ok" || s === "closed") return `<span class="ev-out ok"><i class="fa fa-check"></i> ${escapeHtml(oc)}</span>`;
+    return `<span class="ev-out warn">${escapeHtml(oc)}</span>`;
+  };
+
+  // Build flat row list across all signatures
+  const rows = [];
+  evidence.forEach(m => {
+    const t = m.top_match_log || m.top_match || {};
+    const r = m.most_recent_log || m.most_recent || {};
+    const seen = new Set();
+    [t, r].forEach(rec => {
+      if (rec && rec.log_id && !seen.has(rec.log_id)) {
+        seen.add(rec.log_id);
+        rows.push({ ...rec, _sig: m.event_signature_id, _isTop: rec.log_id === t.log_id });
+      }
+    });
+  });
+  rows.sort((a, b) => (b.occurred_at || "").localeCompare(a.occurred_at || ""));
+
+  // Top-match featured card
+  const topCard = `
+    <section class="ev-top-card">
+      <div class="ev-top-head">
+        <span class="ev-badge"><i class="fa fa-bullseye"></i> CLOSEST MATCH</span>
+        ${head.score != null ? `<span class="ev-score">${Math.round(head.score * 100)}% similarity</span>` : ""}
+      </div>
+      <div class="ev-top-title">${escapeHtml(topLog.title || topLog.event_name || head.event_signature_id || "Past event")}</div>
+      <div class="ev-top-meta">
+        ${sevPill(topLog.severity_number)}
+        <span><i class="fa fa-calendar"></i> ${fmtDate(topLog.occurred_at)} <span class="muted">(${relativeTime(topLog.occurred_at)})</span></span>
+        ${topLog.component_name_raw ? `<span><i class="fa fa-microchip"></i> ${escapeHtml(topLog.component_name_raw)}</span>` : ""}
+        ${topLog.work_order_id ? `<span><i class="fa fa-clipboard-list"></i> WO ${escapeHtml(topLog.work_order_id)}</span>` : ""}
+      </div>
+      ${topLog.body ? `<div class="ev-top-body">${escapeHtml(topLog.body)}</div>` : ""}
+
+      <div class="ev-resolved-block">
+        <div class="ev-resolved-head"><i class="fa-solid fa-wrench"></i> HOW IT WAS RESOLVED</div>
+        ${topLog.action_taken
+          ? `<div class="ev-resolved-text">${escapeHtml(topLog.action_taken)}</div>`
+          : `<div class="ev-resolved-text muted-italic">No action recorded for this event.</div>`}
+        <div class="ev-resolved-foot">
+          ${fmtOutcome(topLog.outcome)}
+          ${topLog.downtime_min != null ? `<span class="ev-foot-stat">Downtime <b>${topLog.downtime_min} min</b></span>` : ""}
+          ${topLog.actual_duration_min != null ? `<span class="ev-foot-stat">Repair time <b>${topLog.actual_duration_min} min</b></span>` : ""}
+        </div>
+      </div>
+
+      <div class="ev-top-actions">
+        <button class="primary-btn" data-act="diagnose-row" data-seed="${escapeHtml(topLog.title || head.event_signature_id || "")}">
+          <i class="fa fa-stethoscope"></i> Diagnose this
+        </button>
+      </div>
+    </section>`;
+
+  // All occurrences table
+  const tableRows = rows.slice(0, 30).map(r => `
+    <tr>
+      <td><span class="muted">${fmtDate(r.occurred_at)}</span></td>
+      <td>${sevPill(r.severity_number)}</td>
+      <td><div class="ev-cell-title">${escapeHtml(r.title || r.event_name || "")}</div></td>
+      <td><span class="muted-2">${escapeHtml(r.component_name_raw || "—")}</span></td>
+      <td><div class="ev-cell-action">${escapeHtml(truncate(r.action_taken || "—", 80))}</div></td>
+      <td>${fmtOutcome(r.outcome)}</td>
+      <td><button class="ev-row-act" data-act="diagnose-row" data-seed="${escapeHtml(r.title || r._sig || "")}" title="Diagnose this"><i class="fa fa-stethoscope"></i></button></td>
+    </tr>`).join("");
+
+  const tableSection = `
+    <section class="ev-list-section">
+      <h4 class="ev-section-title">All occurrences <span class="muted-2">(${rows.length})</span></h4>
+      <div class="ev-table-wrap">
+        <table class="ev-table">
+          <thead>
+            <tr>
+              <th>When</th><th>Sev</th><th>Title</th><th>Component</th><th>Action taken</th><th>Outcome</th><th></th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </section>`;
+
+  // Other matched signatures (above and beyond the top one)
+  const sigSection = evidence.length > 1 ? `
+    <section class="ev-sig-section">
+      <h4 class="ev-section-title">Matched signatures <span class="muted-2">(${evidence.length})</span></h4>
+      <div class="ev-sig-list">
+        ${evidence.map((m, i) => `
+          <div class="ev-sig ${i === 0 ? "primary" : ""}">
+            <div class="ev-sig-name">${escapeHtml(m.event_signature_id || "(unknown)")}</div>
+            <div class="ev-sig-meta">
+              <span><b>${m.occurrence_count || 1}</b> occurrence${m.occurrence_count === 1 ? "" : "s"}</span>
+              ${m.score != null ? `<span>${Math.round(m.score * 100)}% match</span>` : ""}
+              ${m.linked_failure_mode_id ? `<span class="muted-2">${escapeHtml(m.linked_failure_mode_id)}</span>` : ""}
+            </div>
+            ${m.rerank_rationale ? `<div class="ev-sig-rationale">${escapeHtml(m.rerank_rationale)}</div>` : ""}
+          </div>`).join("")}
+      </div>
+    </section>` : "";
+
+  return `<div class="ev-panel">${topCard}${tableSection}${sigSection}</div>`;
+}
+
+function closeInspector() {
+  const insp = $("#inspector");
+  insp.classList.remove("overlay");
+  document.body.classList.add("inspector-collapsed");
+  $("#insp-empty").hidden = false;
+  $("#insp-content").hidden = true;
+  $("#insp-external").hidden = true;
+  InspState.kind = null;
+  InspState.payload = null;
+}
+
+function openKGWindow() {
+  if (!State._lastKGData) { toast("Graph data not loaded yet"); return; }
+  const data = State._lastKGData;
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<title>Knowledge Graph</title>
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"><\/script>
+<style>
+  body { margin:0; background:#0F172A; }
+  #kg { width:100vw; height:100vh; }
+</style>
+</head><body>
+<div id="kg"></div>
+<script>
+const colorMap = ${JSON.stringify(data.color_map || {})};
+const nodes = new vis.DataSet(${JSON.stringify((data.nodes||[]).map(n=>({
+  id:n.id, label:n.label, group:n.group, title:n.title,
+  color: (data.color_map||{})[n.group]||"#334155",
+  shape:"dot", size:12, font:{color:"#E2E8F0",size:11}
+})))});
+const edges = new vis.DataSet(${JSON.stringify((data.edges||[]).map(e=>({
+  from:e.from, to:e.to, label:e.label, arrows:"to",
+  color:{color:"#475569",highlight:"#60A5FA"},
+  font:{color:"#64748B",size:9}
+})))});
+new vis.Network(document.getElementById("kg"),{nodes,edges},{
+  nodes:{font:{color:"#E2E8F0",size:11}},
+  physics:{stabilization:{iterations:80}},
+  interaction:{hover:true}
+});
+<\/script>
+</body></html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, "_blank", "noopener");
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 async function loadKGGraph() {
-  if (State.kgInited) return;
   if (!State.instanceId) return;
+  const container = document.getElementById("kg-container");
+  if (!container) return;
+
+  if (State.kgInited && State.kgNetwork) return;
+
   try {
     const data = await apiGet(`/instances/${State.instanceId}/graph-data`);
+    State._lastKGData = data;
     const nodes = new vis.DataSet((data.nodes || []).map(n => ({
       id: n.id,
       label: n.label,
       group: n.group,
       title: n.title,
-      color: data.color_map?.[n.group] || "#5a6678",
+      color: data.color_map?.[n.group] || "#334155",
       shape: "dot",
       size: 12,
+      font: { color: "#E2E8F0", size: 11 },
     })));
     const edges = new vis.DataSet((data.edges || []).map(e => ({
       from: e.from, to: e.to, label: e.label,
-      arrows: "to", color: { color: "#2a313d", highlight: "#6ea8ff" },
-      font: { color: "#97a0b0", size: 9 },
+      arrows: "to",
+      color: { color: "#475569", highlight: "#60A5FA" },
+      font: { color: "#64748B", size: 9 },
     })));
-    const container = $("#kg-network");
-    new vis.Network(container, { nodes, edges }, {
-      nodes: { font: { color: "#e6e9ef", size: 11 } },
+    State.kgNetwork = new vis.Network(container, { nodes, edges }, {
+      nodes: { font: { color: "#E2E8F0", size: 11 } },
       physics: { stabilization: { iterations: 80 } },
       interaction: { hover: true },
-    });
-    const lg = $("#kg-legend");
-    lg.innerHTML = "";
-    Object.entries(data.color_map || {}).forEach(([k, v]) => {
-      lg.appendChild(el("span", { class: "lg-item" }, [
-        el("span", { class: "lg-dot", style: `background:${v}` }), k,
-      ]));
+      layout: {},
     });
     State.kgInited = true;
+
+    const lg = document.getElementById("kg-legend-inner");
+    if (lg) {
+      lg.innerHTML = "";
+      Object.entries(data.color_map || {}).forEach(([k, v]) => {
+        lg.insertAdjacentHTML("beforeend",
+          `<span><span class="lg-dot" style="background:${v}"></span>${escapeHtml(k)}</span>`);
+      });
+    }
   } catch (e) {
-    toast("KG load failed: " + e.message, "error");
+    toast("KG load failed: " + e.message);
   }
+}
+
+/* ============================================================
+   COLUMN RESIZERS
+   ============================================================ */
+function setupResizers() {
+  const MIN_LEFT = 200, MAX_LEFT = 480;
+  const MIN_RIGHT = 280, MAX_RIGHT = 720;
+  const root = document.documentElement;
+
+  try {
+    const l = localStorage.getItem("mc.col.left");
+    const r = localStorage.getItem("mc.col.right");
+    if (l) root.style.setProperty("--col-left-w", l);
+    if (r) root.style.setProperty("--col-right-w", r);
+  } catch {}
+
+  $$(".col-resizer").forEach(r => {
+    r.addEventListener("pointerdown", ev => {
+      ev.preventDefault();
+      const which = r.dataset.resize;
+      r.setPointerCapture(ev.pointerId);
+      r.classList.add("dragging");
+      document.body.classList.add("col-resizing");
+      const sidebarW = document.querySelector(".sidebar").getBoundingClientRect().width;
+
+      function onMove(e) {
+        if (which === "left") {
+          const newW = Math.max(MIN_LEFT, Math.min(MAX_LEFT, e.clientX - sidebarW));
+          root.style.setProperty("--col-left-w", newW + "px");
+        } else if (which === "right") {
+          if (document.body.classList.contains("inspector-collapsed")) return;
+          const newW = Math.max(MIN_RIGHT, Math.min(MAX_RIGHT, window.innerWidth - e.clientX));
+          root.style.setProperty("--col-right-w", newW + "px");
+        }
+      }
+
+      function onUp() {
+        r.releasePointerCapture(ev.pointerId);
+        r.classList.remove("dragging");
+        document.body.classList.remove("col-resizing");
+        r.removeEventListener("pointermove", onMove);
+        r.removeEventListener("pointerup", onUp);
+        r.removeEventListener("pointercancel", onUp);
+        try {
+          const cs = getComputedStyle(root);
+          localStorage.setItem("mc.col.left", cs.getPropertyValue("--col-left-w").trim() || "264px");
+          localStorage.setItem("mc.col.right", cs.getPropertyValue("--col-right-w").trim() || "400px");
+        } catch {}
+      }
+
+      r.addEventListener("pointermove", onMove);
+      r.addEventListener("pointerup", onUp);
+      r.addEventListener("pointercancel", onUp);
+    });
+
+    r.addEventListener("dblclick", () => {
+      if (r.dataset.resize === "left") {
+        root.style.setProperty("--col-left-w", "264px");
+        try { localStorage.removeItem("mc.col.left"); } catch {}
+      } else {
+        root.style.setProperty("--col-right-w", "400px");
+        try { localStorage.removeItem("mc.col.right"); } catch {}
+      }
+      toast("Column reset");
+    });
+  });
 }
