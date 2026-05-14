@@ -201,11 +201,18 @@ async function boot() {
     }
   });
 
-  // new-case btn
+  // new-case btn — clears all spine cards and resets to empty state
   $("#new-case-btn").addEventListener("click", () => {
     clearSessionId();
+    State.cases = [];
+    State.activeCaseId = null;
+    // Clear continue-session tag if any
+    const ta = $("#composer");
+    delete ta.dataset.continueSessionId;
+    renderSpine();
+    renderSessions();
+    ta.focus();
     toast("New case — type your question below");
-    $("#composer").focus();
   });
 
   // KG button in rail footer
@@ -1032,9 +1039,12 @@ function wireCase(article, c) {
         setTimeout(() => window.print(), 300);
       } else if (action === "delete") {
         if (confirm(`Delete this case?\n\n"${c.question}"\n\nThis cannot be undone.`)) {
-          // Remove from local state
+          // Remove from spine
           const idx = State.cases.findIndex(x => x.id === c.id);
           if (idx >= 0) State.cases.splice(idx, 1);
+          // Remove from sessions rail
+          const sidx = State.sessions.findIndex(s => s.session_id === c.sessionId);
+          if (sidx >= 0) State.sessions.splice(sidx, 1);
           // Remove bookmark if any
           const bs = BookmarkStore.get();
           if (bs.has(c.sessionId)) { bs.delete(c.sessionId); BookmarkStore.save(bs); }
