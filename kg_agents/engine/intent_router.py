@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from openai import OpenAI
@@ -46,6 +46,20 @@ _FILTER_KEYS = (
 _client: OpenAI | None = None
 
 _WORK_ORDER_RE = re.compile(r"\bWO-[A-Za-z0-9][A-Za-z0-9-]*\b", re.IGNORECASE)
+_MONTHS = {
+    "jan": 1, "january": 1, "gennaio": 1,
+    "feb": 2, "february": 2, "febbraio": 2,
+    "mar": 3, "march": 3, "marzo": 3,
+    "apr": 4, "april": 4, "aprile": 4,
+    "may": 5, "maggio": 5,
+    "jun": 6, "june": 6, "giugno": 6,
+    "jul": 7, "july": 7, "luglio": 7,
+    "aug": 8, "august": 8, "agosto": 8,
+    "sep": 9, "sept": 9, "september": 9, "settembre": 9,
+    "oct": 10, "october": 10, "ottobre": 10,
+    "nov": 11, "november": 11, "novembre": 11,
+    "dec": 12, "december": 12, "dicembre": 12,
+}
 
 _HISTORY_PATTERNS = (
     "happened before",
@@ -163,17 +177,105 @@ def _get_client() -> OpenAI:
     return _client
 
 
+def _shift_months(d: date, months: int) -> date:
+    month_index = d.month - 1 + months
+    year = d.year + month_index // 12
+    month = month_index % 12 + 1
+    month_lengths = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    return date(year, month, min(d.day, month_lengths[month - 1]))
+
+
+def _parse_month_day(month_text: str, day_text: str, today: date) -> date | None:
+    month = _MONTHS.get(month_text.lower().rstrip("."))
+    if not month:
+        return None
+    day = int(day_text)
+    try:
+        candidate = date(today.year, month, day)
+    except ValueError:
+        return None
+    return candidate
+
+
+def _explicit_date_range(text: str, today: date) -> dict[str, str]:
+    month_names = "|".join(sorted(_MONTHS, key=len, reverse=True))
+    patterns = (
+        # from January 10 to March 4 / dal gennaio 10 al marzo 4
+        rf"\b(?:(?:from|dal|da)\s+)?({month_names})\s+(\d{{1,2}})\s+(?:to|until|through|al|a)\s+({month_names})\s+(\d{{1,2}})\b",
+        # from 10 January to 4 March / dal 10 gennaio al 4 marzo
+        rf"\b(?:(?:from|dal|da)\s+)?(\d{{1,2}})\s+({month_names})\s+(?:to|until|through|al|a)\s+(\d{{1,2}})\s+({month_names})\b",
+    )
+    for i, pattern in enumerate(patterns):
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        if i == 0:
+            start = _parse_month_day(match.group(1), match.group(2), today)
+            end = _parse_month_day(match.group(3), match.group(4), today)
+        else:
+            start = _parse_month_day(match.group(2), match.group(1), today)
+            end = _parse_month_day(match.group(4), match.group(3), today)
+        if not start or not end:
+            continue
+        if end < start:
+            end = date(today.year + 1, end.month, end.day)
+        return {
+            "date_from": start.isoformat(),
+            # date_to is exclusive in log filters, so include the named end day.
+            "date_to": (end + timedelta(days=1)).isoformat(),
+        }
+    return {}
+
+
+def _clean_temporal_phrases(query: str, filters: dict[str, Any]) -> str:
+    if not filters.get("date_from") and not filters.get("date_to"):
+        return query.strip()
+
+    month_names = "|".join(sorted(_MONTHS, key=len, reverse=True))
+    cleaned = query
+    explicit_patterns = (
+        rf"\b(?:(?:from|dal|da)\s+)?(?:{month_names})\s+\d{{1,2}}\s+(?:to|until|through|al|a)\s+(?:{month_names})\s+\d{{1,2}}\b",
+        rf"\b(?:(?:from|dal|da)\s+)?\d{{1,2}}\s+(?:{month_names})\s+(?:to|until|through|al|a)\s+\d{{1,2}}\s+(?:{month_names})\b",
+    )
+    for pattern in explicit_patterns:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+
+    relative_patterns = (
+        r"\b(?:in|during|over|for)\s+(?:the\s+)?(?:past|last)\s+\d+\s+(?:days?|weeks?|months?|years?)\b",
+        r"\b(?:past|last)\s+\d+\s+(?:days?|weeks?|months?|years?)\b",
+        r"\b(?:past|last)\s+year\b",
+        r"\b(?:last|previous|this|current)\s+(?:week|month|year)\b",
+        r"\b(?:mese scorso|anno scorso|ultimi\s+\d+\s+giorni)\b",
+    )
+    for pattern in relative_patterns:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+([?.!,;:])", r"\1", cleaned)
+    return " ".join(cleaned.split()).strip()
+
+
 def _fast_filters(text: str) -> dict[str, Any]:
     filters: dict[str, Any] = {}
     today = datetime.now(timezone.utc).date()
     first_this_month = today.replace(day=1)
     first_last_month = (first_this_month - timedelta(days=1)).replace(day=1)
+    explicit_range = _explicit_date_range(text, today)
 
-    if re.search(r"\b(last month|previous month)\b", text) or "mese scorso" in text:
+    if explicit_range:
+        filters.update(explicit_range)
+    elif re.search(r"\b(last month|previous month)\b", text) or "mese scorso" in text:
         filters["date_from"] = first_last_month.isoformat()
         filters["date_to"] = first_this_month.isoformat()
     elif re.search(r"\b(this month|current month)\b", text):
         filters["date_from"] = first_this_month.isoformat()
+    elif re.search(r"\b(last year|previous year|anno scorso)\b", text):
+        filters["date_from"] = date(today.year - 1, 1, 1).isoformat()
+        filters["date_to"] = date(today.year, 1, 1).isoformat()
+    elif re.search(r"\b(past year|past 1 year|last 1 year)\b", text):
+        filters["date_from"] = date(today.year - 1, today.month, today.day).isoformat()
+    elif m := re.search(r"\b(?:last|past)\s+(\d+)\s+months?\b", text):
+        filters["date_from"] = _shift_months(today, -int(m.group(1))).isoformat()
+    elif m := re.search(r"\b(?:last|past)\s+(\d+)\s+years?\b", text):
+        filters["date_from"] = date(today.year - int(m.group(1)), today.month, today.day).isoformat()
     elif re.search(r"\b(last|past)\s+30\s+days?\b", text) or "ultimi 30 giorni" in text:
         filters["date_from"] = (today - timedelta(days=30)).isoformat()
     elif re.search(r"\b(last|past)\s+7\s+days?\b", text) or re.search(r"\blast week\b", text):
@@ -200,10 +302,11 @@ def _fast_filters(text: str) -> dict[str, Any]:
 
 def _base_result(intent: str, message: str, rationale: str) -> dict[str, Any]:
     text = " ".join((message or "").lower().split())
+    filters = _fast_filters(text)
     return {
         "intent": intent,
-        "search_query": message.strip(),
-        "filters": _fast_filters(text),
+        "search_query": _clean_temporal_phrases(message.strip(), filters),
+        "filters": filters,
         "rationale": rationale,
         "source": "deterministic_fast_path",
     }
