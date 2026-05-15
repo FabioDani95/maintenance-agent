@@ -48,9 +48,32 @@ def _row_to_record(row: dict) -> LogRecord:
     "/instances/{instance_id}/logs/summary",
     response_model=LogSummaryResponse,
 )
-async def logs_summary(instance_id: str) -> LogSummaryResponse:
+async def logs_summary(
+    instance_id: str,
+    event_category: str | None = Query(None),
+    maintenance_type: str | None = Query(None),
+    status: str | None = Query(None),
+    severity_min: int | None = Query(None, ge=0),
+    component_id: str | None = Query(None),
+    linked_failure_mode_id: str | None = Query(None),
+    event_signature_id: str | None = Query(None),
+    date_from: str | None = Query(None, description="ISO 8601 lower bound on occurred_at (inclusive)"),
+    date_to: str | None = Query(None, description="ISO 8601 upper bound on occurred_at (exclusive when date-only)"),
+) -> LogSummaryResponse:
     _ensure_instance(instance_id)
-    summary = summarize_logs(instance_id)
+    filters = {
+        "event_category": event_category,
+        "maintenance_type": maintenance_type,
+        "status": status,
+        "severity_min": severity_min,
+        "component_id": component_id,
+        "linked_failure_mode_id": linked_failure_mode_id,
+        "event_signature_id": event_signature_id,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    filters = {k: v for k, v in filters.items() if v is not None}
+    summary = summarize_logs(instance_id, filters=filters)
     return LogSummaryResponse(**summary)
 
 

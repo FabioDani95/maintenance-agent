@@ -153,6 +153,10 @@ _DIAGNOSIS_HEADING = {
     "it": "**Diagnosi / evidenza**",
     "en": "**Diagnosis / evidence**",
 }
+_HISTORY_HEADING = {
+    "it": "**Risultato storico**",
+    "en": "**Historical result**",
+}
 _NEXT_STEP_LABEL = {
     "it": "**Prossimo passo pratico:**",
     "en": "**Practical next step:**",
@@ -219,6 +223,12 @@ def _question(lang: str, intent: str | None, current_issue: CurrentIssue | None)
     return "quale componente o segnale osservi direttamente?" if lang == "it" else "which component or signal do you observe directly?"
 
 
+def _main_heading(lang: str, intent: str | None) -> str:
+    if intent in {"log_history_search", "log_analytics", "work_order_lookup"}:
+        return _HISTORY_HEADING[lang]
+    return _DIAGNOSIS_HEADING[lang]
+
+
 def add_conversational_structure(
     reply: str,
     *,
@@ -239,6 +249,12 @@ def add_conversational_structure(
     body = (reply or "").strip()
     if not body:
         return reply, {"follow_up_added": False, "context_reference_added": False}
+    if intent in {"log_history_search", "log_analytics", "work_order_lookup"}:
+        return body, {
+            "follow_up_added": False,
+            "context_reference_added": False,
+            "historical_result_preserved": True,
+        }
 
     lang = _language(response_context, user_message)
     seed = f"{session_id}:{user_message}:{mode}"
@@ -271,7 +287,7 @@ def add_conversational_structure(
     intro = " ".join(part for part in (ack, context) if part)
     structured = (
         f"{intro}\n\n"
-        f"{_DIAGNOSIS_HEADING[lang]}\n\n"
+        f"{_main_heading(lang, intent)}\n\n"
         f"{body}\n\n"
         f"{_NEXT_STEP_LABEL[lang]} {next_step}\n\n"
         f"{_QUESTION_LABEL[lang]} {question}"

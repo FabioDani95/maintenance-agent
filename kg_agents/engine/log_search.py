@@ -351,6 +351,7 @@ def _aggregate_by_signature(
     score_key: str,
     limit: int,
     query: str = "",
+    allowed_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Collapse occurrence-level results into signature-level matches.
 
@@ -378,7 +379,10 @@ def _aggregate_by_signature(
 
     matches: list[dict[str, Any]] = []
     for sig, data in by_sig.items():
-        all_rows = store.rows_by_signature.get(sig, [])
+        all_rows = [
+            row for row in store.rows_by_signature.get(sig, [])
+            if allowed_ids is None or row.get("log_id") in allowed_ids
+        ]
         matched_rows = data.get("_matched_rows") or []
         most_recent = all_rows[0] if all_rows else data["_anchor_row"]
         top_match = _select_top_match_log(query, data["_anchor_row"], all_rows)
@@ -504,7 +508,14 @@ def search_logs(
         score_key = "fused_score"
     mark("llm_rerank" if use_llm_rerank and candidate_rows else "skip_rerank")
 
-    matches = _aggregate_by_signature(reranked, store, score_key, limit, query=query)
+    matches = _aggregate_by_signature(
+        reranked,
+        store,
+        score_key,
+        limit,
+        query=query,
+        allowed_ids=allowed_ids,
+    )
     mark("aggregate")
 
     return {
@@ -522,7 +533,7 @@ def search_logs(
     }
 
 
-def summarize_logs(instance_id: str) -> dict[str, Any]:
+def summarize_logs(instance_id: str, filters: dict[str, Any] | None = None) -> dict[str, Any]:
     """Aggregate analytics over all logs for an instance.
 
     Returns top signatures, top components, severity distribution, monthly
@@ -532,7 +543,8 @@ def summarize_logs(instance_id: str) -> dict[str, Any]:
     if store is None or store.is_empty:
         return {"instance_id": instance_id, "row_count": 0}
 
-    rows = store.rows
+    filters = filters or {}
+    rows = [row for row in store.rows if _passes_filters(row, filters)]
     from collections import Counter, defaultdict
 
     sig_counts = Counter(

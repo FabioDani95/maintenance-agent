@@ -188,7 +188,7 @@ Node and relationship counts for the default instance follow the checked-in `irc
 
 The log APIs are instance-scoped and are the stable contract for external clients that need machine-history data without going through chat.
 
-`GET /logs/summary` returns:
+`GET /logs/summary` returns aggregate analytics. It accepts the same structured filters used by `GET /logs` except pagination and free-text `q`: `event_category`, `maintenance_type`, `status`, `severity_min`, `component_id`, `linked_failure_mode_id`, `event_signature_id`, `date_from`, and `date_to`. Date-only `date_to` is treated as an exclusive upper bound by convention, so `date_from=2026-04-01&date_to=2026-05-01` covers April 2026.
 
 ```json
 {
@@ -269,13 +269,34 @@ Response body:
 
 ### Chat Response Contract
 
+`POST /chat` accepts an optional `behavior_mode` request field. External frontends should send it when the user has explicitly selected a product mode:
+
+```json
+{
+  "message": "Motor overload on axis 2",
+  "session_id": null,
+  "mode": "fast",
+  "behavior_mode": "solve_current_problem"
+}
+```
+
+Accepted `behavior_mode` values:
+
+- `solve_current_problem` — run the troubleshooting flow. This is KG-first diagnosis and may still attach retrieved historical log evidence in `log_evidence`.
+- `search_past_events` — run the past-events/log-search flow. This returns history, analytics, or work-order style answers and does not promote the request into a current diagnosis.
+
+If `behavior_mode` is omitted, the backend keeps the legacy behavior and uses intent routing to choose the product mode. If it is present, it is treated as the user's explicit UI choice and takes precedence over intent routing for the coarse product mode. The intent classifier still runs as an implementation detail to classify subtypes such as log history, analytics, work-order lookup, hybrid evidence, and follow-up context.
+
 `POST /chat` still returns the same troubleshooting payload, with additive log fields:
 
 - `intent`: one of `troubleshooting_current`, `log_history_search`, `log_analytics`, `work_order_lookup`, `hybrid_diagnosis_with_history`
+- `behavior_mode`: one of `solve_current_problem`, `search_past_events`
 - `log_evidence`: compact list of retrieved log matches used for the answer
+- `metrics.log_filters`: structured filters used by log/history answers, when applicable
+- `metrics.log_summary`: aggregate summary used by log analytics answers, when applicable
 - `timings`: per-stage latency map for observability
 
-Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `intent` and `log_evidence` to decide whether to render a history/evidence panel.
+Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `behavior_mode`, `intent`, and `log_evidence` to decide whether to render a diagnosis card, a past-events card, and/or a troubleshooting evidence panel.
 
 ### Devices
 
@@ -307,6 +328,9 @@ User message
   -> error code detection (if present, runs the KG flow directly)
   -> deterministic fast-path intent router
   -> optional LLM intent classifier fallback only for ambiguous cases
+  -> optional request `behavior_mode` override from the UI/external client:
+       * solve_current_problem -> keep the flow in troubleshooting mode, while still attaching log evidence when available
+       * search_past_events    -> keep the flow in log/history mode
   -> intent branch:
        * log_history_search       -> hybrid log retrieval + Fast template, or LLM-composed reply in Guided mode
        * log_analytics            -> aggregate summary + Fast template, or LLM-composed reply in Guided mode
@@ -351,6 +375,8 @@ Fast-mode behavior:
 - log history uses dense + sparse retrieval with RRF, then renders a structured template
 - log analytics reads aggregate counters and renders a structured template
 - exact work-order queries use direct lookup by `WO-*` id and render a structured template
+- log analytics respects explicit time filters such as `last month`, `this month`, `last 30 days`, and `last week`
+- count-style analytics for a named problem, such as `How many times has motor overload happened?`, uses log retrieval and returns matching evidence rather than only global summary rows
 - Guided models still use the same retrieval and evidence payloads, but may call the LLM to compose a freer narrative response
 
 The default suggested chat chips are tuned for these fast routes:

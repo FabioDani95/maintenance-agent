@@ -570,7 +570,7 @@ function buildCase(c) {
           ${c.kind === "diagnose" ? `
             <div class="mode-toggle" data-mode-toggle>
               <button class="mt-btn active" data-mode="fast"><i class="fa fa-bolt"></i> Fast</button>
-              <button class="mt-btn" data-mode="guided"><i class="fa fa-route"></i> Guided</button>
+              <button class="mt-btn" data-mode="non-fast"><i class="fa fa-route"></i> Guided</button>
             </div>` : ""}
           <span style="margin-left:auto;color:var(--slate-400);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0">${c.ts}</span>
         </div>
@@ -769,8 +769,9 @@ function buildPastBody(c) {
   if (!resp) return "";
 
   const evidence = resp.log_evidence || [];
-  const total = evidence.reduce((s, m) => s + (m.occurrence_count || 1), 0);
-  const sigCount = evidence.length;
+  const summary = resp.metrics?.log_summary || null;
+  const total = summary?.row_count ?? evidence.reduce((s, m) => s + (m.occurrence_count || 1), 0);
+  const sigCount = summary?.top_event_signatures?.length ?? evidence.length;
 
   // Collect event rows
   const rows = [];
@@ -781,6 +782,10 @@ function buildPastBody(c) {
     if (recent.log_id && recent.log_id !== top.log_id) rows.push({ ...recent, _sig: m.event_signature_id });
   });
   rows.sort((a, b) => (b.occurred_at || "").localeCompare(a.occurred_at || ""));
+  const mostRecent = rows[0]?.occurred_at || evidence
+    .map(m => m.last_seen_at || m.most_recent?.occurred_at || m.most_recent_log?.occurred_at || "")
+    .filter(Boolean)
+    .sort((a, b) => b.localeCompare(a))[0];
 
   const tableHtml = rows.length ? `
     <table class="events-table">
@@ -811,11 +816,11 @@ function buildPastBody(c) {
       </div>
       <div class="past-summary-card">
         <div class="psc-label">Most recent</div>
-        <div class="psc-value" style="font-size:13px;margin-top:6px;">${rows[0] ? fmtDate(rows[0].occurred_at) : "—"}</div>
+        <div class="psc-value" style="font-size:13px;margin-top:6px;">${mostRecent ? fmtDate(mostRecent) : "—"}</div>
       </div>
       <div class="past-summary-card">
         <div class="psc-label">Top component</div>
-        <div class="psc-value" style="font-size:12px;margin-top:6px;">${evidence[0]?.top_match_log?.component_name_raw || evidence[0]?.top_match?.component_name_raw || "—"}</div>
+        <div class="psc-value" style="font-size:12px;margin-top:6px;">${summary?.top_components?.[0]?.component_id || evidence[0]?.top_match_log?.component_name_raw || evidence[0]?.top_match?.component_name_raw || "—"}</div>
       </div>
     </div>
     ${tableHtml}
@@ -826,10 +831,13 @@ function buildPastFooter(c) {
   return `
     <div class="case-foot">
       <span class="case-foot-label">Want to act on this?</span>
-      <button class="outcome-btn" data-act="spawn-diag">
-        <i class="fa fa-stethoscope"></i> Start a diagnosis from a row
+      <button class="primary-btn" data-act="open-log-navigator">
+        <i class="fa fa-table-list"></i> Open log navigator
       </button>
       <div class="case-foot-right">
+        <button class="outcome-btn" data-act="spawn-diag">
+          <i class="fa fa-stethoscope"></i> Start a diagnosis from a row
+        </button>
         <button class="next-cause-cta" data-act="export-csv">
           <i class="fa fa-file-export"></i> Export CSV
         </button>
@@ -954,6 +962,13 @@ function wireCase(article, c) {
     const evi = e.target.closest("[data-act='show-evidence']");
     if (evi) {
       openInspector("evidence", { caseObj: c });
+      return;
+    }
+
+    // Past events → open full log navigator in the inspector
+    const navLogs = e.target.closest("[data-act='open-log-navigator']");
+    if (navLogs) {
+      openInspector("past", { caseObj: c });
       return;
     }
 
@@ -1175,6 +1190,7 @@ async function onSend(continueSessionId = null) {
       message,
       session_id: continueSessionId || undefined,
       mode: caseObj.mode,
+      behavior_mode: kind === "past" ? "search_past_events" : "solve_current_problem",
     };
     const resp = await apiPost(`/instances/${State.instanceId}/chat`, body);
     const realSessionId = resp.session_id;
@@ -1306,6 +1322,17 @@ function openInspector(kind, payload) {
       <span class="insp-name">${escapeHtml(issue.failure_mode_name || "Evidence")}${issue.component_name ? " · " + escapeHtml(issue.component_name) : ""}</span>
     `;
     body.innerHTML = renderEvidencePanel(c);
+
+  } else if (kind === "past") {
+    extBtn.hidden = true;
+    const c = payload?.caseObj;
+    crumb.innerHTML = `
+      <span class="insp-icon"><i class="fa fa-table-list"></i></span>
+      <span class="insp-kind">LOG NAVIGATOR</span>
+      <span class="insp-name">${escapeHtml(truncate(c?.question || "Past events", 54))}</span>
+    `;
+    body.innerHTML = renderLogNavigatorShell();
+    loadLogNavigator(c);
   }
 }
 
@@ -1426,6 +1453,305 @@ function renderEvidencePanel(c) {
     </section>` : "";
 
   return `<div class="ev-panel">${topCard}${tableSection}${sigSection}</div>`;
+}
+
+/* ---------- Past-events log navigator ---------- */
+function renderLogNavigatorShell() {
+  return `
+    <div class="log-nav" id="log-nav">
+      <div class="log-nav-loading">
+        <i class="fa fa-spinner fa-spin"></i>
+        <span>Loading log result…</span>
+      </div>
+    </div>`;
+}
+
+function logFilterParams(filters = {}, extra = {}) {
+  const allowed = [
+    "date_from", "date_to", "component_id", "linked_failure_mode_id",
+    "maintenance_type", "event_category", "event_signature_id", "status",
+    "severity_min", "q", "limit", "offset",
+  ];
+  const params = new URLSearchParams();
+  Object.entries({ ...filters, ...extra }).forEach(([k, v]) => {
+    if (!allowed.includes(k) || v == null || v === "") return;
+    params.set(k, String(v));
+  });
+  return params.toString() ? "?" + params.toString() : "";
+}
+
+function logFiltersFromCase(c) {
+  const f = c?.response?.metrics?.log_filters;
+  return (f && typeof f === "object") ? f : {};
+}
+
+function evidenceSignatures(c) {
+  const ev = c?.response?.log_evidence || [];
+  return [...new Set(ev.map(m => m.event_signature_id).filter(Boolean))];
+}
+
+function rowFromEvidenceRecord(rec, signatureId = "") {
+  return {
+    log_id: rec.log_id || `${signatureId}-${rec.occurred_at || Math.random()}`,
+    occurred_at: rec.occurred_at || "",
+    severity_number: rec.severity_number,
+    severity_text: rec.severity_text || "",
+    status: rec.status || "",
+    event_signature_id: rec.event_signature_id || signatureId || "",
+    title: rec.title || rec.event_name || "",
+    body: rec.body || "",
+    action_taken: rec.action_taken || "",
+    outcome: rec.outcome || "",
+    work_order_id: rec.work_order_id || "",
+    component_name_raw: rec.component_name_raw || "",
+    component_id: rec.component_id || "",
+    linked_failure_mode_id: rec.linked_failure_mode_id || "",
+    actual_duration_min: rec.actual_duration_min,
+    downtime_min: rec.downtime_min,
+    _fromEvidence: true,
+  };
+}
+
+function fallbackRowsFromEvidence(c) {
+  const rows = [];
+  (c?.response?.log_evidence || []).forEach(m => {
+    const sig = m.event_signature_id || "";
+    const seen = new Set();
+    [m.top_match_log || m.top_match, m.most_recent_log || m.most_recent].forEach(rec => {
+      if (!rec) return;
+      const row = rowFromEvidenceRecord(rec, sig);
+      if (!row.log_id || seen.has(row.log_id)) return;
+      seen.add(row.log_id);
+      rows.push(row);
+    });
+  });
+  return rows;
+}
+
+function uniqueLogRows(rows) {
+  const byId = new Map();
+  rows.forEach(r => {
+    if (!r?.log_id || byId.has(r.log_id)) return;
+    byId.set(r.log_id, r);
+  });
+  return [...byId.values()].sort((a, b) => (b.occurred_at || "").localeCompare(a.occurred_at || ""));
+}
+
+async function loadLogNavigator(c) {
+  const root = $("#log-nav");
+  if (!root || !c?.response) return;
+
+  const filters = logFiltersFromCase(c);
+  const signatures = evidenceSignatures(c);
+  const summaryReq = apiGet(`/instances/${State.instanceId}/logs/summary${logFilterParams(filters)}`).catch(() => null);
+
+  let rowsReq;
+  if (signatures.length) {
+    rowsReq = Promise.all(signatures.slice(0, 8).map(sig =>
+      apiGet(`/instances/${State.instanceId}/logs${logFilterParams(filters, { event_signature_id: sig, limit: 200 })}`)
+        .then(data => data.items || [])
+        .catch(() => [])
+    )).then(chunks => chunks.flat());
+  } else {
+    rowsReq = apiGet(`/instances/${State.instanceId}/logs${logFilterParams(filters, { limit: 200 })}`)
+      .then(data => data.items || [])
+      .catch(() => []);
+  }
+
+  const [summary, fetchedRows] = await Promise.all([summaryReq, rowsReq]);
+  const rows = uniqueLogRows(fetchedRows.length ? fetchedRows : fallbackRowsFromEvidence(c));
+  root.innerHTML = renderLogNavigator(c, summary, rows, filters);
+  wireLogNavigator(root, c, rows);
+}
+
+function severityLabel(row) {
+  return row.severity_text || row.severity_number || "—";
+}
+
+function severityClass(row) {
+  const n = Number(row.severity_number);
+  if (n >= 18 || /fatal|error/i.test(row.severity_text || "")) return "s4";
+  if (n >= 14 || /warn/i.test(row.severity_text || "")) return "s3";
+  return "";
+}
+
+function scopeLabel(filters) {
+  const bits = [];
+  if (filters.date_from || filters.date_to) bits.push(`${filters.date_from || "start"} → ${filters.date_to || "now"}`);
+  if (filters.status) bits.push(`status: ${filters.status}`);
+  if (filters.maintenance_type) bits.push(`maintenance: ${filters.maintenance_type}`);
+  if (filters.event_category) bits.push(`category: ${filters.event_category}`);
+  if (filters.severity_min) bits.push(`severity >= ${filters.severity_min}`);
+  return bits.length ? bits.join(" · ") : "All available logs";
+}
+
+function renderLogNavigator(c, summary, rows, filters) {
+  const evidence = c.response?.log_evidence || [];
+  const totalEvidence = evidence.reduce((s, m) => s + (m.occurrence_count || 0), 0);
+  const total = summary?.row_count ?? (totalEvidence || rows.length);
+  const topSig = summary?.top_event_signatures?.[0]?.event_signature_id
+    || evidence[0]?.event_signature_id
+    || rows[0]?.event_signature_id
+    || "—";
+  const topSigCount = summary?.top_event_signatures?.[0]?.occurrence_count || totalEvidence || rows.length;
+  const signatures = [...new Set(rows.map(r => r.event_signature_id).filter(Boolean))];
+  const selected = rows[0] || null;
+
+  return `
+    <div class="log-nav-headspace"></div>
+    <section class="log-nav-summary">
+      <div class="log-nav-card">
+        <div class="ln-label">Scope</div>
+        <div class="ln-scope">${escapeHtml(scopeLabel(filters))}</div>
+      </div>
+      <div class="log-nav-card">
+        <div class="ln-label">Rows in scope</div>
+        <div class="ln-value">${total}</div>
+      </div>
+      <div class="log-nav-card">
+        <div class="ln-label">Top recurring case</div>
+        <div class="ln-sig">${escapeHtml(topSig)}</div>
+        <div class="ln-sub">${topSigCount} occurrence${topSigCount === 1 ? "" : "s"}</div>
+      </div>
+    </section>
+
+    <section class="log-nav-controls">
+      <div class="ln-search-wrap">
+        <i class="fa fa-magnifying-glass"></i>
+        <input class="ln-search" type="search" placeholder="Filter rows, work orders, components…" />
+      </div>
+      <select class="ln-signature-filter">
+        <option value="">All signatures</option>
+        ${signatures.map(sig => `<option value="${escapeHtml(sig)}">${escapeHtml(sig)}</option>`).join("")}
+      </select>
+    </section>
+
+    <section class="log-nav-detail" id="log-nav-detail">
+      ${selected ? renderLogNavigatorDetail(selected) : `<div class="ln-empty-detail">No log rows available for this result.</div>`}
+    </section>
+
+    <section class="log-nav-table-section">
+      <div class="ln-table-head">
+        <h4 class="ev-section-title">Result rows <span class="muted-2" id="ln-visible-count">(${rows.length})</span></h4>
+      </div>
+      <div class="ln-table-wrap">
+        <table class="ln-table">
+          <thead>
+            <tr>
+              <th>When</th><th>Sev</th><th>Signature</th><th>Title</th><th>Component</th><th>Status</th><th>WO</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r, i) => renderLogNavigatorRow(r, i === 0)).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+function renderLogNavigatorRow(r, selected = false) {
+  const searchText = [
+    r.title, r.body, r.action_taken, r.work_order_id, r.component_name_raw,
+    r.event_signature_id, r.status, r.outcome,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return `
+    <tr class="${selected ? "selected" : ""}" data-log-id="${escapeHtml(r.log_id)}"
+        data-sig="${escapeHtml(r.event_signature_id || "")}" data-search="${escapeHtml(searchText)}">
+      <td><span class="muted">${fmtDate(r.occurred_at)}</span></td>
+      <td><span class="sev-pill ${severityClass(r)}">${escapeHtml(severityLabel(r))}</span></td>
+      <td><code class="ln-code">${escapeHtml(r.event_signature_id || "—")}</code></td>
+      <td><div class="ev-cell-title">${escapeHtml(r.title || r.event_name || "—")}</div></td>
+      <td><span class="muted-2">${escapeHtml(r.component_name_raw || r.component_id || "—")}</span></td>
+      <td>${escapeHtml(r.status || "—")}</td>
+      <td><code class="ln-code">${escapeHtml(r.work_order_id || "—")}</code></td>
+      <td><button class="ev-row-act" data-act="select-log-row" title="Inspect row"><i class="fa fa-arrow-right"></i></button></td>
+    </tr>`;
+}
+
+function renderLogNavigatorDetail(r) {
+  return `
+    <div class="ln-detail-head">
+      <div>
+        <div class="ln-label">Selected log</div>
+        <div class="ln-detail-title">${escapeHtml(r.title || r.event_name || "Untitled log")}</div>
+      </div>
+      <button class="primary-btn" data-act="diagnose-selected-log">
+        <i class="fa fa-stethoscope"></i> Diagnose this
+      </button>
+    </div>
+    <div class="ln-detail-meta">
+      <span><i class="fa fa-calendar"></i> ${fmtDate(r.occurred_at)}</span>
+      <span>${escapeHtml(r.work_order_id || r.source_record_id || "No WO")}</span>
+      <span>${escapeHtml(r.component_name_raw || r.component_id || "No component")}</span>
+      <span>${escapeHtml(r.status || "status unknown")}</span>
+      <span>${escapeHtml(r.outcome || "outcome unknown")}</span>
+    </div>
+    ${r.body ? `<div class="ln-detail-block"><b>Observed evidence</b><p>${escapeHtml(r.body)}</p></div>` : ""}
+    ${r.action_taken ? `<div class="ln-detail-block action"><b>Action taken</b><p>${escapeHtml(r.action_taken)}</p></div>` : ""}
+    <div class="ln-detail-stats">
+      ${r.actual_duration_min != null ? `<span>Repair <b>${r.actual_duration_min} min</b></span>` : ""}
+      ${r.downtime_min != null ? `<span>Downtime <b>${r.downtime_min} min</b></span>` : ""}
+      ${r.linked_failure_mode_id ? `<span>KG link <code>${escapeHtml(r.linked_failure_mode_id)}</code></span>` : ""}
+    </div>`;
+}
+
+function wireLogNavigator(root, c, rows) {
+  let selectedLogId = rows[0]?.log_id || null;
+  const search = root.querySelector(".ln-search");
+  const sig = root.querySelector(".ln-signature-filter");
+  const visibleCount = root.querySelector("#ln-visible-count");
+  const detail = root.querySelector("#log-nav-detail");
+
+  function applyFilters() {
+    const q = (search?.value || "").trim().toLowerCase();
+    const s = sig?.value || "";
+    let visible = 0;
+    root.querySelectorAll(".ln-table tbody tr").forEach(tr => {
+      const okText = !q || (tr.dataset.search || "").includes(q);
+      const okSig = !s || tr.dataset.sig === s;
+      const on = okText && okSig;
+      tr.hidden = !on;
+      if (on) visible += 1;
+    });
+    if (visibleCount) visibleCount.textContent = `(${visible})`;
+  }
+
+  function selectRow(logId) {
+    const row = rows.find(r => r.log_id === logId);
+    if (!row || !detail) return;
+    selectedLogId = logId;
+    detail.innerHTML = renderLogNavigatorDetail(row);
+    root.querySelectorAll(".ln-table tbody tr").forEach(tr => {
+      tr.classList.toggle("selected", tr.dataset.logId === logId);
+    });
+  }
+
+  search?.addEventListener("input", applyFilters);
+  sig?.addEventListener("change", applyFilters);
+  root.addEventListener("click", e => {
+    const rowBtn = e.target.closest("[data-act='select-log-row']");
+    if (rowBtn) {
+      const tr = rowBtn.closest("tr[data-log-id]");
+      if (tr) selectRow(tr.dataset.logId);
+      return;
+    }
+    const diag = e.target.closest("[data-act='diagnose-selected-log']");
+    if (diag) {
+      const row = rows.find(r => r.log_id === selectedLogId);
+      if (!row) return;
+      const ta = $("#composer");
+      ta.value = row.title || row.event_name || c.question || "";
+      ta.dispatchEvent(new Event("input"));
+      delete ta.dataset.continueSessionId;
+      document.querySelectorAll(".intent-pill").forEach(p => p.classList.remove("active"));
+      const diagnosePill = document.querySelector(".intent-pill[data-intent='diagnose']");
+      if (diagnosePill) diagnosePill.classList.add("active");
+      State.activeIntent = "diagnose";
+      updateIntentExplain();
+      ta.focus();
+      toast("Question prefilled — press Enter to start troubleshooting");
+    }
+  });
 }
 
 function closeInspector() {

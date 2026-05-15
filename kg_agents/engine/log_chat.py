@@ -17,13 +17,24 @@ from openai import OpenAI
 from kg_agents.config import OPENAI_API_KEY, OPENAI_CHAT_MODEL
 
 from .log_loader import load_log_store
-from .log_search import search_logs, summarize_logs
+from .log_search import is_presentable_signature_id, search_logs, summarize_logs
 
 _client: OpenAI | None = None
 _WORK_ORDER_RE = re.compile(r"\bWO-[A-Za-z0-9][A-Za-z0-9-]*\b", re.IGNORECASE)
 _SOLUTION_QUESTION_RE = re.compile(
     r"\b(solution|fix|fixed|resolve|resolved|repair|repaired|"
     r"what\s+did\s+we\s+do|what\s+was\s+done|last\s+time|previous\s+fix)\b",
+    re.IGNORECASE,
+)
+_COUNT_QUESTION_RE = re.compile(
+    r"\b(how\s+many|how\s+often|how\s+frequent|frequency|count|times|"
+    r"quante|quanto\s+spesso)\b",
+    re.IGNORECASE,
+)
+_GLOBAL_ANALYTICS_RE = re.compile(
+    r"\b(most\s+recurring|most\s+repeated|top\s+recurring|top\s+component|"
+    r"most\s+affected|which\s+component|severity\s+mix|trend|trends|"
+    r"summary|total\s+logs?|total\s+events?)\b",
     re.IGNORECASE,
 )
 
@@ -81,6 +92,151 @@ def _is_solution_question(query: str) -> bool:
     return bool(_SOLUTION_QUESTION_RE.search(query or ""))
 
 
+def _filter_scope(filters: dict[str, Any]) -> str:
+    if not filters:
+        return "all available logs"
+    bits: list[str] = []
+    if filters.get("date_from") or filters.get("date_to"):
+        bits.append(f"{_fmt(filters.get('date_from'), 'start')} to {_fmt(filters.get('date_to'), 'now')}")
+    for key, label in (
+        ("status", "status"),
+        ("maintenance_type", "maintenance"),
+        ("event_category", "category"),
+        ("severity_min", "severity >= "),
+    ):
+        if filters.get(key) is not None:
+            bits.append(f"{label}: {filters[key]}")
+    return "; ".join(bits) if bits else "filtered logs"
+
+
+def _is_specific_count_question(query: str) -> bool:
+    text = " ".join((query or "").lower().split())
+    if not _COUNT_QUESTION_RE.search(text) or _GLOBAL_ANALYTICS_RE.search(text):
+        return False
+    if any(marker in text for marker in ("component:", "failure mode:", "previous symptom:")):
+        return True
+    stripped = re.sub(
+        r"\b(how|many|often|frequent|frequency|count|times|did|has|have|"
+        r"this|that|problem|issue|event|events|case|cases|occurred|happened|"
+        r"last|past|month|week|days|in|the|a|an|on|for|of|there|been)\b",
+        " ",
+        text,
+    )
+    terms = [term for term in re.findall(r"[a-z0-9_/-]{3,}", stripped)]
+    return len(terms) >= 2
+
+
+def _count_query_terms(query: str) -> list[str]:
+    text = " ".join((query or "").lower().split())
+    text = re.sub(r"\b(last|past)\s+\d+\s+days?\b", " ", text)
+    text = re.sub(r"\b(last|this|current|previous)\s+(month|week)\b", " ", text)
+    text = re.sub(
+        r"\b(how|many|often|frequent|frequency|count|times|did|has|have|"
+        r"this|that|problem|issue|event|events|case|cases|occurred|happened|"
+        r"in|the|a|an|on|for|of|there|been|was|were|is|are)\b",
+        " ",
+        text,
+    )
+    out: list[str] = []
+    for token in re.findall(r"[a-z][a-z0-9_/-]{2,}", text):
+        token = token.strip("_-/")
+        if token and token not in out:
+            out.append(token)
+    return out
+
+
+def _log_row_passes_filters(row: dict[str, Any], filters: dict[str, Any]) -> bool:
+    if not filters:
+        return True
+    df = filters.get("date_from")
+    if df and (row.get("occurred_at") or "") < df:
+        return False
+    dt = filters.get("date_to")
+    if dt and (row.get("occurred_at") or "") >= dt:
+        return False
+    for key in ("component_id", "linked_failure_mode_id", "maintenance_type", "event_category", "status", "event_signature_id"):
+        if filters.get(key) is not None and row.get(key) != filters[key]:
+            return False
+    if filters.get("severity_min") is not None and (row.get("severity_number") or 0) < int(filters["severity_min"]):
+        return False
+    return True
+
+
+def _row_count_haystack(row: dict[str, Any]) -> str:
+    return " ".join(
+        str(row.get(key) or "") for key in (
+            "event_signature_id", "title", "body", "action_taken",
+            "event_name", "component_name_raw", "semantic_text",
+            "linked_failure_mode_id", "work_order_id", "error_code", "alarm_code",
+        )
+    ).lower().replace("_", " ")
+
+
+def _unmatched_code_like_tokens(query: str, instance_id: str) -> list[str]:
+    tokens = [
+        token.lower()
+        for token in re.findall(r"\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9-]{6,}\b", query or "", re.I)
+        if not token.upper().startswith("WO-")
+    ]
+    if not tokens:
+        return []
+    store = load_log_store(instance_id)
+    if store is None or store.is_empty:
+        return tokens
+    corpus = "\n".join(_row_count_haystack(row) for row in store.rows)
+    return [token for token in tokens if token not in corpus]
+
+
+def _literal_count_matches(
+    query: str,
+    instance_id: str,
+    filters: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    terms = _count_query_terms(query)
+    if len(terms) < 2:
+        return None
+    store = load_log_store(instance_id)
+    if store is None or store.is_empty:
+        return []
+
+    all_literal = [
+        row for row in store.rows
+        if all(term in _row_count_haystack(row) for term in terms)
+    ]
+    if not all_literal:
+        return None
+    filtered = [row for row in all_literal if _log_row_passes_filters(row, filters)]
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in filtered:
+        sig = row.get("event_signature_id") or "_unsignatured"
+        if not is_presentable_signature_id(sig):
+            continue
+        grouped.setdefault(sig, []).append(row)
+
+    matches: list[dict[str, Any]] = []
+    for sig, rows in grouped.items():
+        rows.sort(key=lambda row: row.get("occurred_at") or "", reverse=True)
+        top = rows[0]
+        matches.append({
+            "event_signature_id": sig,
+            "score": 1.0,
+            "matched_occurrence_count": len(rows),
+            "occurrence_count": len(rows),
+            "first_seen_at": rows[-1].get("occurred_at"),
+            "last_seen_at": rows[0].get("occurred_at"),
+            "linked_failure_mode_id": top.get("linked_failure_mode_id") or "",
+            "linked_symptom_id": top.get("linked_symptom_id") or "",
+            "top_match_log": top,
+            "most_recent_log": top,
+            "matched_log_ids": [row.get("log_id") for row in rows if row.get("log_id")],
+            "all_log_ids": [row.get("log_id") for row in rows if row.get("log_id")],
+            "rerank_rationale": "Literal count match",
+        })
+    matches.sort(key=lambda m: (m.get("occurrence_count") or 0, m.get("last_seen_at") or ""), reverse=True)
+    return matches
+
+
 def _history_template(query: str, matches: list[dict[str, Any]]) -> str:
     total = sum(int(m.get("occurrence_count") or 0) for m in matches)
     top_match = matches[0].get("top_match_log") or {}
@@ -121,7 +277,7 @@ def _history_template(query: str, matches: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _analytics_template(query: str, summary: dict[str, Any]) -> str:
+def _analytics_template(query: str, summary: dict[str, Any], filters: dict[str, Any] | None = None) -> str:
     rows = int(summary.get("row_count") or 0)
     top_components = summary.get("top_components") or []
     top_signatures = summary.get("top_event_signatures") or []
@@ -130,6 +286,7 @@ def _analytics_template(query: str, summary: dict[str, Any]) -> str:
 
     lines = [
         "**Snapshot**",
+        f"- Scope: {_filter_scope(filters or {})}",
         f"- Total log rows: **{rows}**",
         f"- Open or monitoring events: **{open_events}**",
     ]
@@ -158,6 +315,56 @@ def _analytics_template(query: str, summary: dict[str, Any]) -> str:
         for key, value in sorted(severity.items()):
             lines.append(f"- {key}: {value}")
     return "\n".join(lines)
+
+
+def _count_template(query: str, matches: list[dict[str, Any]], filters: dict[str, Any]) -> str:
+    total = sum(int(m.get("occurrence_count") or 0) for m in matches)
+    lines = [
+        "**Snapshot**",
+        f"- Scope: {_filter_scope(filters)}",
+        f"- Matching occurrences: **{total}**",
+        f"- Matching patterns: **{len(matches)}**",
+    ]
+    if matches:
+        top = matches[0].get("top_match_log") or {}
+        lines.extend([
+            f"- Best matching pattern: `{_fmt(matches[0].get('event_signature_id'))}`",
+            f"- Most recent relevant event: {_date((matches[0].get('most_recent_log') or {}).get('occurred_at'))}",
+            "",
+            "**Matched Patterns**",
+        ])
+        for match in matches[:5]:
+            recent = match.get("most_recent_log") or {}
+            lines.append(
+                f"- `{_fmt(match.get('event_signature_id'))}` - "
+                f"{int(match.get('occurrence_count') or 0)} occurrence"
+                f"{'s' if int(match.get('occurrence_count') or 0) != 1 else ''} - "
+                f"last seen {_date(recent.get('occurred_at'))}"
+            )
+        if top.get("action_taken"):
+            lines.extend(["", "**Most Relevant Fix**", str(top["action_taken"])])
+    return "\n".join(lines)
+
+
+def _summary_evidence(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for item in summary.get("top_event_signatures") or []:
+        evidence.append({
+            "event_signature_id": item.get("event_signature_id"),
+            "score": 1.0,
+            "matched_occurrence_count": item.get("occurrence_count"),
+            "occurrence_count": item.get("occurrence_count"),
+            "linked_failure_mode_id": item.get("linked_failure_mode_id") or "",
+            "linked_symptom_id": "",
+            "first_seen_at": None,
+            "last_seen_at": item.get("last_seen_at"),
+            "top_match": {},
+            "most_recent": {"occurred_at": item.get("last_seen_at")},
+            "matched_log_ids": [],
+            "all_log_ids": [],
+            "rerank_rationale": "Aggregate summary result",
+        })
+    return evidence
 
 
 def _extract_work_order_id(query: str) -> str | None:
@@ -322,6 +529,14 @@ def handle_log_history_search(
     chat_model: str = OPENAI_CHAT_MODEL,
 ) -> tuple[str, list[dict[str, Any]], dict[str, float]]:
     timer = _HandlerTimer()
+    unmatched_tokens = _unmatched_code_like_tokens(query, instance_id)
+    if unmatched_tokens:
+        timer.mark("unknown_identifier_guard")
+        return (
+            "I couldn't find any past events on this machine that match that identifier.",
+            [],
+            timer.snapshot(),
+        )
     # Skip the dedicated LLM rerank: the compose call below already selects
     # and orders the most relevant candidates while writing the reply, so the
     # rerank step would just be redundant latency. RRF alone hits the right
@@ -368,18 +583,36 @@ def handle_log_history_search(
 def handle_log_analytics(
     query: str,
     instance_id: str,
+    filters: dict[str, Any] | None = None,
     chat_model: str = OPENAI_CHAT_MODEL,
 ) -> tuple[str, list[dict[str, Any]], dict[str, float]]:
     timer = _HandlerTimer()
-    summary = summarize_logs(instance_id)
+    filters = filters or {}
+    if _is_specific_count_question(query):
+        literal_matches = _literal_count_matches(query, instance_id, filters)
+        if literal_matches is not None:
+            timer.mark("literal_count")
+            reply = _count_template(query, literal_matches, filters)
+            timer.mark("compose")
+            return reply, _evidence_items(literal_matches), timer.snapshot(), {}
+
+        result = search_logs(query, instance_id, filters=filters, limit=5, use_llm_rerank=False)
+        timer.add_nested("search", result.get("diagnostics", {}).get("timings", {}))
+        timer.mark("specific_count_search")
+        if result["match_count"] > 0:
+            reply = _count_template(query, result["matches"], filters)
+            timer.mark("compose")
+            return reply, _evidence_items(result["matches"]), timer.snapshot(), {}
+
+    summary = summarize_logs(instance_id, filters=filters)
     timer.mark("summary")
     if not summary or summary.get("row_count", 0) == 0:
-        return ("There are no logs available for this machine yet.", [], timer.snapshot())
+        return ("There are no logs available for this machine yet.", [], timer.snapshot(), summary)
 
     if _use_fast_template(chat_model):
-        reply = _analytics_template(query, summary)
+        reply = _analytics_template(query, summary, filters)
         timer.mark("compose")
-        return reply, [], timer.snapshot()
+        return reply, _summary_evidence(summary), timer.snapshot(), summary
 
     system = (
         "You are an industrial maintenance assistant answering an ANALYTICS "
@@ -395,10 +628,11 @@ def handle_log_analytics(
     user_payload = {
         "user_query": query,
         "summary": summary,
+        "filters": filters,
     }
     reply = _llm_compose(system, user_payload, chat_model)
     timer.mark("compose")
-    return reply, [], timer.snapshot()
+    return reply, _summary_evidence(summary), timer.snapshot(), summary
 
 
 def handle_work_order_lookup(

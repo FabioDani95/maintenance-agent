@@ -89,6 +89,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     mode: Literal["fast", "non-fast"] | None = None
+    behavior_mode: Literal["solve_current_problem", "search_past_events"] | None = None
     model: str | None = None
 
 

@@ -663,15 +663,17 @@ async def chat(instance_id: str, req: ChatRequest):
         # still being asked for clarification, keep the stash for next turn.
         pending_appendix = session.get("_hybrid_appendix_pending", "")
         pending_evidence = session.get("_hybrid_evidence_pending") or []
-        if pending_appendix and not response.awaiting_clarification:
+        pending_intent = str(session.get("_hybrid_intent_pending") or "hybrid_diagnosis_with_history")
+        if (pending_appendix or pending_evidence) and not response.awaiting_clarification:
             _apply_intent(
                 response,
-                "hybrid_diagnosis_with_history",
+                pending_intent,
                 pending_appendix,
                 pending_evidence,
             )
             session.pop("_hybrid_appendix_pending", None)
             session.pop("_hybrid_evidence_pending", None)
+            session.pop("_hybrid_intent_pending", None)
         else:
             _apply_intent(response, intent)
         return _finish_chat_response(
@@ -804,6 +806,20 @@ async def chat(instance_id: str, req: ChatRequest):
     intent_filters = intent_result["filters"]
     intent_query = intent_result["search_query"]
     behavior_mode = behavior_mode_for_intent(intent)
+    requested_behavior_mode = req.behavior_mode
+    if requested_behavior_mode == SOLVE_CURRENT_PROBLEM:
+        behavior_mode = SOLVE_CURRENT_PROBLEM
+        if behavior_mode_for_intent(intent) == SEARCH_PAST_EVENTS:
+            intent = "troubleshooting_current"
+            intent_query = message
+            intent_source = f"{intent_source}+ui_behavior_override" if intent_source else "ui_behavior_override"
+    elif requested_behavior_mode == SEARCH_PAST_EVENTS:
+        behavior_mode = SEARCH_PAST_EVENTS
+        if behavior_mode_for_intent(intent) != SEARCH_PAST_EVENTS:
+            intent = "log_history_search"
+            intent_query = message
+            intent_filters = {}
+            intent_source = f"{intent_source}+ui_behavior_override" if intent_source else "ui_behavior_override"
 
     if behavior_mode == SEARCH_PAST_EVENTS and intent == "log_history_search":
         reply, evidence, handler_timings = handle_log_history_search(
@@ -819,6 +835,11 @@ async def chat(instance_id: str, req: ChatRequest):
         response.intent = intent
         response.behavior_mode = behavior_mode
         response.log_evidence = evidence
+        response.metrics = {
+            **response.metrics,
+            "log_query": intent_query,
+            "log_filters": intent_filters,
+        }
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -835,7 +856,12 @@ async def chat(instance_id: str, req: ChatRequest):
         )
 
     if behavior_mode == SEARCH_PAST_EVENTS and intent == "log_analytics":
-        reply, evidence, handler_timings = handle_log_analytics(intent_query, instance_id, chat_model)
+        reply, evidence, handler_timings, log_summary = handle_log_analytics(
+            intent_query,
+            instance_id,
+            intent_filters,
+            chat_model,
+        )
         timer.add_nested("log_analytics", handler_timings)
         timer.mark("log_analytics_handler")
         _set_active_issue(session, [], {})
@@ -846,6 +872,12 @@ async def chat(instance_id: str, req: ChatRequest):
         response.intent = intent
         response.behavior_mode = behavior_mode
         response.log_evidence = evidence
+        response.metrics = {
+            **response.metrics,
+            "log_query": intent_query,
+            "log_filters": intent_filters,
+            "log_summary": log_summary,
+        }
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -875,6 +907,11 @@ async def chat(instance_id: str, req: ChatRequest):
         response.intent = intent
         response.behavior_mode = behavior_mode
         response.log_evidence = evidence
+        response.metrics = {
+            **response.metrics,
+            "log_query": intent_query,
+            "log_filters": intent_filters,
+        }
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -896,10 +933,14 @@ async def chat(instance_id: str, req: ChatRequest):
         )
         timer.add_nested("hybrid_history", handler_timings)
         timer.mark("hybrid_history_search")
-    elif behavior_mode == SOLVE_CURRENT_PROBLEM and mode == "non-fast":
-        _, hybrid_evidence, handler_timings = fetch_hybrid_history_evidence(
+    elif behavior_mode == SOLVE_CURRENT_PROBLEM and (mode == "non-fast" or requested_behavior_mode == SOLVE_CURRENT_PROBLEM):
+        solve_appendix, hybrid_evidence, handler_timings = fetch_hybrid_history_evidence(
             intent_query, instance_id, intent_filters,
         )
+        if requested_behavior_mode == SOLVE_CURRENT_PROBLEM:
+            hybrid_appendix = ""
+        else:
+            hybrid_appendix = solve_appendix
         timer.add_nested("solve_history", handler_timings)
         timer.mark("solve_history_search")
 
@@ -1078,8 +1119,13 @@ async def chat(instance_id: str, req: ChatRequest):
         # For hybrid intent: stash the history appendix in session so it can
         # be appended to the final answer once the user resolves the
         # clarification, instead of cluttering the clarification prompt.
-        if intent == "hybrid_diagnosis_with_history" and hybrid_appendix:
+        if intent == "hybrid_diagnosis_with_history" and (hybrid_appendix or hybrid_evidence):
+            session["_hybrid_intent_pending"] = intent
             session["_hybrid_appendix_pending"] = hybrid_appendix
+            session["_hybrid_evidence_pending"] = hybrid_evidence
+        elif requested_behavior_mode == SOLVE_CURRENT_PROBLEM and hybrid_evidence:
+            session["_hybrid_intent_pending"] = intent
+            session["_hybrid_appendix_pending"] = ""
             session["_hybrid_evidence_pending"] = hybrid_evidence
         response = _build_clarification_response(
             instance_id=instance_id,

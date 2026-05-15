@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from openai import OpenAI
@@ -165,6 +165,20 @@ def _get_client() -> OpenAI:
 
 def _fast_filters(text: str) -> dict[str, Any]:
     filters: dict[str, Any] = {}
+    today = datetime.now(timezone.utc).date()
+    first_this_month = today.replace(day=1)
+    first_last_month = (first_this_month - timedelta(days=1)).replace(day=1)
+
+    if re.search(r"\b(last month|previous month)\b", text) or "mese scorso" in text:
+        filters["date_from"] = first_last_month.isoformat()
+        filters["date_to"] = first_this_month.isoformat()
+    elif re.search(r"\b(this month|current month)\b", text):
+        filters["date_from"] = first_this_month.isoformat()
+    elif re.search(r"\b(last|past)\s+30\s+days?\b", text) or "ultimi 30 giorni" in text:
+        filters["date_from"] = (today - timedelta(days=30)).isoformat()
+    elif re.search(r"\b(last|past)\s+7\s+days?\b", text) or re.search(r"\blast week\b", text):
+        filters["date_from"] = (today - timedelta(days=7)).isoformat()
+
     if "fatal" in text:
         filters["severity_min"] = 22
     elif "critical" in text or re.search(r"\bonly\s+errors?\b|\berror\s+severity\b|\bseverity\s+error\b", text):
@@ -174,6 +188,8 @@ def _fast_filters(text: str) -> dict[str, Any]:
 
     if "operator" in text and ("report" in text or "note" in text):
         filters["event_category"] = "operator_note"
+    elif re.search(r"\bfaults?\b", text):
+        filters["event_category"] = "fault"
 
     for status in ("open", "closed", "completed"):
         if status in text:
@@ -289,6 +305,8 @@ def classify_intent_fast(
 
     if has_analytics:
         return _base_result("log_analytics", message, "analytics wording detected")
+    if re.search(r"\b(show|list|find)\b", text) and re.search(r"\bfaults?\b", text):
+        return _base_result("log_history_search", message, "fault listing wording detected")
     if has_history and has_current_diagnosis:
         return _base_result(
             "hybrid_diagnosis_with_history",
@@ -429,6 +447,7 @@ def classify_intent(
         if v in (None, "", "null"):
             continue
         filters[k] = v
+    filters.update(_fast_filters(text))
 
     return {
         "intent": intent,
