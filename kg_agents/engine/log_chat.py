@@ -15,6 +15,7 @@ from typing import Any
 from openai import OpenAI
 
 from kg_agents.config import OPENAI_API_KEY, OPENAI_CHAT_MODEL
+from kg_agents.models import PastCaseResolution, PastCasesSummary
 
 from .log_loader import load_log_store
 from .log_search import is_presentable_signature_id, search_logs, summarize_logs
@@ -697,35 +698,239 @@ def handle_work_order_lookup(
     return reply, _evidence_items(result["matches"]), timer.snapshot()
 
 
-def fetch_hybrid_history_evidence(
+# ---------------------------------------------------------------------------
+# Past-cases summary for troubleshooting flow
+# ---------------------------------------------------------------------------
+
+def _classify_outcome(outcome: Any) -> str:
+    """Single outcome bucketer used everywhere counts are derived.
+
+    Buckets: resolved / partially_resolved / not_resolved / escalated / unknown.
+    """
+    s = str(outcome or "").strip().lower()
+    if not s:
+        return "unknown"
+    if "escalat" in s:
+        return "escalated"
+    if "partial" in s:
+        return "partially_resolved"
+    if "not resolved" in s or "unresolved" in s or "failed" in s or s == "open":
+        return "not_resolved"
+    if "resolved" in s or s in {"ok", "closed", "done", "fixed"}:
+        return "resolved"
+    return "unknown"
+
+
+def _resolution_from_row(row: dict[str, Any]) -> PastCaseResolution | None:
+    if not row:
+        return None
+    return PastCaseResolution(
+        log_id=str(row.get("log_id") or ""),
+        occurred_at=row.get("occurred_at"),
+        work_order_id=row.get("work_order_id"),
+        action_taken=str(row.get("action_taken") or "")[:400],
+        outcome=str(row.get("outcome") or ""),
+    )
+
+
+def build_past_cases_summary(matches: list[dict[str, Any]], instance_id: str) -> PastCasesSummary | None:
+    """Aggregate occurrence + outcome stats from log_search matches.
+
+    Reads each log row referenced by ``all_log_ids`` from the log store so the
+    counts reflect every occurrence (not just the two surfaced log rows in the
+    match payload). Picks the most representative ``action_taken`` as the
+    "most-used fix" — preferring the most frequent action text among resolved
+    rows, falling back to the top match's ``action_taken``.
+    """
+    if not matches:
+        return None
+    top = matches[0]
+    top_signature = str(top.get("event_signature_id") or "")
+    if not top_signature:
+        return None
+
+    store = load_log_store(instance_id)
+    rows_by_id: dict[str, dict[str, Any]] = {}
+    if store is not None and not store.is_empty:
+        rows_by_id = {str(row.get("log_id") or ""): row for row in store.rows if row.get("log_id")}
+
+    counts = {"resolved": 0, "partially_resolved": 0, "not_resolved": 0, "escalated": 0, "unknown": 0}
+    occurrence_count = 0
+    first_seen: str | None = None
+    last_seen: str | None = None
+    action_text_buckets: dict[str, dict[str, Any]] = {}  # action_text -> {row, resolved_count}
+    fallback_row = top.get("top_match_log") or {}
+
+    for match in matches:
+        log_ids = [lid for lid in (match.get("all_log_ids") or []) if lid]
+        rows: list[dict[str, Any]] = []
+        if log_ids and rows_by_id:
+            rows = [rows_by_id[lid] for lid in log_ids if lid in rows_by_id]
+        if not rows:
+            # Fall back to the two carried-in rows when log store is unavailable.
+            for key in ("top_match_log", "most_recent_log"):
+                r = match.get(key) or {}
+                if r and r.get("log_id") and not any(x.get("log_id") == r.get("log_id") for x in rows):
+                    rows.append(r)
+
+        for row in rows:
+            occurrence_count += 1
+            bucket = _classify_outcome(row.get("outcome"))
+            counts[bucket] = counts.get(bucket, 0) + 1
+            occurred_at = row.get("occurred_at")
+            if occurred_at:
+                if first_seen is None or occurred_at < first_seen:
+                    first_seen = occurred_at
+                if last_seen is None or occurred_at > last_seen:
+                    last_seen = occurred_at
+            action_taken = str(row.get("action_taken") or "").strip()
+            if action_taken:
+                key = action_taken.lower()[:160]
+                entry = action_text_buckets.setdefault(key, {"row": row, "count": 0, "resolved": 0})
+                entry["count"] += 1
+                if bucket == "resolved":
+                    entry["resolved"] += 1
+
+    if occurrence_count == 0:
+        # No rows at all — fall back to summing the carried-in occurrence_count
+        # so the box still shows a meaningful number.
+        occurrence_count = sum(int(m.get("occurrence_count") or 0) for m in matches)
+        first_seen = top.get("first_seen_at") or fallback_row.get("occurred_at")
+        last_seen = top.get("last_seen_at") or fallback_row.get("occurred_at")
+
+    # Most-used resolution: prefer the action_text with the highest resolved
+    # count; tie-break on overall frequency; then on the top match action.
+    most_used: PastCaseResolution | None = None
+    if action_text_buckets:
+        best = max(
+            action_text_buckets.values(),
+            key=lambda e: (e["resolved"], e["count"]),
+        )
+        most_used = _resolution_from_row(best["row"])
+    if most_used is None or not most_used.action_taken:
+        most_used = _resolution_from_row(fallback_row)
+
+    # Sample resolutions: up to 3 distinct action_taken texts, freshest first.
+    sample_rows: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    candidates: list[dict[str, Any]] = []
+    for match in matches:
+        log_ids = [lid for lid in (match.get("all_log_ids") or []) if lid]
+        for lid in log_ids:
+            row = rows_by_id.get(lid)
+            if row:
+                candidates.append(row)
+    candidates.sort(key=lambda r: r.get("occurred_at") or "", reverse=True)
+    for row in candidates:
+        action_taken = str(row.get("action_taken") or "").strip()
+        if not action_taken:
+            continue
+        key = action_taken.lower()[:160]
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        sample_rows.append(row)
+        if len(sample_rows) >= 3:
+            break
+    samples = [_resolution_from_row(r) for r in sample_rows if r]
+    samples = [s for s in samples if s is not None]
+
+    return PastCasesSummary(
+        top_event_signature_id=top_signature,
+        matched_signatures=len(matches),
+        occurrence_count=occurrence_count,
+        resolved_count=counts.get("resolved", 0),
+        partially_resolved_count=counts.get("partially_resolved", 0),
+        not_resolved_count=counts.get("not_resolved", 0),
+        escalated_count=counts.get("escalated", 0),
+        unknown_outcome_count=counts.get("unknown", 0),
+        first_seen_at=first_seen,
+        last_seen_at=last_seen,
+        most_used_resolution=most_used,
+        sample_resolutions=samples,
+        top_log_id=str((top.get("top_match_log") or {}).get("log_id") or "") or None,
+    )
+
+
+def _past_resolution_template(summary: PastCasesSummary) -> str:
+    """Markdown block appended to a troubleshooting reply when past cases exist.
+
+    Hybrid wording per user spec: manual actions stay; this block adds the
+    quantified history and one-line "most-used fix" hint.
+    """
+    if not summary or summary.occurrence_count <= 0:
+        return ""
+    parts = [f"**{summary.occurrence_count}** time(s) seen on this machine"]
+    if summary.resolved_count:
+        parts.append(f"**{summary.resolved_count}** resolved")
+    if summary.not_resolved_count:
+        parts.append(f"{summary.not_resolved_count} not resolved")
+    if summary.escalated_count:
+        parts.append(f"{summary.escalated_count} escalated")
+    last = _date(summary.last_seen_at) if summary.last_seen_at else ""
+
+    lines = ["", "---", "", "**Past similar events on this machine**", ""]
+    lines.append("- " + " · ".join(parts))
+    if last and last != "-":
+        lines.append(f"- Last seen: {last}")
+    if summary.most_used_resolution and summary.most_used_resolution.action_taken:
+        action = summary.most_used_resolution.action_taken.strip()
+        if len(action) > 240:
+            action = action[:237].rstrip() + "…"
+        lines.append(f"- Most-used fix: {action}")
+    return "\n".join(lines)
+
+
+def _logs_only_reply(
+    summary: PastCasesSummary | None,
+    matches: list[dict[str, Any]],
+) -> str:
+    """Reply text for the low-KG-confidence / opt-out path.
+
+    Honest lead line ("manuals don't have a confident match"), followed by the
+    standard past-resolution block when something matched, or a soft fallback
+    when nothing did.
+    """
+    lead = (
+        "I don't have a confident match in the manuals for this. "
+        "Here is what happened on this machine in the past."
+    )
+    if not summary or summary.occurrence_count == 0 or not matches:
+        return (
+            "I don't have a confident match in the manuals for this, and I could not find "
+            "similar past events on this machine either. Try describing the symptom in more "
+            "detail (which part, what you observe, when it happens)."
+        )
+    body = _past_resolution_template(summary)
+    # The template starts with a horizontal rule and a heading; for the
+    # logs-only reply we want the heading right under the lead, no rule.
+    body = body.replace("\n---\n", "\n", 1)
+    return f"{lead}\n{body}"
+
+
+def fetch_past_cases_for_diagnosis(
     query: str,
     instance_id: str,
     filters: dict[str, Any],
-) -> tuple[str, list[dict[str, Any]], dict[str, float]]:
-    """For hybrid intent: run log search, return a markdown appendix string and
-    the evidence list. The KG flow handles the diagnostic part of the reply
-    and this is appended after."""
+    *,
+    limit: int = 3,
+) -> tuple[PastCasesSummary | None, list[dict[str, Any]], dict[str, float], list[dict[str, Any]]]:
+    """Unified past-cases fetch for the troubleshooting flow.
+
+    Returns ``(summary, evidence, timings, raw_matches)``. ``raw_matches`` is
+    the search_logs match list (used by the logs-only branch to compose the
+    reply); ``evidence`` is the slim projection for ChatResponse.log_evidence.
+    """
     timer = _HandlerTimer()
-    result = search_logs(query, instance_id, filters=filters, limit=3, use_llm_rerank=False)
+    store = load_log_store(instance_id)
+    if store is None or store.is_empty:
+        return (None, [], timer.snapshot(), [])
+    result = search_logs(query, instance_id, filters=filters, limit=limit, use_llm_rerank=False)
     timer.add_nested("search", result.get("diagnostics", {}).get("timings", {}))
     timer.mark("search")
-    if result["match_count"] == 0:
-        return ("", [], timer.snapshot())
-
-    lines: list[str] = ["", "---", "", "**Past similar events on this machine:**", ""]
-    for m in result["matches"]:
-        top = m.get("top_match_log") or {}
-        date = (top.get("occurred_at") or "")[:10]
-        title = top.get("title") or ""
-        wo = top.get("work_order_id") or ""
-        outcome = top.get("outcome") or ""
-        bullet = f"- {date}"
-        if wo:
-            bullet += f" · {wo}"
-        if title:
-            bullet += f" — {title}"
-        if outcome:
-            bullet += f" *(outcome: {outcome})*"
-        lines.append(bullet)
-
-    return ("\n".join(lines), _evidence_items(result["matches"]), timer.snapshot())
+    matches = result.get("matches") or []
+    if not matches:
+        return (None, [], timer.snapshot(), [])
+    summary = build_past_cases_summary(matches, instance_id)
+    timer.mark("summary")
+    return (summary, _evidence_items(matches), timer.snapshot(), matches)

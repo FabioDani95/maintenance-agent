@@ -627,6 +627,70 @@ body.inspector-collapsed .inspector:hover::before { color: var(--blue-600); }
   text-transform: uppercase; letter-spacing: .3px;
 }
 
+/* ============== Past-case box (under "Likely cause" callout) ============== */
+.past-case-box {
+  display: block; width: 100%;
+  margin: 12px 0 4px;
+  background: linear-gradient(180deg, #EFF6FF 0%, #F8FAFC 100%);
+  border: 1.5px solid #BFDBFE;
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+  box-shadow: 0 1px 3px rgba(37,99,235,.06);
+}
+.past-case-box:hover {
+  border-color: var(--blue-400);
+  background: linear-gradient(180deg, #DBEAFE 0%, #EFF6FF 100%);
+  transform: translateX(1px);
+}
+.pcb-head {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; font-weight: 700; color: var(--blue-700);
+  letter-spacing: .4px; text-transform: uppercase;
+}
+.pcb-head .pcb-kind { display: inline-flex; align-items: center; gap: 6px; }
+.pcb-head .pcb-kind i { font-size: 12px; }
+.pcb-sig {
+  font-size: 10.5px; font-weight: 600; color: var(--slate-600);
+  background: rgba(255,255,255,.7); padding: 2px 7px; border-radius: 6px;
+  text-transform: none; letter-spacing: 0;
+}
+.pcb-go { margin-left: auto; font-size: 11px; opacity: .6; }
+.pcb-stats {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 8px;
+}
+.pcb-stat {
+  font-size: 12px; font-weight: 600; color: var(--slate-700);
+  background: #fff; border: 1px solid var(--slate-200);
+  padding: 3px 9px; border-radius: 999px;
+}
+.pcb-stat b { color: var(--slate-900); font-weight: 800; }
+.pcb-stat.ok { color: var(--green-700); border-color: var(--green-200); background: var(--green-50); }
+.pcb-stat.ok b { color: var(--green-700); }
+.pcb-stat.warn { color: #B45309; border-color: #FED7AA; background: #FFFBEB; }
+.pcb-stat.muted { color: var(--slate-500); font-weight: 500; }
+.pcb-fix {
+  margin-top: 9px;
+  font-size: 12.5px; color: var(--slate-700); line-height: 1.45;
+  background: rgba(255,255,255,.6);
+  border-left: 2px solid var(--blue-400);
+  padding: 6px 10px; border-radius: 4px;
+}
+.pcb-fix-label { font-weight: 700; color: var(--blue-700); margin-right: 4px; }
+
+/* Muted variant for the "None of these" clarification opt-out */
+.clarify-opt[data-clarify*="None of these"],
+.clarify-opt.muted {
+  background: var(--slate-50);
+  border-color: var(--slate-200);
+}
+.clarify-opt[data-clarify*="None of these"] .clarify-opt-label,
+.clarify-opt.muted .clarify-opt-label { color: var(--slate-600); }
+
 /* ============== Inspector — Evidence panel ============== */
 .ev-panel {
   padding: 52px 18px 18px; /* top padding accounts for floating insp-head */
@@ -1189,6 +1253,63 @@ body.inspector-collapsed .inspector { padding: 0; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(100,116,139,.25); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.45); }
+
+/* ============== Correlated signals (telemetry) ============== */
+/* Cause-section CTA chip */
+.cause-refs { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.signals-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #ECFEFF; color: #0E7490;
+  border: 1px solid #A5F3FC; border-radius: 6px;
+  padding: 4px 10px; font-size: 12px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+  transition: background .12s, border-color .12s;
+}
+.signals-link:hover { background: #CFFAFE; border-color: #67E8F9; }
+.signals-link i { font-size: 11px; }
+.signals-link .signals-count {
+  background: #0E7490; color: #fff; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; padding: 1px 6px; line-height: 1;
+}
+
+/* Inspector telemetry panel */
+.tel-panel { padding: 16px 18px 20px; }
+.tel-head { margin-bottom: 12px; }
+.tel-head-title { font-size: 13px; color: var(--slate-800); }
+.tel-head-sub { font-size: 11.5px; color: var(--slate-500); margin-top: 2px; }
+.tel-grid {
+  display: grid; grid-template-columns: 1fr;
+  gap: 12px;
+}
+.tel-card {
+  border: 1px solid var(--slate-200); border-radius: 8px;
+  background: #fff; padding: 10px 12px;
+}
+.tel-card-head { display: flex; align-items: center; gap: 8px; }
+.tel-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+.tel-card-title {
+  font-size: 12px; font-weight: 600; color: var(--slate-800);
+  text-transform: capitalize; letter-spacing: .1px;
+}
+.tel-chart-wrap { height: 130px; margin-top: 6px; position: relative; }
+.tel-no-data {
+  font-size: 11.5px; color: var(--slate-500); font-style: italic;
+  padding: 28px 0; text-align: center;
+}
+.tel-stats {
+  margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px;
+  font-size: 11px; color: var(--slate-500);
+}
+.tel-stat { white-space: nowrap; }
+.tel-stat .tel-stat-l { margin-right: 4px; }
+.tel-stat b { color: var(--slate-800); font-weight: 700; }
+.tel-trend-rising b { color: #B45309; }
+.tel-trend-falling b { color: #047857; }
+.tel-trend-stable b { color: var(--slate-600); }
+.tel-empty {
+  padding: 24px; text-align: center; color: var(--slate-500);
+  font-size: 12.5px; font-style: italic;
+}
 
 /* ============== Print ============== */
 @media print {

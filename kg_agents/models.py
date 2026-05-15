@@ -137,6 +137,30 @@ class ClarificationOption(BaseModel):
     description: str = ""
 
 
+class PastCaseResolution(BaseModel):
+    log_id: str
+    occurred_at: str | None = None
+    work_order_id: str | None = None
+    action_taken: str = ""
+    outcome: str = ""
+
+
+class PastCasesSummary(BaseModel):
+    top_event_signature_id: str
+    matched_signatures: int = 0
+    occurrence_count: int = 0
+    resolved_count: int = 0
+    partially_resolved_count: int = 0
+    not_resolved_count: int = 0
+    escalated_count: int = 0
+    unknown_outcome_count: int = 0
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    most_used_resolution: PastCaseResolution | None = None
+    sample_resolutions: list[PastCaseResolution] = Field(default_factory=list)
+    top_log_id: str | None = None
+
+
 class ChatResponse(BaseModel):
     reply: str
     session_id: str
@@ -152,6 +176,7 @@ class ChatResponse(BaseModel):
     intent: str | None = None
     behavior_mode: Literal["solve_current_problem", "search_past_events"] | None = None
     log_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    past_cases_summary: PastCasesSummary | None = None
     timings: dict[str, float] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
 

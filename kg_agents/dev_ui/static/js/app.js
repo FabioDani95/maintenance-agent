@@ -657,34 +657,27 @@ function buildDiagnoseBody(c) {
     return html;
   }
 
-  /* CASE B — fallback / no structured issue */
+  const pastBox = buildPastCaseBox(resp);
+
+  /* CASE B — fallback / no structured issue (also covers the logs-only path
+     where the backend deliberately returns current_issue=null because the KG
+     had no confident match). The reply already carries the honest lead line
+     ("I don't have a confident match in the manuals…"), so no extra banner. */
   if (!issue) {
-    return `<div class="diag-fallback markdown-body">${renderMarkdown(resp.reply || "(no diagnosis)")}</div>`;
+    return `<div class="diag-fallback markdown-body">${renderMarkdown(resp.reply || "(no diagnosis)")}</div>${pastBox}`;
   }
 
   /* CASE C — structured diagnose */
-  const evidenceCount = evidence.reduce((s, m) => s + (m.occurrence_count || 1), 0);
-  // Aggregate resolved-vs-open from top matches
-  let resolvedCount = 0, openCount = 0, lastSeen = null;
-  evidence.forEach(m => {
-    const top = m.top_match_log || m.top_match || {};
-    const recent = m.most_recent_log || m.most_recent || {};
-    const oc = (top.outcome || recent.outcome || "").toLowerCase();
-    if (oc.includes("resolved") || oc === "ok" || oc === "closed") resolvedCount++;
-    else if (oc) openCount++;
-    const t = recent.occurred_at || top.occurred_at;
-    if (t && (!lastSeen || t > lastSeen)) lastSeen = t;
-  });
-  const evidenceChip = evidence.length
-    ? `<button class="cause-evidence-chip" data-act="show-evidence" title="Open past occurrences in inspector">
-         <i class="fa fa-clock-rotate-left"></i>
-         <b>${evidenceCount}</b> similar past event${evidenceCount === 1 ? "" : "s"}
-         ${resolvedCount ? `<span class="ev-pill ok">${resolvedCount} resolved</span>` : ""}
-         ${lastSeen ? `<span class="muted">last: ${relativeTime(lastSeen)}</span>` : ""}
-         <i class="fa fa-arrow-right" style="font-size:9px;opacity:.5"></i>
-       </button>` : "";
-
   // "Likely cause" callout
+  const telemetryCols = resp.telemetry?.columns || [];
+  const signalsBtn = telemetryCols.length
+    ? `<button class="signals-link" data-act="open-telemetry"
+         title="Inspect time-series correlated to this failure mode">
+         <i class="fa fa-chart-area"></i> Correlated signals
+         <span class="signals-count">${telemetryCols.length}</span>
+       </button>`
+    : "";
+
   const causeBlock = `
     <div class="diag-section cause-section">
       <div class="diag-section-label">
@@ -694,7 +687,7 @@ function buildDiagnoseBody(c) {
       </div>
       <div class="cause-name">${escapeHtml(issue.failure_mode_name || "—")}</div>
       ${issue.component_name ? `<div class="cause-component">on <strong>${escapeHtml(issue.component_name)}</strong></div>` : ""}
-      ${evidenceChip}
+      ${signalsBtn ? `<div class="cause-refs">${signalsBtn}</div>` : ""}
     </div>`;
 
   // "Try this first" + alternatives
@@ -714,7 +707,74 @@ function buildDiagnoseBody(c) {
       </div>`;
   }
 
-  return causeBlock + actionsBlock;
+  return causeBlock + pastBox + actionsBlock;
+}
+
+/* ------------------------------------------------------------------
+   Past-case box — single, prominent, clickable. Reuses the existing
+   log-search Inspector view (data-act='open-log-navigator').
+   Prefers the server-side past_cases_summary; falls back to deriving
+   from log_evidence for backward compatibility.
+   ------------------------------------------------------------------ */
+function buildPastCaseBox(resp) {
+  if (!resp) return "";
+  const evidence = resp.log_evidence || [];
+  let summary = resp.past_cases_summary || null;
+  if (!summary && evidence.length) {
+    // Backward-compat fallback: derive a minimal summary from log_evidence.
+    let occ = 0, resolved = 0, lastSeen = null;
+    evidence.forEach(m => {
+      occ += (m.occurrence_count || 1);
+      const top = m.top_match_log || m.top_match || {};
+      const recent = m.most_recent_log || m.most_recent || {};
+      const oc = String(top.outcome || recent.outcome || "").toLowerCase();
+      if (oc.includes("resolved") || oc === "ok" || oc === "closed") resolved += 1;
+      const t = recent.occurred_at || top.occurred_at;
+      if (t && (!lastSeen || t > lastSeen)) lastSeen = t;
+    });
+    summary = {
+      top_event_signature_id: evidence[0]?.event_signature_id || "",
+      occurrence_count: occ,
+      resolved_count: resolved,
+      not_resolved_count: 0,
+      escalated_count: 0,
+      last_seen_at: lastSeen,
+      most_used_resolution: null,
+    };
+  }
+  if (!summary || !(summary.occurrence_count > 0)) return "";
+
+  const stats = [
+    `<span class="pcb-stat"><b>${summary.occurrence_count}</b> seen</span>`,
+    summary.resolved_count > 0
+      ? `<span class="pcb-stat ok"><b>${summary.resolved_count}</b> resolved</span>` : "",
+    summary.not_resolved_count > 0
+      ? `<span class="pcb-stat warn">${summary.not_resolved_count} not resolved</span>` : "",
+    summary.escalated_count > 0
+      ? `<span class="pcb-stat warn">${summary.escalated_count} escalated</span>` : "",
+    summary.last_seen_at
+      ? `<span class="pcb-stat muted">last ${relativeTime(summary.last_seen_at)}</span>` : "",
+  ].filter(Boolean).join("");
+
+  const fix = summary.most_used_resolution?.action_taken;
+  const fixLine = fix
+    ? `<div class="pcb-fix"><span class="pcb-fix-label">Most-used fix:</span> ${escapeHtml(truncate(fix, 180))}</div>`
+    : "";
+
+  const sig = summary.top_event_signature_id
+    ? `<code class="pcb-sig">${escapeHtml(summary.top_event_signature_id)}</code>` : "";
+
+  return `
+    <button class="past-case-box" data-act="open-log-navigator"
+      title="Open the log navigator filtered to this pattern">
+      <div class="pcb-head">
+        <span class="pcb-kind"><i class="fa fa-clock-rotate-left"></i> PAST SIMILAR INCIDENTS</span>
+        ${sig}
+        <i class="fa fa-arrow-right pcb-go"></i>
+      </div>
+      <div class="pcb-stats">${stats}</div>
+      ${fixLine}
+    </button>`;
 }
 
 function buildDiagnoseFooter(c) {
@@ -962,6 +1022,13 @@ function wireCase(article, c) {
     const evi = e.target.closest("[data-act='show-evidence']");
     if (evi) {
       openInspector("evidence", { caseObj: c });
+      return;
+    }
+
+    // Correlated signals → open inspector with time-series charts
+    const tel = e.target.closest("[data-act='open-telemetry']");
+    if (tel) {
+      openInspector("telemetry", { caseObj: c });
       return;
     }
 
@@ -1333,7 +1400,133 @@ function openInspector(kind, payload) {
     `;
     body.innerHTML = renderLogNavigatorShell();
     loadLogNavigator(c);
+
+  } else if (kind === "telemetry") {
+    extBtn.hidden = true;
+    const c = payload?.caseObj;
+    const issue = c?.response?.current_issue || {};
+    const label = issue.failure_mode_name
+      ? issue.failure_mode_name + (issue.component_name ? " · " + issue.component_name : "")
+      : "Correlated signals";
+    crumb.innerHTML = `
+      <span class="insp-icon"><i class="fa fa-chart-area"></i></span>
+      <span class="insp-kind">CORRELATED SIGNALS</span>
+      <span class="insp-name">${escapeHtml(truncate(label, 54))}</span>
+    `;
+    body.innerHTML = renderTelemetryPanel(c);
+    mountTelemetryCharts(body, c?.response?.telemetry);
   }
+}
+
+/* ---------- Correlated signals (telemetry) panel ---------- */
+const TELEMETRY_COLORS = [
+  { line: "#6366F1", fill: "rgba(99,102,241,0.10)" },
+  { line: "#10B981", fill: "rgba(16,185,129,0.10)" },
+  { line: "#F59E0B", fill: "rgba(245,158,11,0.10)" },
+  { line: "#EF4444", fill: "rgba(239,68,68,0.10)" },
+  { line: "#06B6D4", fill: "rgba(6,182,212,0.10)" },
+  { line: "#A855F7", fill: "rgba(168,85,247,0.10)" },
+];
+const _telemetryCharts = [];
+
+function renderTelemetryPanel(c) {
+  const t = c?.response?.telemetry;
+  const cols = t?.columns || [];
+  if (!cols.length) {
+    return `<div class="tel-empty">No telemetry signals are linked to this failure mode.</div>`;
+  }
+  const issue = c?.response?.current_issue || {};
+  const head = `
+    <div class="tel-head">
+      <div class="tel-head-title">Signals correlated to <strong>${escapeHtml(issue.failure_mode_name || "this failure mode")}</strong></div>
+      <div class="tel-head-sub">${cols.length} signal${cols.length === 1 ? "" : "s"} from the asset's telemetry, last window.</div>
+    </div>`;
+  const cards = cols.map((col, i) => `
+    <div class="tel-card" data-col="${escapeHtml(col)}" data-color-idx="${i}">
+      <div class="tel-card-head">
+        <span class="tel-dot" style="background:${TELEMETRY_COLORS[i % TELEMETRY_COLORS.length].line}"></span>
+        <span class="tel-card-title">${escapeHtml(col.replace(/_/g, " "))}</span>
+      </div>
+      <div class="tel-chart-wrap"><canvas></canvas></div>
+      <div class="tel-stats"></div>
+    </div>`).join("");
+  return `<div class="tel-panel">${head}<div class="tel-grid">${cards}</div></div>`;
+}
+
+function mountTelemetryCharts(root, telemetry) {
+  // Destroy any previously-mounted telemetry charts
+  while (_telemetryCharts.length) {
+    try { _telemetryCharts.pop().destroy(); } catch {}
+  }
+  if (!telemetry || typeof Chart === "undefined") return;
+
+  const trendArrows = { rising: "▲", falling: "▼", stable: "▶" };
+  root.querySelectorAll(".tel-card").forEach(card => {
+    const col = card.dataset.col;
+    const idx = Number(card.dataset.colorIdx || 0);
+    const color = TELEMETRY_COLORS[idx % TELEMETRY_COLORS.length];
+    const series = telemetry.signals?.[col] || [];
+    const stats = telemetry.stats?.[col];
+
+    const canvas = card.querySelector("canvas");
+    if (!series.length || !canvas) {
+      card.querySelector(".tel-chart-wrap").innerHTML =
+        `<div class="tel-no-data">No samples in window.</div>`;
+      return;
+    }
+
+    const labels = series.map(d => d.t);
+    const values = series.map(d => d.v);
+
+    const chart = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          borderColor: color.line,
+          backgroundColor: color.fill,
+          fill: true, pointRadius: 0, pointHoverRadius: 4,
+          borderWidth: 1.5, tension: 0.25,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#0F172A", borderColor: "#334155", borderWidth: 1,
+            titleColor: "#94A3B8", bodyColor: "#E2E8F0",
+            callbacks: { label: ctx => Number(ctx.parsed.y).toFixed(4) },
+          },
+        },
+        scales: {
+          x: {
+            type: "time",
+            time: { tooltipFormat: "yyyy-MM-dd HH:mm" },
+            ticks: { color: "#94A3B8", font: { size: 9 }, maxTicksLimit: 6, maxRotation: 0 },
+            grid: { color: "#E2E8F0" },
+          },
+          y: {
+            ticks: { color: "#94A3B8", font: { size: 10 } },
+            grid: { color: "#E2E8F0" },
+          },
+        },
+      },
+    });
+    _telemetryCharts.push(chart);
+
+    if (stats) {
+      const trendClass = "tel-trend-" + (stats.trend || "stable");
+      card.querySelector(".tel-stats").innerHTML = [
+        ["Mean", stats.mean], ["Std", stats.std], ["Min", stats.min],
+        ["Max", stats.max], ["Last", stats.last],
+      ].map(([l, v]) => `<span class="tel-stat"><span class="tel-stat-l">${l}</span><b>${v}</b></span>`).join("")
+        + `<span class="tel-stat ${trendClass}"><span class="tel-stat-l">Trend</span><b>${trendArrows[stats.trend] || "?"} ${stats.trend || "n/a"}</b></span>`;
+    }
+  });
 }
 
 /* ---------- Evidence panel renderer ---------- */
@@ -1761,6 +1954,11 @@ function closeInspector() {
   $("#insp-empty").hidden = false;
   $("#insp-content").hidden = true;
   $("#insp-external").hidden = true;
+  if (InspState.kind === "telemetry") {
+    while (_telemetryCharts.length) {
+      try { _telemetryCharts.pop().destroy(); } catch {}
+    }
+  }
   InspState.kind = null;
   InspState.payload = null;
 }

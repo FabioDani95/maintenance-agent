@@ -294,11 +294,76 @@ In `search_past_events`, chat questions may include natural English date scopes.
 - `intent`: one of `troubleshooting_current`, `log_history_search`, `log_analytics`, `work_order_lookup`, `hybrid_diagnosis_with_history`
 - `behavior_mode`: one of `solve_current_problem`, `search_past_events`
 - `log_evidence`: compact list of retrieved log matches used for the answer
-- `metrics.log_filters`: structured filters used by log/history answers, when applicable
+- `past_cases_summary`: structured per-pattern history aggregate attached on troubleshooting answers (see below)
+- `metrics.log_filters`: structured filters used by log/history answers, when applicable (for troubleshooting answers, `event_signature_id` is set to the top matched signature so clients can deep-link into `/logs?event_signature_id=…`)
 - `metrics.log_summary`: aggregate summary used by log analytics answers, when applicable
 - `timings`: per-stage latency map for observability
 
-Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `behavior_mode`, `intent`, and `log_evidence` to decide whether to render a diagnosis card, a past-events card, and/or a troubleshooting evidence panel.
+Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `behavior_mode`, `intent`, `log_evidence`, and `past_cases_summary` to decide whether to render a diagnosis card, a past-events card, and/or a troubleshooting evidence panel.
+
+#### Past-cases enrichment for troubleshooting
+
+The `troubleshooting_current` flow runs a semantic log search (`text-embedding-3-large`) on every turn when the instance has a logs CSV — including Fast mode. The reply text gains a deterministic "Past similar events on this machine" section that quantifies how often the event was seen, how it was resolved, and the most-used fix. The structured aggregate ships back on `past_cases_summary`:
+
+```json
+{
+  "top_event_signature_id": "irc5_drive_motor_overtemperature",
+  "matched_signatures": 2,
+  "occurrence_count": 12,
+  "resolved_count": 8,
+  "partially_resolved_count": 0,
+  "not_resolved_count": 1,
+  "escalated_count": 1,
+  "unknown_outcome_count": 2,
+  "first_seen_at": "2024-03-05T10:11:00Z",
+  "last_seen_at": "2026-04-11T15:53:55Z",
+  "most_used_resolution": {
+    "log_id": "log_irc5_0007",
+    "occurred_at": "2026-04-11T15:53:55Z",
+    "work_order_id": "WO-IRC5-1042",
+    "action_taken": "Cleaned air filters and verified fan speed; ran cool-down cycle.",
+    "outcome": "resolved"
+  },
+  "sample_resolutions": [],
+  "top_log_id": "log_irc5_0007"
+}
+```
+
+Outcome bucketing (stable for clients, applied server-side):
+
+- `resolved` ← contains "resolved", or equals "ok" / "closed" / "done" / "fixed"
+- `partially_resolved` ← contains "partial"
+- `not_resolved` ← contains "not resolved" / "unresolved" / "failed", or equals "open"
+- `escalated` ← contains "escalat"
+- otherwise → `unknown_outcome_count`
+
+Front-ends are expected to render a single clickable past-case box per case (occurrence count, resolved/escalated counts, last seen, one-line most-used fix). Clicking it should open the same view used for `search_past_events` (the log navigator), driven by `metrics.log_filters.event_signature_id`.
+
+#### Logs-only fallback (low-KG-confidence path)
+
+When the KG flow cannot produce a confident corrective action (no matched symptom/failure-mode, no aligned paths, low domain relevance, or the user picks the clarification opt-out described below), the response shape changes:
+
+- `current_issue`: `null` — no fabricated actions
+- `reply`: leads with an explicit honest line ("I don't have a confident match in the manuals for this. Here is what happened on this machine in the past."), followed by the past-resolution block
+- `past_cases_summary`, `log_evidence`, `metrics.log_filters.event_signature_id`: populated when matches exist
+
+If the instance has no logs at all, the legacy "I could not find a sufficiently close troubleshooting match" reply is preserved.
+
+#### Clarification opt-out
+
+When the troubleshooting flow asks a clarification question, `clarification_options` always includes an extra entry as long as past cases are available for the originating message:
+
+```json
+{
+  "id": "none_of_these",
+  "label": "None of these — show me past events instead",
+  "description": "Skip manual guidance and base the answer on past similar incidents on this machine."
+}
+```
+
+Selecting it (by `id`, by typing "none of these" / "nessuna delle due" / "neither", or by answering "3"/"three") short-circuits to the logs-only fallback for the same originating turn — no further clarification, no KG attempt.
+
+`/next-issue`, `/log-outcome`, `/reset`, and the outcome-feedback flow are unchanged.
 
 ### Devices
 
@@ -452,6 +517,7 @@ The dev UI at `/dev-ui` renders log responses inline:
 - Fast templates render as section headings plus bullets, not plain markdown text.
 - An **intent badge** above the assistant message identifies non-default routing (Historical lookup, Log analytics, Work order, Diagnosis + history).
 - An expandable **Evidence panel** under each message shows the retrieved log occurrences with severity pill, date, work order id, body excerpt, action_taken, and outcome.
+- When the diagnosis surfaces a failure mode that has `related_measurements`, the cause card shows a **Correlated signals** chip (count of available signals). Clicking it opens the Inspector with a stacked set of Chart.js time-series — one per measurement column resolved from the instance's telemetry CSV — annotated with mean/std/min/max/last/trend. The chip is hidden when no telemetry payload is attached to the response.
 - The graph panel exposes a small **Show logs** toolbar (toggle + query input). When chat returns evidence, the overlay query is auto-prefilled with the user's question; if the toggle is on, the graph reloads to surface `LogEvent` diamond nodes (teal `#14B8A6`) wired to the relevant `asset_*`, `comp_*`, and `fm_*` nodes via three virtual edge types.
 
 ### Chat ranking notes

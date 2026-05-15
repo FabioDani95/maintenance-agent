@@ -38,7 +38,9 @@ from kg_agents.engine.graph_traversal import (
 )
 from kg_agents.engine.intent_router import classify_intent, classify_intent_fast
 from kg_agents.engine.log_chat import (
-    fetch_hybrid_history_evidence,
+    _logs_only_reply,
+    _past_resolution_template,
+    fetch_past_cases_for_diagnosis,
     handle_log_analytics,
     handle_log_history_search,
     handle_work_order_lookup,
@@ -76,6 +78,7 @@ from kg_agents.models import (
     OutcomeLogRequest,
     OutcomeLogResponse,
     NextIssueRequest,
+    PastCasesSummary,
     PathStatsResponse,
     ProductInfoResponse,
     ResetRequest,
@@ -216,6 +219,8 @@ def _begin_diagnosis(session: dict, message: str) -> None:
     # into an unrelated answer.
     session.pop("_hybrid_appendix_pending", None)
     session.pop("_hybrid_evidence_pending", None)
+    session.pop("_past_cases_summary_pending", None)
+    session.pop("_past_matches_pending", None)
 
 
 def _set_active_issue(session: dict, group_paths: list[dict], trace: dict[str, object]) -> None:
@@ -418,7 +423,40 @@ def _handle_clarification_turn(
             reply=invalid_clarification_reply(clarification),
         )
 
-    ranked = reorder_ranked_groups(session.get("ranked_issues") or [], clarification, str(resolution["option_id"]))
+    selected_option_id = str(resolution["option_id"])
+    # "None of these" opt-out → render the logs-only fallback using the
+    # stashed past-cases context from the originating turn. No further KG
+    # attempt, no second clarification.
+    if selected_option_id == "none_of_these":
+        session["clarification"] = None
+        session["current_issue_idx"] = 0
+        session.setdefault("user_queries", []).append(message)
+        pending_summary_dict = session.pop("_past_cases_summary_pending", None)
+        pending_matches = session.pop("_past_matches_pending", []) or []
+        pending_summary = (
+            PastCasesSummary(**pending_summary_dict) if isinstance(pending_summary_dict, dict) else None
+        )
+        if pending_summary is None or pending_summary.occurrence_count == 0:
+            return _build_chat_response(
+                instance_id=instance_id,
+                session_id=session_id,
+                reply=(
+                    "I don't have a confident match in the manuals for this, and I could not find "
+                    "similar past events on this machine either. Try describing the symptom in more detail."
+                ),
+            )
+        reply = _logs_only_reply(pending_summary, pending_matches)
+        response = _build_chat_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            reply=reply,
+        )
+        # Mark the response so the caller can also apply the summary metadata.
+        session["_opt_out_just_used"] = True
+        session["_opt_out_summary"] = pending_summary
+        return response
+
+    ranked = reorder_ranked_groups(session.get("ranked_issues") or [], clarification, selected_option_id)
     session["clarification"] = None
     session["ranked_issues"] = ranked
     session["current_issue_idx"] = 0
@@ -458,11 +496,37 @@ def _handle_clarification_turn(
     )
 
 
+def _build_logs_only_response(
+    *,
+    instance_id: str,
+    session_id: str,
+    past_cases_summary: PastCasesSummary | None,
+    hybrid_evidence: list[dict],
+    past_matches: list[dict],
+    fallback_reply: str,
+) -> ChatResponse | None:
+    """Render a logs-only diagnose response.
+
+    Returns ``None`` if there is nothing meaningful to show (no past cases on
+    this machine); the caller should keep its existing fallback reply in that
+    case.
+    """
+    if not past_cases_summary or past_cases_summary.occurrence_count == 0:
+        return None
+    reply = _logs_only_reply(past_cases_summary, past_matches)
+    return _build_chat_response(
+        instance_id=instance_id,
+        session_id=session_id,
+        reply=reply,
+    )
+
+
 def _apply_intent(
     response: ChatResponse,
     intent: str,
     hybrid_appendix: str = "",
     hybrid_evidence: list[dict] | None = None,
+    past_cases_summary: PastCasesSummary | None = None,
 ) -> ChatResponse:
     """Stamp the routed intent (and any hybrid-history appendix) onto a
     KG-flow response. Pure mutation + return for use right before logging."""
@@ -472,6 +536,13 @@ def _apply_intent(
         response.reply = response.reply + hybrid_appendix
     if hybrid_evidence:
         response.log_evidence = hybrid_evidence
+    if past_cases_summary is not None:
+        response.past_cases_summary = past_cases_summary
+        # Surface the top signature so the front-end can open the existing
+        # log navigator filtered to it (reuse of the log-search Inspector view).
+        log_filters = dict(response.metrics.get("log_filters") or {})
+        log_filters.setdefault("event_signature_id", past_cases_summary.top_event_signature_id)
+        response.metrics = {**response.metrics, "log_filters": log_filters}
     return response
 
 
@@ -657,6 +728,39 @@ async def chat(instance_id: str, req: ChatRequest):
             chat_model=chat_model,
         )
         timer.mark("clarification_turn")
+        # Opt-out short-circuit: the clarification handler already rendered a
+        # logs-only reply. Attach the summary + evidence and we are done.
+        if session.pop("_opt_out_just_used", False):
+            opt_out_summary = session.pop("_opt_out_summary", None)
+            opt_out_evidence: list[dict] = []
+            pending_matches = session.pop("_past_matches_pending", []) or []
+            # Re-derive a slim evidence projection from the matches stashed at
+            # the originating turn so the front-end can still open the log
+            # navigator filtered to the top signature.
+            if pending_matches:
+                from kg_agents.engine.log_chat import _evidence_items
+                opt_out_evidence = _evidence_items(pending_matches)
+            _apply_intent(
+                response,
+                "troubleshooting_current",
+                "",
+                opt_out_evidence,
+                opt_out_summary,
+            )
+            return _finish_chat_response(
+                instance_id=instance_id,
+                session_id=session_id,
+                user_message=message,
+                response=response,
+                timer=timer,
+                branch="clarification_opt_out",
+                intent="troubleshooting_current",
+                mode=mode,
+                memory=memory,
+                product_meta=product_meta,
+                intent_source=intent_source,
+                intent_fallback_used=intent_fallback_used,
+            )
         # If a hybrid query stashed history during the previous turn and the
         # clarification is now resolved (i.e. we just produced a final KG
         # answer), append the history and elevate the intent. If the user is
@@ -664,18 +768,54 @@ async def chat(instance_id: str, req: ChatRequest):
         pending_appendix = session.get("_hybrid_appendix_pending", "")
         pending_evidence = session.get("_hybrid_evidence_pending") or []
         pending_intent = str(session.get("_hybrid_intent_pending") or "hybrid_diagnosis_with_history")
+        pending_summary_dict = session.get("_past_cases_summary_pending")
+        pending_summary = (
+            PastCasesSummary(**pending_summary_dict) if isinstance(pending_summary_dict, dict) else None
+        )
+        if not response.awaiting_clarification:
+            # The clarification has resolved into a KG answer. Append our
+            # quantified past-resolution block to the reply (same as the
+            # primary troubleshooting branch does), and forward the summary.
+            if pending_summary and pending_summary.occurrence_count > 0:
+                block = _past_resolution_template(pending_summary)
+                if block:
+                    response.reply = response.reply + "\n" + block
         if (pending_appendix or pending_evidence) and not response.awaiting_clarification:
             _apply_intent(
                 response,
                 pending_intent,
                 pending_appendix,
                 pending_evidence,
+                pending_summary,
             )
             session.pop("_hybrid_appendix_pending", None)
             session.pop("_hybrid_evidence_pending", None)
             session.pop("_hybrid_intent_pending", None)
+            session.pop("_past_cases_summary_pending", None)
+            session.pop("_past_matches_pending", None)
         else:
-            _apply_intent(response, intent)
+            # Either still awaiting clarification, or resolved with no hybrid
+            # stash — in both cases forward the past-cases summary so the
+            # front-end can render the box on the post-clarification turn.
+            if not response.awaiting_clarification:
+                # Reuse the same evidence list captured at the originating turn
+                # so the log-navigator deep link works after clarification.
+                pending_matches = session.get("_past_matches_pending") or []
+                pending_evidence_only: list[dict] = []
+                if pending_matches:
+                    from kg_agents.engine.log_chat import _evidence_items
+                    pending_evidence_only = _evidence_items(pending_matches)
+                _apply_intent(
+                    response,
+                    intent,
+                    "",
+                    pending_evidence_only,
+                    pending_summary,
+                )
+                session.pop("_past_cases_summary_pending", None)
+                session.pop("_past_matches_pending", None)
+            else:
+                _apply_intent(response, intent)
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -925,22 +1065,18 @@ async def chat(instance_id: str, req: ChatRequest):
             intent_fallback_used=intent_fallback_used,
         )
 
-    if intent == "hybrid_diagnosis_with_history":
-        hybrid_appendix, hybrid_evidence, handler_timings = fetch_hybrid_history_evidence(
-            intent_query, instance_id, intent_filters,
-        )
-        timer.add_nested("hybrid_history", handler_timings)
-        timer.mark("hybrid_history_search")
-    elif behavior_mode == SOLVE_CURRENT_PROBLEM and (mode == "non-fast" or requested_behavior_mode == SOLVE_CURRENT_PROBLEM):
-        solve_appendix, hybrid_evidence, handler_timings = fetch_hybrid_history_evidence(
-            intent_query, instance_id, intent_filters,
-        )
-        if requested_behavior_mode == SOLVE_CURRENT_PROBLEM:
-            hybrid_appendix = ""
-        else:
-            hybrid_appendix = solve_appendix
-        timer.add_nested("solve_history", handler_timings)
-        timer.mark("solve_history_search")
+    # Past-cases retrieval runs on every troubleshooting turn (including Fast
+    # mode) so the reply can always carry quantified history. When no logs
+    # exist for the instance the helper returns ``(None, [], _, [])`` and the
+    # downstream rendering simply skips the past-cases block.
+    past_cases_summary, hybrid_evidence, past_timings, past_matches = fetch_past_cases_for_diagnosis(
+        intent_query, instance_id, intent_filters,
+    )
+    timer.add_nested("past_cases", past_timings)
+    timer.mark("past_cases_search")
+    # No separate hybrid bullet appendix: the structured past-resolution block
+    # already carries the same information in a cleaner shape, and the
+    # past-case box links to the full log navigator for details.
 
     if query_emb is None:
         query_emb, query_embedding_s = _timed_call(get_query_embedding, message)
@@ -967,20 +1103,33 @@ async def chat(instance_id: str, req: ChatRequest):
         timer.mark("domain_check")
         if relevance == "not_relevant":
             _set_active_issue(session, [], {})
-            response = _build_chat_response(
+            logs_only = _build_logs_only_response(
+                instance_id=instance_id,
+                session_id=session_id,
+                past_cases_summary=past_cases_summary,
+                hybrid_evidence=hybrid_evidence,
+                past_matches=past_matches,
+                fallback_reply="",
+            )
+            response = logs_only or _build_chat_response(
                 instance_id=instance_id,
                 reply=out_of_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
             timer.mark("response_build")
-            _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
+            _apply_intent(
+                response, intent,
+                "" if logs_only else hybrid_appendix,
+                hybrid_evidence,
+                past_cases_summary,
+            )
             return _finish_chat_response(
                 instance_id=instance_id,
                 session_id=session_id,
                 user_message=message,
                 response=response,
                 timer=timer,
-                branch="out_of_domain",
+                branch="logs_only_out_of_domain" if logs_only else "out_of_domain",
                 intent=intent,
                 mode=mode,
                 memory=memory,
@@ -990,20 +1139,33 @@ async def chat(instance_id: str, req: ChatRequest):
             )
         if relevance == "unclear":
             _set_active_issue(session, [], {})
-            response = _build_chat_response(
+            logs_only = _build_logs_only_response(
+                instance_id=instance_id,
+                session_id=session_id,
+                past_cases_summary=past_cases_summary,
+                hybrid_evidence=hybrid_evidence,
+                past_matches=past_matches,
+                fallback_reply="",
+            )
+            response = logs_only or _build_chat_response(
                 instance_id=instance_id,
                 reply=unclear_domain_response(product_meta=product_meta),
                 session_id=session_id,
             )
             timer.mark("response_build")
-            _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
+            _apply_intent(
+                response, intent,
+                "" if logs_only else hybrid_appendix,
+                hybrid_evidence,
+                past_cases_summary,
+            )
             return _finish_chat_response(
                 instance_id=instance_id,
                 session_id=session_id,
                 user_message=message,
                 response=response,
                 timer=timer,
-                branch="unclear_domain",
+                branch="logs_only_unclear_domain" if logs_only else "unclear_domain",
                 intent=intent,
                 mode=mode,
                 memory=memory,
@@ -1014,20 +1176,33 @@ async def chat(instance_id: str, req: ChatRequest):
 
     if not top_symptoms and not top_failure_modes:
         _set_active_issue(session, [], {})
-        response = _build_chat_response(
+        logs_only = _build_logs_only_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            past_cases_summary=past_cases_summary,
+            hybrid_evidence=hybrid_evidence,
+            past_matches=past_matches,
+            fallback_reply="",
+        )
+        response = logs_only or _build_chat_response(
             instance_id=instance_id,
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
         timer.mark("response_build")
-        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
+        _apply_intent(
+            response, intent,
+            "" if logs_only else hybrid_appendix,
+            hybrid_evidence,
+            past_cases_summary,
+        )
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
             user_message=message,
             response=response,
             timer=timer,
-            branch="low_confidence",
+            branch="logs_only_low_confidence" if logs_only else "low_confidence",
             intent=intent,
             mode=mode,
             memory=memory,
@@ -1055,20 +1230,33 @@ async def chat(instance_id: str, req: ChatRequest):
 
     if not paths:
         _set_active_issue(session, [], {})
-        response = _build_chat_response(
+        logs_only = _build_logs_only_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            past_cases_summary=past_cases_summary,
+            hybrid_evidence=hybrid_evidence,
+            past_matches=past_matches,
+            fallback_reply="",
+        )
+        response = logs_only or _build_chat_response(
             instance_id=instance_id,
             reply=low_confidence_response(product_meta=product_meta),
             session_id=session_id,
         )
         timer.mark("response_build")
-        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
+        _apply_intent(
+            response, intent,
+            "" if logs_only else hybrid_appendix,
+            hybrid_evidence,
+            past_cases_summary,
+        )
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
             user_message=message,
             response=response,
             timer=timer,
-            branch="no_paths",
+            branch="logs_only_no_paths" if logs_only else "no_paths",
             intent=intent,
             mode=mode,
             memory=memory,
@@ -1083,7 +1271,15 @@ async def chat(instance_id: str, req: ChatRequest):
     timer.mark("rerank_alignment")
     if not ranked:
         _set_active_issue(session, [], {})
-        response = _build_chat_response(
+        logs_only = _build_logs_only_response(
+            instance_id=instance_id,
+            session_id=session_id,
+            past_cases_summary=past_cases_summary,
+            hybrid_evidence=hybrid_evidence,
+            past_matches=past_matches,
+            fallback_reply="",
+        )
+        response = logs_only or _build_chat_response(
             instance_id=instance_id,
             session_id=session_id,
             reply=low_confidence_response(
@@ -1092,14 +1288,19 @@ async def chat(instance_id: str, req: ChatRequest):
             ),
         )
         timer.mark("response_build")
-        _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
+        _apply_intent(
+            response, intent,
+            "" if logs_only else hybrid_appendix,
+            hybrid_evidence,
+            past_cases_summary,
+        )
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
             user_message=message,
             response=response,
             timer=timer,
-            branch="alignment_no_fit",
+            branch="logs_only_alignment_no_fit" if logs_only else "alignment_no_fit",
             intent=intent,
             mode=mode,
             memory=memory,
@@ -1112,8 +1313,34 @@ async def chat(instance_id: str, req: ChatRequest):
     clarification = build_clarification_state(ranked, message, index)
     timer.mark("clarification_build")
     if clarification:
+        # Always append the "None of these" opt-out so the operator can exit
+        # the manual-based flow and fall back to logs-only — but only if past
+        # cases are actually available to fall back to.
+        if past_cases_summary is not None and past_cases_summary.occurrence_count > 0:
+            clarification.setdefault("options", []).append({
+                "id": "none_of_these",
+                "label": "None of these — show me past events instead",
+                "description": "Skip manual guidance and base the answer on past similar incidents on this machine.",
+                "failure_mode_id": "",
+                "specific_label": "",
+                "observable_symptom": "",
+                "observable_failure_mode": "",
+                "keywords": ["none", "neither", "past", "history", "logs"],
+                "semantic_text": "None of these — show me past events instead",
+                "signal_concepts": [],
+                "component_names": [],
+                "failure_mode_name": "",
+                "is_opt_out": True,
+            })
         session["clarification"] = clarification
         session["current_issue_idx"] = 0
+        # Always stash past-cases context for the post-clarification turn so
+        # the final answer carries the same quantified history regardless of
+        # which option the user picks.
+        session["_past_cases_summary_pending"] = (
+            past_cases_summary.model_dump() if past_cases_summary else None
+        )
+        session["_past_matches_pending"] = past_matches
         # For hybrid intent: stash the history appendix in session so it can
         # be appended to the final answer once the user resolves the
         # clarification, instead of cluttering the clarification prompt.
@@ -1178,6 +1405,12 @@ async def chat(instance_id: str, req: ChatRequest):
         except Exception:
             logger.exception("Failed to compose non-fast solve-current answer")
             timer.mark("solve_compose_failed")
+    # Always quantify the past history in the reply when we have it. The
+    # deterministic block carries occurrence + outcome counts that the LLM
+    # narrative does not produce reliably.
+    past_block = _past_resolution_template(past_cases_summary) if past_cases_summary else ""
+    if past_block:
+        reply += "\n" + past_block
     if total > 1:
         reply += f"\n\n---\n*Possible cause 1 of {total}. Use \"Next\" to see the next most likely cause.*"
     timer.mark("response_render")
@@ -1196,7 +1429,7 @@ async def chat(instance_id: str, req: ChatRequest):
         telemetry=telemetry,
     )
     timer.mark("response_build")
-    _apply_intent(response, intent, hybrid_appendix, hybrid_evidence)
+    _apply_intent(response, intent, hybrid_appendix, hybrid_evidence, past_cases_summary)
     return _finish_chat_response(
         instance_id=instance_id,
         session_id=session_id,

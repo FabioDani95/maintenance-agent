@@ -12,7 +12,19 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _ORDINAL_PATTERNS = {
     0: (r"\b1\b", r"\bone\b", r"\bfirst\b"),
     1: (r"\b2\b", r"\btwo\b", r"\bsecond\b"),
+    2: (r"\b3\b", r"\bthree\b", r"\bthird\b"),
 }
+# Phrases that should map directly to an "is_opt_out" option when one is
+# present, regardless of lexical token overlap with the other options.
+_OPT_OUT_PHRASES = (
+    "none of these",
+    "none of those",
+    "nessuna delle due",
+    "nessuna di queste",
+    "neither",
+    "show me past events",
+    "show past events",
+)
 _ASK_CLARIFICATION_MAX_SCORE_GAP = 0.75
 _ASK_CLARIFICATION_MIN_RATIO = 0.88
 _ANSWER_MIN_SIMILARITY = 0.24
@@ -402,7 +414,18 @@ def resolve_clarification_answer(
     if len(options) < 2:
         return {"status": "invalid"}
 
+    # Direct opt-out match: if the operator says "none of these" (or similar),
+    # pick the opt-out option even when the other options share tokens.
+    opt_out_option = next(
+        (option for option in options if option.get("is_opt_out")),
+        None,
+    )
+    if opt_out_option is not None and any(phrase in normalized_answer for phrase in _OPT_OUT_PHRASES):
+        return {"status": "selected", "option_id": opt_out_option["id"]}
+
     for index, patterns in _ORDINAL_PATTERNS.items():
+        if index >= len(options):
+            break
         if any(re.search(pattern, normalized_answer) for pattern in patterns):
             return {"status": "selected", "option_id": options[index]["id"]}
 
