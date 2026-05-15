@@ -199,6 +199,45 @@ def _embed_query(query: str) -> list[float]:
     return resp.data[0].embedding
 
 
+def embed_query(query: str) -> list[float]:
+    """Public wrapper around the embedding call; reuses log_search's client and
+    `OPENAI_EMBEDDING_MODEL`. Callers that already have an embedding should
+    pass it directly to `score_log_ids_by_dense_similarity` instead."""
+    return _embed_query(query)
+
+
+def score_log_ids_by_dense_similarity(
+    query: str | list[float],
+    instance_id: str,
+    log_ids: list[str],
+) -> dict[str, float]:
+    """Return {log_id: cosine_similarity} for the requested log ids using the
+    pre-built per-occurrence embedding index. Missing log ids are simply
+    absent from the result. Used by past-cases composition to order rows by
+    similarity to the user query (rather than recency)."""
+    if not log_ids:
+        return {}
+    store = load_log_store(instance_id)
+    if store is None or store.is_empty or not store.occurrence_embeddings:
+        return {}
+    query_emb = embed_query(query) if isinstance(query, str) else list(query)
+    qa = np.asarray(query_emb, dtype=np.float32)
+    qn = float(np.linalg.norm(qa))
+    if qn == 0:
+        return {}
+    out: dict[str, float] = {}
+    for log_id in log_ids:
+        emb = store.occurrence_embeddings.get(log_id)
+        if emb is None:
+            continue
+        ea = np.asarray(emb, dtype=np.float32)
+        en = float(np.linalg.norm(ea))
+        if en == 0:
+            continue
+        out[log_id] = float(np.dot(qa, ea) / (qn * en))
+    return out
+
+
 def _dense_scores(
     query_emb: list[float],
     store: LogStore,
@@ -523,6 +562,9 @@ def search_logs(
         "instance_id": instance_id,
         "match_count": len(matches),
         "matches": matches,
+        # Exposed so callers (e.g. fetch_past_cases_for_diagnosis) can score
+        # individual rows by similarity without re-embedding the query.
+        "query_embedding": query_emb,
         "diagnostics": diagnostics({
             "dense_candidates": len(dense),
             "sparse_candidates": len(sparse),

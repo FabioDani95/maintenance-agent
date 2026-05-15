@@ -11,30 +11,15 @@ ATTEMPT_LIMIT = 5
 OUTCOME_LIMIT = 5
 
 _CONTEXT_REF_RE = re.compile(
-    r"\b("
-    r"it|that|this|same|previous|first option|second option|last one|"
-    r"quello|quella|questo|questa|stesso|stessa|prima opzione|seconda opzione|"
-    r"precedente|di prima|come prima"
-    r")\b",
+    r"\b(it|that|this|same|previous|first option|second option|last one)\b",
     re.IGNORECASE,
 )
 _ATTEMPT_RE = re.compile(
-    r"\b("
-    r"tried|checked|replaced|reset|restarted|cleaned|measured|tested|"
-    r"provato|controllato|sostituito|resettato|riavviato|pulito|misurato|testato"
-    r")\b",
+    r"\b(tried|checked|replaced|reset|restarted|cleaned|measured|tested)\b",
     re.IGNORECASE,
 )
 _OUTCOME_RE = re.compile(
-    r"\b("
-    r"resolved|fixed|works|still|unchanged|worse|better|failed|"
-    r"risolto|funziona|ancora|uguale|peggio|meglio|fallito|non cambia"
-    r")\b",
-    re.IGNORECASE,
-)
-_ITALIAN_HINT_RE = re.compile(
-    r"\b(il|lo|la|gli|le|un|una|questo|quello|come|cosa|risolvo|controllo|"
-    r"guasto|errore|macchina|componente|sintomo|prima|opzione)\b",
+    r"\b(resolved|fixed|works|still|unchanged|worse|better|failed)\b",
     re.IGNORECASE,
 )
 
@@ -44,7 +29,6 @@ def empty_memory(product_meta: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "recent_turns": [],
         "preferences": {
-            "language": "",
             "tone": "practical",
         },
         "last_intent": None,
@@ -93,14 +77,6 @@ def has_context_reference(message: str) -> bool:
     return bool(_CONTEXT_REF_RE.search(message or ""))
 
 
-def infer_language(message: str, current: str = "") -> str:
-    if _ITALIAN_HINT_RE.search(message or ""):
-        return "it"
-    if current:
-        return current
-    return "en"
-
-
 def routing_context(memory: dict[str, Any], message: str) -> dict[str, Any]:
     facts = memory.get("facts") or {}
     context_ref = has_context_reference(message)
@@ -111,17 +87,6 @@ def routing_context(memory: dict[str, Any], message: str) -> dict[str, Any]:
         "component": facts.get("component") or "",
         "symptom": facts.get("symptom") or "",
         "failure_mode": facts.get("failure_mode") or "",
-    }
-
-
-def response_context(memory: dict[str, Any]) -> dict[str, str]:
-    facts = memory.get("facts") or {}
-    return {
-        "machine": str(facts.get("machine") or ""),
-        "component": str(facts.get("component") or ""),
-        "symptom": str(facts.get("symptom") or ""),
-        "failure_mode": str(facts.get("failure_mode") or ""),
-        "language": str((memory.get("preferences") or {}).get("language") or ""),
     }
 
 
@@ -154,7 +119,6 @@ def update_memory_after_turn(
 ) -> dict[str, Any]:
     updated = normalize_memory(memory, product_meta)
     preferences = updated.setdefault("preferences", {})
-    preferences["language"] = infer_language(user_message, str(preferences.get("language") or ""))
     preferences.setdefault("tone", "practical")
 
     facts = updated.setdefault("facts", {})

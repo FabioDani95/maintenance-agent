@@ -681,6 +681,14 @@ body.inspector-collapsed .inspector:hover::before { color: var(--blue-600); }
   padding: 6px 10px; border-radius: 4px;
 }
 .pcb-fix-label { font-weight: 700; color: var(--blue-700); margin-right: 4px; }
+.pcb-narrative {
+  margin-top: 9px;
+  font-size: 12.5px; color: var(--slate-800); line-height: 1.55;
+  background: rgba(255,255,255,.65);
+  border-left: 2px solid var(--blue-500);
+  padding: 8px 11px; border-radius: 4px;
+  text-align: left; white-space: pre-wrap;
+}
 
 /* Muted variant for the "None of these" clarification opt-out */
 .clarify-opt[data-clarify*="None of these"],
@@ -1309,6 +1317,69 @@ body.inspector-collapsed .inspector { padding: 0; }
 .tel-empty {
   padding: 24px; text-align: center; color: var(--slate-500);
   font-size: 12.5px; font-style: italic;
+}
+
+/* ============== Log navigator — AI analysis + similarity badges ============== */
+.ln-analysis-section {
+  margin: 14px 18px 4px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #F5F3FF 0%, #EFF6FF 100%);
+  border: 1px solid #DDD6FE;
+  border-radius: 10px;
+}
+.ln-analysis-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ln-analysis-kind {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .4px;
+  color: var(--violet-700, #6D28D9); text-transform: uppercase;
+}
+.ln-analysis-kind i { font-size: 11px; }
+.ln-analysis-basis {
+  font-size: 10.5px; font-weight: 700; color: var(--slate-500);
+  background: #fff; border: 1px solid var(--slate-200);
+  padding: 2px 8px; border-radius: 999px;
+}
+.ln-analysis-body { font-size: 12.5px; color: var(--slate-800); line-height: 1.55; }
+.ln-analysis-empty {
+  font-size: 12px; color: var(--slate-500); font-style: italic; padding: 6px 0;
+}
+.ln-cite {
+  display: inline-block; vertical-align: baseline;
+  background: #fff; color: var(--violet-700, #6D28D9);
+  border: 1px solid #DDD6FE; border-radius: 4px;
+  padding: 0 5px; margin: 0 1px;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  cursor: pointer; line-height: 1.45;
+}
+.ln-cite:hover { background: #EDE9FE; }
+
+/* Match column (similarity score + basis chip) */
+.ln-match-cell { white-space: nowrap; }
+.ln-sim {
+  display: inline-block;
+  font-size: 11px; font-weight: 700; color: var(--slate-700);
+  font-family: var(--font-mono);
+}
+.ln-basis-chip {
+  display: inline-block; margin-left: 6px;
+  background: #EDE9FE; color: var(--violet-700, #6D28D9);
+  border: 1px solid #DDD6FE; border-radius: 999px;
+  padding: 1px 7px; font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .4px;
+}
+.ln-table tbody tr.basis { background: #FAFAFF; }
+.ln-table tbody tr.basis:hover { background: #F1EEFF; }
+.ln-table tbody tr.spotlight {
+  animation: lnSpotlight 1.4s ease;
+  outline: 2px solid var(--violet-700, #6D28D9);
+  outline-offset: -2px;
+}
+@keyframes lnSpotlight {
+  0%   { background: #DDD6FE; }
+  100% { background: transparent; }
 }
 
 /* ============== Print ============== */

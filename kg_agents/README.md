@@ -162,6 +162,7 @@ Node and relationship counts for the default instance follow the checked-in `irc
 | POST | `/v1/kg-agents/instances/{instance_id}/next-issue` | Return the next ranked possible cause |
 | POST | `/v1/kg-agents/instances/{instance_id}/reset` | Reset the chat session |
 | POST | `/v1/kg-agents/instances/{instance_id}/log-outcome` | Record the result of a selected corrective action for intervention analytics |
+| POST | `/v1/kg-agents/instances/{instance_id}/past-cases-analysis` | LLM-composed expanded analysis derived from a past-cases search (lazy, stateless) |
 | GET | `/v1/kg-agents/instances/{instance_id}/path-stats` | Return historical outcome stats for a path, failure mode, or action |
 | GET | `/v1/kg-agents/instances/{instance_id}/product-info` | Product metadata and suggested symptoms |
 | POST | `/v1/kg-agents/instances/{instance_id}/reload` | Evict in-memory caches for ontology, embeddings, telemetry, and logs |
@@ -303,7 +304,7 @@ Existing clients that only read `reply`, `session_id`, `highlight`, `current_iss
 
 #### Past-cases enrichment for troubleshooting
 
-The `troubleshooting_current` flow runs a semantic log search (`text-embedding-3-large`) on every turn when the instance has a logs CSV — including Fast mode. The reply text gains a deterministic "Past similar events on this machine" section that quantifies how often the event was seen, how it was resolved, and the most-used fix. The structured aggregate ships back on `past_cases_summary`:
+The `troubleshooting_current` flow runs a semantic log search (`text-embedding-3-large`) on every turn when the instance has a logs CSV — including Fast mode. On top of the raw retrieval, the backend ranks every matched log row by cosine similarity to the user query, picks the top K (default `PAST_CASES_BASIS_K = 5`) as the *basis logs*, and asks an LLM (Fast: `gpt-5-nano`) to compose a 2–4 sentence **narrative summary** grounded on those rows. The structured aggregate ships back on `past_cases_summary`:
 
 ```json
 {
@@ -325,7 +326,13 @@ The `troubleshooting_current` flow runs a semantic log search (`text-embedding-3
     "outcome": "resolved"
   },
   "sample_resolutions": [],
-  "top_log_id": "log_irc5_0007"
+  "top_log_id": "log_irc5_0007",
+  "narrative_summary": "These motor overtemperature events were typically driven by a clogged air filter or a slowed cooling fan and were resolved by cleaning intakes and running a cool-down cycle. One escalation involved bearing wear and required a full motor inspection.",
+  "basis_log_ids": ["log_irc5_0007", "log_irc5_0008", "log_irc5_0012"],
+  "ranked_log_refs": [
+    { "log_id": "log_irc5_0007", "similarity": 0.62 },
+    { "log_id": "log_irc5_0008", "similarity": 0.58 }
+  ]
 }
 ```
 
@@ -337,7 +344,28 @@ Outcome bucketing (stable for clients, applied server-side):
 - `escalated` ← contains "escalat"
 - otherwise → `unknown_outcome_count`
 
-Front-ends are expected to render a single clickable past-case box per case (occurrence count, resolved/escalated counts, last seen, one-line most-used fix). Clicking it should open the same view used for `search_past_events` (the log navigator), driven by `metrics.log_filters.event_signature_id`.
+Front-ends render a single clickable past-case box per case with occurrence count, outcome counts, last seen, and the `narrative_summary` (falling back to the deterministic `most_used_resolution.action_taken` one-liner only when the narrative is empty — for older payloads or LLM failures). The reply text follows the same precedence: prefer `narrative_summary`, fall back to "Most-used fix: …". Clicking the box opens the log navigator (see below); the navigator uses `ranked_log_refs` to order rows by similarity and `basis_log_ids` to flag the K rows that grounded the narrative.
+
+#### Lazy expanded analysis
+
+`POST /v1/kg-agents/instances/{instance_id}/past-cases-analysis` returns a longer markdown analysis derived from the basis logs. The endpoint is stateless — clients pass `{query, log_ids}` taken from the originating chat response — so the LLM cost is only paid when the operator actually opens the navigator.
+
+Request:
+
+```json
+{ "session_id": "optional", "query": "Bearings damaged or worn", "log_ids": ["log_irc5_0061", "log_irc5_0184"] }
+```
+
+Response:
+
+```json
+{
+  "analysis_markdown": "**What tends to happen** …\n\n**What worked** …\n\n**Suggested next steps**\n1. …",
+  "log_ids_used": ["log_irc5_0061", "log_irc5_0184"]
+}
+```
+
+The composer (`compose_past_cases_expanded_analysis`) prompts the LLM to produce three labelled sections — *What tends to happen*, *What worked*, *Suggested next steps* — and to cite every concrete claim with `[log_id]` so the UI can deep-link a citation back to the row that backs it.
 
 #### Logs-only fallback (low-KG-confidence path)
 
@@ -361,7 +389,7 @@ When the troubleshooting flow asks a clarification question, `clarification_opti
 }
 ```
 
-Selecting it (by `id`, by typing "none of these" / "nessuna delle due" / "neither", or by answering "3"/"three") short-circuits to the logs-only fallback for the same originating turn — no further clarification, no KG attempt.
+Selecting it (by `id`, by typing "none of these" / "neither", or by answering "3"/"three") short-circuits to the logs-only fallback for the same originating turn — no further clarification, no KG attempt.
 
 `/next-issue`, `/log-outcome`, `/reset`, and the outcome-feedback flow are unchanged.
 
@@ -518,6 +546,8 @@ The dev UI at `/dev-ui` renders log responses inline:
 - An **intent badge** above the assistant message identifies non-default routing (Historical lookup, Log analytics, Work order, Diagnosis + history).
 - An expandable **Evidence panel** under each message shows the retrieved log occurrences with severity pill, date, work order id, body excerpt, action_taken, and outcome.
 - When the diagnosis surfaces a failure mode that has `related_measurements`, the cause card shows a **Correlated signals** chip (count of available signals). Clicking it opens the Inspector with a stacked set of Chart.js time-series — one per measurement column resolved from the instance's telemetry CSV — annotated with mean/std/min/max/last/trend. The chip is hidden when no telemetry payload is attached to the response.
+- The **PAST SIMILAR INCIDENTS** card under the diagnosis renders the LLM `narrative_summary` (2–4 sentences) instead of the legacy "Most-used fix: …" one-liner. The card is clickable; the underlying counts (`occurrence_count`, `resolved_count`, last seen) stay visible at the top.
+- Clicking the past-incidents card opens the **Log Navigator** in the Inspector with three blocks: (1) scope / rows-in-scope / top recurring case cards; (2) a violet **AI ANALYSIS OF SIMILAR PAST CASES** section that lazy-fetches `POST /past-cases-analysis` and renders the three-section markdown (*What tends to happen*, *What worked*, *Suggested next steps*) — every `[log_id]` citation is a clickable chip that scrolls to and flashes the corresponding table row; (3) a result table ordered by **per-row cosine similarity** to the original query (not by date), with a first **Match** column showing `XX%` similarity, the top-K rows tagged with a **basis** chip and highlighted (lavender background). The legacy single "Selected log" detail panel is gone — operators act on rows via the per-row "Diagnose this" stethoscope button or the citation links.
 - The graph panel exposes a small **Show logs** toolbar (toggle + query input). When chat returns evidence, the overlay query is auto-prefilled with the user's question; if the toggle is on, the graph reloads to surface `LogEvent` diamond nodes (teal `#14B8A6`) wired to the relevant `asset_*`, `comp_*`, and `fm_*` nodes via three virtual edge types.
 
 ### Chat ranking notes

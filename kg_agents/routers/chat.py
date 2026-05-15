@@ -13,7 +13,6 @@ from fastapi import APIRouter, HTTPException, Query
 from kg_agents.config import OPENAI_CHAT_MODEL, OPENAI_NON_FAST_CHAT_MODEL
 from kg_agents.engine.conversation_memory import (
     normalize_memory,
-    response_context,
     routing_context,
     update_memory_after_turn,
 )
@@ -40,6 +39,8 @@ from kg_agents.engine.intent_router import classify_intent, classify_intent_fast
 from kg_agents.engine.log_chat import (
     _logs_only_reply,
     _past_resolution_template,
+    basis_rows_from_log_ids,
+    compose_past_cases_expanded_analysis,
     fetch_past_cases_for_diagnosis,
     handle_log_analytics,
     handle_log_history_search,
@@ -51,7 +52,6 @@ from kg_agents.engine.log_loader import evict_log_cache
 from kg_agents.engine.log_search import evict_search_cache
 from kg_agents.engine.telemetry_loader import evict_telemetry_cache
 from kg_agents.engine.response_builder import (
-    add_conversational_structure,
     compose_prioritized_solve_answer,
     format_answer_single_group,
     low_confidence_response,
@@ -78,6 +78,8 @@ from kg_agents.models import (
     OutcomeLogRequest,
     OutcomeLogResponse,
     NextIssueRequest,
+    PastCasesAnalysisRequest,
+    PastCasesAnalysisResponse,
     PastCasesSummary,
     PathStatsResponse,
     ProductInfoResponse,
@@ -583,20 +585,9 @@ def _finish_chat_response(
     intent_source: str = "",
     intent_fallback_used: bool = False,
 ) -> ChatResponse:
-    original_reply = response.reply
     resolved_intent_source = intent_source or branch
     resolved_intent = response.intent or intent
     response.behavior_mode = response.behavior_mode or behavior_mode_for_intent(resolved_intent)
-    response.reply, structure_metrics = add_conversational_structure(
-        response.reply,
-        user_message=user_message,
-        session_id=session_id,
-        mode=mode,
-        intent=resolved_intent,
-        response_context=response_context(memory),
-        current_issue=response.current_issue,
-        awaiting_clarification=response.awaiting_clarification,
-    )
     response.metrics = {
         **response.metrics,
         "mode": mode,
@@ -604,9 +595,6 @@ def _finish_chat_response(
         "behavior_mode": response.behavior_mode,
         "intent_source": resolved_intent_source,
         "intent_fallback_used": intent_fallback_used,
-        "follow_up_added": bool(structure_metrics.get("follow_up_added")),
-        "context_reference_added": bool(structure_metrics.get("context_reference_added")),
-        "technical_body_preserved": bool(original_reply) and original_reply in response.reply,
     }
     session_state = _get_session(instance_id, session_id)
     session_state["last_intent"] = resolved_intent
@@ -651,16 +639,6 @@ def _finish_next_issue_response(
 ) -> ChatResponse:
     response.intent = response.intent or "troubleshooting_current"
     response.behavior_mode = response.behavior_mode or behavior_mode_for_intent(response.intent)
-    response.reply, structure_metrics = add_conversational_structure(
-        response.reply,
-        user_message="[next issue]",
-        session_id=session_id,
-        mode=mode,
-        intent=response.intent,
-        response_context=response_context(memory),
-        current_issue=response.current_issue,
-        awaiting_clarification=response.awaiting_clarification,
-    )
     response.metrics = {
         **response.metrics,
         "mode": mode,
@@ -668,8 +646,6 @@ def _finish_next_issue_response(
         "behavior_mode": response.behavior_mode,
         "intent_source": "next_issue_session_state",
         "intent_fallback_used": False,
-        "follow_up_added": bool(structure_metrics.get("follow_up_added")),
-        "context_reference_added": bool(structure_metrics.get("context_reference_added")),
     }
     try:
         updated_memory = update_memory_after_turn(
@@ -1544,6 +1520,33 @@ async def reset_session(instance_id: str, req: ResetRequest):
         _sessions.pop(_session_key(instance_id, req.session_id), None)
         chat_log_store.delete_conversation_memory(instance_id, req.session_id)
     return {"ok": True}
+
+
+@router.post(
+    "/instances/{instance_id}/past-cases-analysis",
+    response_model=PastCasesAnalysisResponse,
+)
+async def past_cases_analysis(instance_id: str, req: PastCasesAnalysisRequest):
+    """Lazy-fetched markdown analysis derived from the top-K basis logs of a
+    past-cases search. Called when the operator opens the log navigator from
+    the past-cases card. The body carries the same ``query`` + ``log_ids``
+    that were sent back to the client on the originating chat response, so
+    the endpoint is stateless and the LLM cost is only paid on demand."""
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    query = (req.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    log_ids = [lid for lid in (req.log_ids or []) if isinstance(lid, str) and lid]
+    rows = basis_rows_from_log_ids(log_ids, instance_id)
+    if not rows:
+        return PastCasesAnalysisResponse(analysis_markdown="", log_ids_used=[])
+    analysis = await asyncio.to_thread(
+        compose_past_cases_expanded_analysis, query, rows, OPENAI_CHAT_MODEL,
+    )
+    used = [str(row.get("log_id") or "") for row in rows if row.get("log_id")]
+    return PastCasesAnalysisResponse(analysis_markdown=analysis, log_ids_used=used)
 
 
 @router.post("/instances/{instance_id}/log-outcome", response_model=OutcomeLogResponse)

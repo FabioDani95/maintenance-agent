@@ -19,8 +19,6 @@ _ORDINAL_PATTERNS = {
 _OPT_OUT_PHRASES = (
     "none of these",
     "none of those",
-    "nessuna delle due",
-    "nessuna di queste",
     "neither",
     "show me past events",
     "show past events",

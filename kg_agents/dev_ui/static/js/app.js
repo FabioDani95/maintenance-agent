@@ -756,24 +756,30 @@ function buildPastCaseBox(resp) {
       ? `<span class="pcb-stat muted">last ${relativeTime(summary.last_seen_at)}</span>` : "",
   ].filter(Boolean).join("");
 
+  // Prefer the LLM-composed narrative over the deterministic "Most-used fix"
+  // one-liner. Fall back when the narrative isn't available yet (older
+  // payloads or LLM failure).
+  const narrative = (summary.narrative_summary || "").trim();
   const fix = summary.most_used_resolution?.action_taken;
-  const fixLine = fix
-    ? `<div class="pcb-fix"><span class="pcb-fix-label">Most-used fix:</span> ${escapeHtml(truncate(fix, 180))}</div>`
-    : "";
+  const summaryLine = narrative
+    ? `<div class="pcb-narrative">${escapeHtml(narrative)}</div>`
+    : (fix
+      ? `<div class="pcb-fix"><span class="pcb-fix-label">Most-used fix:</span> ${escapeHtml(truncate(fix, 180))}</div>`
+      : "");
 
   const sig = summary.top_event_signature_id
     ? `<code class="pcb-sig">${escapeHtml(summary.top_event_signature_id)}</code>` : "";
 
   return `
     <button class="past-case-box" data-act="open-log-navigator"
-      title="Open the log navigator filtered to this pattern">
+      title="Open the log navigator with the AI analysis and similar past incidents">
       <div class="pcb-head">
         <span class="pcb-kind"><i class="fa fa-clock-rotate-left"></i> PAST SIMILAR INCIDENTS</span>
         ${sig}
         <i class="fa fa-arrow-right pcb-go"></i>
       </div>
       <div class="pcb-stats">${stats}</div>
-      ${fixLine}
+      ${summaryLine}
     </button>`;
 }
 
@@ -1178,7 +1184,7 @@ function setupComposer() {
   pills.forEach(b => {
     b.addEventListener("click", () => {
       if (b.dataset.soon) {
-        toast("🚧 Funzionalità in sviluppo — disponibile a breve");
+        toast("Feature under development — available soon");
         return;
       }
       pills.forEach(x => x.classList.remove("active"));
@@ -1736,12 +1742,24 @@ async function loadLogNavigator(c) {
 
   const filters = logFiltersFromCase(c);
   const signatures = evidenceSignatures(c);
-  const summaryReq = apiGet(`/instances/${State.instanceId}/logs/summary${logFilterParams(filters)}`).catch(() => null);
+  const rowFilters = Object.fromEntries(
+    Object.entries(filters).filter(([k]) => k !== "event_signature_id"),
+  );
+
+  // Multi-signature past-cases boxes aggregate counts across several matched
+  // event signatures (e.g. "26 seen · 12 resolved" is the union). /logs/summary
+  // can only filter by a single event_signature_id, so calling it with the
+  // top one would shrink "Rows in scope" to a strict subset of what we just
+  // advertised. In that case skip the summary fetch and let the renderer
+  // derive totals from the case's log_evidence aggregate.
+  const summaryReq = (signatures.length > 1)
+    ? Promise.resolve(null)
+    : apiGet(`/instances/${State.instanceId}/logs/summary${logFilterParams(filters)}`).catch(() => null);
 
   let rowsReq;
   if (signatures.length) {
     rowsReq = Promise.all(signatures.slice(0, 8).map(sig =>
-      apiGet(`/instances/${State.instanceId}/logs${logFilterParams(filters, { event_signature_id: sig, limit: 200 })}`)
+      apiGet(`/instances/${State.instanceId}/logs${logFilterParams(rowFilters, { event_signature_id: sig, limit: 200 })}`)
         .then(data => data.items || [])
         .catch(() => [])
     )).then(chunks => chunks.flat());
@@ -1751,9 +1769,41 @@ async function loadLogNavigator(c) {
       .catch(() => []);
   }
 
-  const [summary, fetchedRows] = await Promise.all([summaryReq, rowsReq]);
-  const rows = uniqueLogRows(fetchedRows.length ? fetchedRows : fallbackRowsFromEvidence(c));
-  root.innerHTML = renderLogNavigator(c, summary, rows, filters);
+  // Lazy fetch of the LLM expanded analysis. Runs in parallel with the row
+  // fetch so opening the navigator stays snappy. Falls back to an empty
+  // string when basis logs are unavailable (older payload, no past-cases).
+  const pcSummary = c.response?.past_cases_summary || {};
+  const basisIds = Array.isArray(pcSummary.basis_log_ids) ? pcSummary.basis_log_ids : [];
+  const analysisReq = (basisIds.length && c.question)
+    ? apiPost(`/instances/${State.instanceId}/past-cases-analysis`, {
+        session_id: c.sessionId || null,
+        query: c.question,
+        log_ids: basisIds,
+      }).catch(() => ({ analysis_markdown: "" }))
+    : Promise.resolve({ analysis_markdown: "" });
+
+  const [summary, fetchedRows, analysis] = await Promise.all([summaryReq, rowsReq, analysisReq]);
+  let rows = uniqueLogRows(fetchedRows.length ? fetchedRows : fallbackRowsFromEvidence(c));
+
+  // Decorate rows with a per-row similarity score from the response payload
+  // and reorder by similarity desc. The K most similar rows (basis_log_ids)
+  // are flagged so the table can render a colored "basis" badge.
+  const rankedRefs = Array.isArray(pcSummary.ranked_log_refs) ? pcSummary.ranked_log_refs : [];
+  const simByLogId = new Map(rankedRefs.map(ref => [ref.log_id, ref.similarity]));
+  const basisSet = new Set(basisIds);
+  rows = rows.map(r => ({
+    ...r,
+    _similarity: simByLogId.has(r.log_id) ? simByLogId.get(r.log_id) : null,
+    _isBasis: basisSet.has(r.log_id),
+  }));
+  rows.sort((a, b) => {
+    const sa = a._similarity == null ? -Infinity : a._similarity;
+    const sb = b._similarity == null ? -Infinity : b._similarity;
+    if (sb !== sa) return sb - sa;
+    return (b.occurred_at || "").localeCompare(a.occurred_at || "");
+  });
+
+  root.innerHTML = renderLogNavigator(c, summary, rows, filters, analysis?.analysis_markdown || "");
   wireLogNavigator(root, c, rows);
 }
 
@@ -1778,7 +1828,7 @@ function scopeLabel(filters) {
   return bits.length ? bits.join(" · ") : "All available logs";
 }
 
-function renderLogNavigator(c, summary, rows, filters) {
+function renderLogNavigator(c, summary, rows, filters, analysisMarkdown) {
   const evidence = c.response?.log_evidence || [];
   const totalEvidence = evidence.reduce((s, m) => s + (m.occurrence_count || 0), 0);
   const total = summary?.row_count ?? (totalEvidence || rows.length);
@@ -1786,9 +1836,16 @@ function renderLogNavigator(c, summary, rows, filters) {
     || evidence[0]?.event_signature_id
     || rows[0]?.event_signature_id
     || "—";
-  const topSigCount = summary?.top_event_signatures?.[0]?.occurrence_count || totalEvidence || rows.length;
+  const topSigCount = summary?.top_event_signatures?.[0]?.occurrence_count
+    || evidence[0]?.occurrence_count
+    || totalEvidence
+    || rows.length;
   const signatures = [...new Set(rows.map(r => r.event_signature_id).filter(Boolean))];
-  const selected = rows[0] || null;
+  const basisCount = rows.filter(r => r._isBasis).length;
+
+  const analysisHtml = (analysisMarkdown && analysisMarkdown.trim())
+    ? renderAnalysisMarkdown(analysisMarkdown)
+    : `<div class="ln-analysis-empty">AI analysis is not available for this result (no basis logs).</div>`;
 
   return `
     <div class="log-nav-headspace"></div>
@@ -1808,6 +1865,14 @@ function renderLogNavigator(c, summary, rows, filters) {
       </div>
     </section>
 
+    <section class="ln-analysis-section">
+      <div class="ln-analysis-head">
+        <span class="ln-analysis-kind"><i class="fa fa-wand-magic-sparkles"></i> AI ANALYSIS OF SIMILAR PAST CASES</span>
+        ${basisCount ? `<span class="ln-analysis-basis">${basisCount} basis log${basisCount === 1 ? "" : "s"}</span>` : ""}
+      </div>
+      <div class="ln-analysis-body markdown-body">${analysisHtml}</div>
+    </section>
+
     <section class="log-nav-controls">
       <div class="ln-search-wrap">
         <i class="fa fa-magnifying-glass"></i>
@@ -1819,37 +1884,66 @@ function renderLogNavigator(c, summary, rows, filters) {
       </select>
     </section>
 
-    <section class="log-nav-detail" id="log-nav-detail">
-      ${selected ? renderLogNavigatorDetail(selected) : `<div class="ln-empty-detail">No log rows available for this result.</div>`}
-    </section>
-
     <section class="log-nav-table-section">
       <div class="ln-table-head">
-        <h4 class="ev-section-title">Result rows <span class="muted-2" id="ln-visible-count">(${rows.length})</span></h4>
+        <h4 class="ev-section-title">Result rows · ordered by similarity <span class="muted-2" id="ln-visible-count">(${rows.length})</span></h4>
       </div>
       <div class="ln-table-wrap">
         <table class="ln-table">
           <thead>
             <tr>
-              <th>When</th><th>Sev</th><th>Signature</th><th>Title</th><th>Component</th><th>Status</th><th>WO</th><th></th>
+              <th>Match</th><th>When</th><th>Sev</th><th>Signature</th><th>Title</th><th>Component</th><th>Status</th><th>WO</th><th></th>
             </tr>
           </thead>
           <tbody>
-            ${rows.map((r, i) => renderLogNavigatorRow(r, i === 0)).join("")}
+            ${rows.map(r => renderLogNavigatorRow(r)).join("")}
           </tbody>
         </table>
       </div>
     </section>`;
 }
 
-function renderLogNavigatorRow(r, selected = false) {
+/* Lightweight markdown renderer for the AI analysis block. Recognizes:
+   - **bold**, *italic*, `code`
+   - ordered/unordered lists (one-level)
+   - [log_id] citations -> clickable chip linking to its table row
+   It deliberately stays narrow: no HTML pass-through, escapes everything else. */
+function renderAnalysisMarkdown(src) {
+  if (!src) return "";
+  let s = escapeHtml(src);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+  // [log_id] citations
+  s = s.replace(/\[(log_[A-Za-z0-9_]+)\]/g,
+    (_m, id) => `<button class="ln-cite" data-act="cite-log" data-log-id="${id}">[${id}]</button>`);
+  // Lists
+  s = s.replace(/(?:^|\n)((?:[-*]\s+.+\n?)+)/g, (_m, blk) => {
+    const items = blk.trim().split(/\n/).map(l => l.replace(/^[-*]\s+/, ""));
+    return "\n<ul>" + items.map(i => `<li>${i}</li>`).join("") + "</ul>";
+  });
+  s = s.replace(/(?:^|\n)((?:\d+\.\s+.+\n?)+)/g, (_m, blk) => {
+    const items = blk.trim().split(/\n/).map(l => l.replace(/^\d+\.\s+/, ""));
+    return "\n<ol>" + items.map(i => `<li>${i}</li>`).join("") + "</ol>";
+  });
+  s = s.split(/\n{2,}/).map(p => /^<(ul|ol)/.test(p.trim()) ? p : `<p>${p.replace(/\n/g, "<br/>")}</p>`).join("\n");
+  return s;
+}
+
+function renderLogNavigatorRow(r) {
   const searchText = [
     r.title, r.body, r.action_taken, r.work_order_id, r.component_name_raw,
     r.event_signature_id, r.status, r.outcome,
   ].filter(Boolean).join(" ").toLowerCase();
+  const sim = r._similarity;
+  const simCell = sim == null
+    ? `<span class="ln-sim muted-2">—</span>`
+    : `<span class="ln-sim" title="cosine similarity to your query">${(sim * 100).toFixed(0)}%</span>`;
+  const basisChip = r._isBasis ? `<span class="ln-basis-chip" title="Used as basis for the AI analysis">basis</span>` : "";
   return `
-    <tr class="${selected ? "selected" : ""}" data-log-id="${escapeHtml(r.log_id)}"
+    <tr class="${r._isBasis ? "basis" : ""}" data-log-id="${escapeHtml(r.log_id)}"
         data-sig="${escapeHtml(r.event_signature_id || "")}" data-search="${escapeHtml(searchText)}">
+      <td class="ln-match-cell">${simCell}${basisChip}</td>
       <td><span class="muted">${fmtDate(r.occurred_at)}</span></td>
       <td><span class="sev-pill ${severityClass(r)}">${escapeHtml(severityLabel(r))}</span></td>
       <td><code class="ln-code">${escapeHtml(r.event_signature_id || "—")}</code></td>
@@ -1857,43 +1951,14 @@ function renderLogNavigatorRow(r, selected = false) {
       <td><span class="muted-2">${escapeHtml(r.component_name_raw || r.component_id || "—")}</span></td>
       <td>${escapeHtml(r.status || "—")}</td>
       <td><code class="ln-code">${escapeHtml(r.work_order_id || "—")}</code></td>
-      <td><button class="ev-row-act" data-act="select-log-row" title="Inspect row"><i class="fa fa-arrow-right"></i></button></td>
+      <td><button class="ev-row-act" data-act="diagnose-row" data-seed="${escapeHtml(r.title || r.event_signature_id || "")}" title="Diagnose this row"><i class="fa fa-stethoscope"></i></button></td>
     </tr>`;
 }
 
-function renderLogNavigatorDetail(r) {
-  return `
-    <div class="ln-detail-head">
-      <div>
-        <div class="ln-label">Selected log</div>
-        <div class="ln-detail-title">${escapeHtml(r.title || r.event_name || "Untitled log")}</div>
-      </div>
-      <button class="primary-btn" data-act="diagnose-selected-log">
-        <i class="fa fa-stethoscope"></i> Diagnose this
-      </button>
-    </div>
-    <div class="ln-detail-meta">
-      <span><i class="fa fa-calendar"></i> ${fmtDate(r.occurred_at)}</span>
-      <span>${escapeHtml(r.work_order_id || r.source_record_id || "No WO")}</span>
-      <span>${escapeHtml(r.component_name_raw || r.component_id || "No component")}</span>
-      <span>${escapeHtml(r.status || "status unknown")}</span>
-      <span>${escapeHtml(r.outcome || "outcome unknown")}</span>
-    </div>
-    ${r.body ? `<div class="ln-detail-block"><b>Observed evidence</b><p>${escapeHtml(r.body)}</p></div>` : ""}
-    ${r.action_taken ? `<div class="ln-detail-block action"><b>Action taken</b><p>${escapeHtml(r.action_taken)}</p></div>` : ""}
-    <div class="ln-detail-stats">
-      ${r.actual_duration_min != null ? `<span>Repair <b>${r.actual_duration_min} min</b></span>` : ""}
-      ${r.downtime_min != null ? `<span>Downtime <b>${r.downtime_min} min</b></span>` : ""}
-      ${r.linked_failure_mode_id ? `<span>KG link <code>${escapeHtml(r.linked_failure_mode_id)}</code></span>` : ""}
-    </div>`;
-}
-
 function wireLogNavigator(root, c, rows) {
-  let selectedLogId = rows[0]?.log_id || null;
   const search = root.querySelector(".ln-search");
   const sig = root.querySelector(".ln-signature-filter");
   const visibleCount = root.querySelector("#ln-visible-count");
-  const detail = root.querySelector("#log-nav-detail");
 
   function applyFilters() {
     const q = (search?.value || "").trim().toLowerCase();
@@ -1909,31 +1974,36 @@ function wireLogNavigator(root, c, rows) {
     if (visibleCount) visibleCount.textContent = `(${visible})`;
   }
 
-  function selectRow(logId) {
-    const row = rows.find(r => r.log_id === logId);
-    if (!row || !detail) return;
-    selectedLogId = logId;
-    detail.innerHTML = renderLogNavigatorDetail(row);
-    root.querySelectorAll(".ln-table tbody tr").forEach(tr => {
-      tr.classList.toggle("selected", tr.dataset.logId === logId);
-    });
+  function spotlightRow(logId) {
+    const tr = root.querySelector(`tr[data-log-id="${CSS.escape(logId)}"]`);
+    if (!tr) return false;
+    tr.scrollIntoView({ behavior: "smooth", block: "center" });
+    root.querySelectorAll(".ln-table tbody tr.spotlight").forEach(x => x.classList.remove("spotlight"));
+    tr.classList.add("spotlight");
+    setTimeout(() => tr.classList.remove("spotlight"), 1600);
+    return true;
   }
 
   search?.addEventListener("input", applyFilters);
   sig?.addEventListener("change", applyFilters);
   root.addEventListener("click", e => {
-    const rowBtn = e.target.closest("[data-act='select-log-row']");
-    if (rowBtn) {
-      const tr = rowBtn.closest("tr[data-log-id]");
-      if (tr) selectRow(tr.dataset.logId);
+    // Click a [log_id] citation in the AI analysis → spotlight the table row
+    const cite = e.target.closest("[data-act='cite-log']");
+    if (cite) {
+      const id = cite.dataset.logId;
+      if (id && !spotlightRow(id)) {
+        toast("That log id is outside the current filter — clear filters to find it.");
+      }
       return;
     }
-    const diag = e.target.closest("[data-act='diagnose-selected-log']");
+    // "Diagnose this row" → prefill composer with the row title and switch
+    // back to troubleshoot intent. Same affordance as the past-events panel.
+    const diag = e.target.closest("[data-act='diagnose-row']");
     if (diag) {
-      const row = rows.find(r => r.log_id === selectedLogId);
-      if (!row) return;
+      const seed = diag.dataset.seed || "";
+      if (!seed) return;
       const ta = $("#composer");
-      ta.value = row.title || row.event_name || c.question || "";
+      ta.value = seed;
       ta.dispatchEvent(new Event("input"));
       delete ta.dataset.continueSessionId;
       document.querySelectorAll(".intent-pill").forEach(p => p.classList.remove("active"));

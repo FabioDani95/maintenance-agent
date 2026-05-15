@@ -15,10 +15,20 @@ from typing import Any
 from openai import OpenAI
 
 from kg_agents.config import OPENAI_API_KEY, OPENAI_CHAT_MODEL
-from kg_agents.models import PastCaseResolution, PastCasesSummary
+from kg_agents.models import PastCaseResolution, PastCasesSummary, RankedLogRef
 
 from .log_loader import load_log_store
-from .log_search import is_presentable_signature_id, search_logs, summarize_logs
+from .log_search import (
+    embed_query,
+    is_presentable_signature_id,
+    score_log_ids_by_dense_similarity,
+    search_logs,
+    summarize_logs,
+)
+
+# Top-K rows the LLM is given as the basis for the past-cases narrative.
+# Same K used to highlight rows in the log navigator.
+PAST_CASES_BASIS_K = 5
 
 _client: OpenAI | None = None
 _WORK_ORDER_RE = re.compile(r"\bWO-[A-Za-z0-9][A-Za-z0-9-]*\b", re.IGNORECASE)
@@ -28,8 +38,7 @@ _SOLUTION_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 _COUNT_QUESTION_RE = re.compile(
-    r"\b(how\s+many|how\s+often|how\s+frequent|frequency|count|times|"
-    r"quante|quanto\s+spesso)\b",
+    r"\b(how\s+many|how\s+often|how\s+frequent|frequency|count|times)\b",
     re.IGNORECASE,
 )
 _GLOBAL_ANALYTICS_RE = re.compile(
@@ -733,6 +742,135 @@ def _resolution_from_row(row: dict[str, Any]) -> PastCaseResolution | None:
     )
 
 
+def _rank_log_ids_by_similarity(
+    query: str | list[float],
+    instance_id: str,
+    log_ids: list[str],
+) -> list[RankedLogRef]:
+    """Return RankedLogRef list for the requested log_ids, sorted by cosine
+    similarity to the query desc. log_ids not present in the embedding index
+    are dropped silently."""
+    if not log_ids:
+        return []
+    scores = score_log_ids_by_dense_similarity(query, instance_id, log_ids)
+    return sorted(
+        (RankedLogRef(log_id=lid, similarity=round(float(score), 4)) for lid, score in scores.items()),
+        key=lambda r: r.similarity,
+        reverse=True,
+    )
+
+
+def _row_brief_for_prompt(row: dict[str, Any]) -> dict[str, Any]:
+    """Minimal projection of a log row for LLM prompts. Trims long text fields
+    so token usage stays bounded across N rows."""
+    def trim(text: Any, n: int) -> str:
+        s = str(text or "").strip()
+        return s[: n - 1] + "…" if len(s) > n else s
+    return {
+        "log_id": row.get("log_id", ""),
+        "occurred_at": row.get("occurred_at", ""),
+        "severity_text": row.get("severity_text", ""),
+        "status": row.get("status", ""),
+        "outcome": row.get("outcome", ""),
+        "title": trim(row.get("title") or row.get("event_name"), 160),
+        "body": trim(row.get("body"), 320),
+        "action_taken": trim(row.get("action_taken"), 320),
+        "component": row.get("component_name_raw") or row.get("component_id") or "",
+        "work_order_id": row.get("work_order_id", ""),
+        "event_signature_id": row.get("event_signature_id", ""),
+    }
+
+
+def compose_past_cases_card_narrative(
+    query: str,
+    basis_rows: list[dict[str, Any]],
+    model: str = OPENAI_CHAT_MODEL,
+) -> str:
+    """Short narrative shown on the past-cases card (2-4 sentences).
+
+    Replaces the deterministic "Most-used fix: …" line. Returns "" on failure
+    so the caller can fall back to the legacy template.
+    """
+    rows = [r for r in basis_rows if r and r.get("log_id")]
+    if not rows:
+        return ""
+    payload = {
+        "user_problem": query,
+        "similar_past_cases": [_row_brief_for_prompt(r) for r in rows[:PAST_CASES_BASIS_K]],
+    }
+    system = (
+        "You are an industrial maintenance assistant. Given a user's current "
+        "problem and the most similar past incidents on the same machine, "
+        "write 2 to 4 short sentences (plain English, no headings, no bullets) "
+        "that explain to the operator what tends to happen in cases like this "
+        "and how they have been resolved historically. Ground every claim in "
+        "the provided rows; do NOT invent symptoms, parts, or actions. If a "
+        "common fix is clearly recurring, name it briefly. If the rows do not "
+        "share a clear pattern, say so honestly in one sentence."
+    )
+    try:
+        resp = _get_client().chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        text = (resp.choices[0].message.content or "").strip()
+    except Exception:
+        return ""
+    # Belt-and-braces: strip any markdown headings the model may have produced
+    # despite instructions; the card renders this as plain prose.
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE).strip()
+    return text
+
+
+def compose_past_cases_expanded_analysis(
+    query: str,
+    basis_rows: list[dict[str, Any]],
+    model: str = OPENAI_CHAT_MODEL,
+) -> str:
+    """Longer markdown analysis shown in the log navigator (lazy-fetched).
+
+    Cites log rows by ``log_id`` in square brackets so the frontend can
+    highlight the row that backs each claim. Returns "" on failure.
+    """
+    rows = [r for r in basis_rows if r and r.get("log_id")]
+    if not rows:
+        return ""
+    payload = {
+        "user_problem": query,
+        "similar_past_cases": [_row_brief_for_prompt(r) for r in rows[:PAST_CASES_BASIS_K]],
+    }
+    system = (
+        "You are an industrial maintenance assistant helping an operator solve "
+        "a current problem by reusing knowledge from similar past incidents on "
+        "the same machine. Produce a focused markdown analysis (10 to 18 lines) "
+        "with three brief sections, in this exact order:\n"
+        "1. **What tends to happen** — the recurring pattern across the rows.\n"
+        "2. **What worked** — the actions that have led to a resolved outcome, "
+        "and any actions that did NOT resolve the issue.\n"
+        "3. **Suggested next steps** — a short ordered list of operator actions "
+        "to try first, grounded only in the provided rows.\n"
+        "Cite every concrete claim with the supporting log id in square "
+        "brackets, e.g. `[log_irc5_0094]`. Do not invent symptoms, parts, or "
+        "actions. If the rows do not justify a recommendation, say so plainly "
+        "in that section. Never refer to the rows as 'documents' or 'sources'; "
+        "call them past incidents."
+    )
+    try:
+        resp = _get_client().chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception:
+        return ""
+
+
 def build_past_cases_summary(matches: list[dict[str, Any]], instance_id: str) -> PastCasesSummary | None:
     """Aggregate occurrence + outcome stats from log_search matches.
 
@@ -849,7 +987,39 @@ def build_past_cases_summary(matches: list[dict[str, Any]], instance_id: str) ->
         most_used_resolution=most_used,
         sample_resolutions=samples,
         top_log_id=str((top.get("top_match_log") or {}).get("log_id") or "") or None,
+        # narrative_summary, basis_log_ids, ranked_log_refs are filled in by
+        # fetch_past_cases_for_diagnosis (which has the query embedding handy).
     )
+
+
+def basis_rows_from_summary(
+    summary: PastCasesSummary | None,
+    instance_id: str,
+) -> list[dict[str, Any]]:
+    """Look up the log rows corresponding to ``summary.basis_log_ids`` from the
+    log store, preserving the basis_log_ids ordering."""
+    if not summary or not summary.basis_log_ids:
+        return []
+    store = load_log_store(instance_id)
+    if store is None or store.is_empty:
+        return []
+    rows_by_id = {str(row.get("log_id") or ""): row for row in store.rows if row.get("log_id")}
+    return [rows_by_id[lid] for lid in summary.basis_log_ids if lid in rows_by_id]
+
+
+def basis_rows_from_log_ids(
+    log_ids: list[str],
+    instance_id: str,
+) -> list[dict[str, Any]]:
+    """Look up rows by id, in the same order as ``log_ids``. Unknown ids are
+    skipped silently."""
+    if not log_ids:
+        return []
+    store = load_log_store(instance_id)
+    if store is None or store.is_empty:
+        return []
+    rows_by_id = {str(row.get("log_id") or ""): row for row in store.rows if row.get("log_id")}
+    return [rows_by_id[lid] for lid in log_ids if lid in rows_by_id]
 
 
 def _past_resolution_template(summary: PastCasesSummary) -> str:
@@ -873,7 +1043,14 @@ def _past_resolution_template(summary: PastCasesSummary) -> str:
     lines.append("- " + " · ".join(parts))
     if last and last != "-":
         lines.append(f"- Last seen: {last}")
-    if summary.most_used_resolution and summary.most_used_resolution.action_taken:
+    # Prefer the LLM-composed narrative over the deterministic "Most-used fix"
+    # one-liner so the reply text matches what the UI card renders. Fall back
+    # to the deterministic line only when the narrative is empty (LLM failed
+    # or basis rows were unavailable).
+    narrative = (summary.narrative_summary or "").strip()
+    if narrative:
+        lines.extend(["", narrative])
+    elif summary.most_used_resolution and summary.most_used_resolution.action_taken:
         action = summary.most_used_resolution.action_taken.strip()
         if len(action) > 240:
             action = action[:237].rstrip() + "…"
@@ -929,8 +1106,33 @@ def fetch_past_cases_for_diagnosis(
     timer.add_nested("search", result.get("diagnostics", {}).get("timings", {}))
     timer.mark("search")
     matches = result.get("matches") or []
+    query_emb = result.get("query_embedding") or []
     if not matches:
         return (None, [], timer.snapshot(), [])
     summary = build_past_cases_summary(matches, instance_id)
     timer.mark("summary")
+
+    # Per-row similarity over the union of all_log_ids across matches, so the
+    # log navigator can rank rows by relevance instead of by date and the
+    # frontend can highlight the K rows the narrative was grounded on.
+    if summary is not None:
+        all_log_ids: list[str] = []
+        seen: set[str] = set()
+        for m in matches:
+            for lid in (m.get("all_log_ids") or []):
+                if lid and lid not in seen:
+                    seen.add(lid)
+                    all_log_ids.append(lid)
+        ranked = _rank_log_ids_by_similarity(query_emb or query, instance_id, all_log_ids)
+        summary.ranked_log_refs = ranked
+        summary.basis_log_ids = [ref.log_id for ref in ranked[:PAST_CASES_BASIS_K]]
+        timer.mark("similarity")
+        # Card narrative (short). The expanded analysis is generated lazily by
+        # the dedicated endpoint when the inspector opens.
+        basis_rows = basis_rows_from_summary(summary, instance_id)
+        narrative = compose_past_cases_card_narrative(query, basis_rows)
+        if narrative:
+            summary.narrative_summary = narrative
+        timer.mark("card_narrative")
+
     return (summary, _evidence_items(matches), timer.snapshot(), matches)

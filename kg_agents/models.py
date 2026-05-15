@@ -145,6 +145,11 @@ class PastCaseResolution(BaseModel):
     outcome: str = ""
 
 
+class RankedLogRef(BaseModel):
+    log_id: str
+    similarity: float = 0.0
+
+
 class PastCasesSummary(BaseModel):
     top_event_signature_id: str
     matched_signatures: int = 0
@@ -159,6 +164,27 @@ class PastCasesSummary(BaseModel):
     most_used_resolution: PastCaseResolution | None = None
     sample_resolutions: list[PastCaseResolution] = Field(default_factory=list)
     top_log_id: str | None = None
+    # Narrative produced by an LLM from the top-K basis logs (~2-4 sentences).
+    # The card renders this in place of the old "Most-used fix" one-liner.
+    narrative_summary: str = ""
+    # log_ids the LLM was given as the basis for `narrative_summary` (top K by
+    # similarity to the user query). The frontend highlights these rows in the
+    # log navigator.
+    basis_log_ids: list[str] = Field(default_factory=list)
+    # All matching rows ordered by similarity to the query (descending). Used
+    # by the log navigator to sort rows by relevance instead of by date.
+    ranked_log_refs: list[RankedLogRef] = Field(default_factory=list)
+
+
+class PastCasesAnalysisRequest(BaseModel):
+    session_id: str | None = None
+    query: str
+    log_ids: list[str] = Field(default_factory=list)
+
+
+class PastCasesAnalysisResponse(BaseModel):
+    analysis_markdown: str
+    log_ids_used: list[str] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
