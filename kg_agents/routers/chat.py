@@ -817,8 +817,6 @@ async def chat(instance_id: str, req: ChatRequest):
         behavior_mode = SEARCH_PAST_EVENTS
         if behavior_mode_for_intent(intent) != SEARCH_PAST_EVENTS:
             intent = "log_history_search"
-            intent_query = message
-            intent_filters = {}
             intent_source = f"{intent_source}+ui_behavior_override" if intent_source else "ui_behavior_override"
 
     if behavior_mode == SEARCH_PAST_EVENTS and intent == "log_history_search":
