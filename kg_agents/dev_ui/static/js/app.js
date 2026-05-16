@@ -217,6 +217,7 @@ async function boot() {
 
   // KG button in rail footer
   $("#open-kg-btn").addEventListener("click", () => openInspector("kg"));
+  $("#open-manuals-btn")?.addEventListener("click", () => openInspector("manuals"));
 
   // Reload caches
   $("#reload-btn").addEventListener("click", async () => {
@@ -1333,6 +1334,10 @@ function setupInspector() {
       window.open(manualUrl(title, page), "_blank", "noopener");
     } else if (InspState.kind === "kg") {
       openKGWindow();
+    } else if (InspState.kind === "telemetry") {
+      openTelemetryWindow(InspState.payload?.caseObj);
+    } else if (InspState.kind === "manuals") {
+      // No external view for the manuals list itself
     }
   });
 
@@ -1407,8 +1412,18 @@ function openInspector(kind, payload) {
     body.innerHTML = renderLogNavigatorShell();
     loadLogNavigator(c);
 
-  } else if (kind === "telemetry") {
+  } else if (kind === "manuals") {
     extBtn.hidden = true;
+    crumb.innerHTML = `
+      <span class="insp-icon"><i class="fa fa-book"></i></span>
+      <span class="insp-kind">MANUALS</span>
+      <span class="insp-name">Reference library</span>
+    `;
+    body.innerHTML = `<div class="manuals-list" id="manuals-list"><div class="manuals-loading">Loading…</div></div>`;
+    loadManualsList();
+
+  } else if (kind === "telemetry") {
+    extBtn.hidden = false;
     const c = payload?.caseObj;
     const issue = c?.response?.current_issue || {};
     const label = issue.failure_mode_name
@@ -2062,6 +2077,133 @@ new vis.Network(document.getElementById("kg"),{nodes,edges},{
   nodes:{font:{color:"#E2E8F0",size:11}},
   physics:{stabilization:{iterations:80}},
   interaction:{hover:true}
+});
+<\/script>
+</body></html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, "_blank", "noopener");
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function loadManualsList() {
+  const root = $("#manuals-list");
+  if (!root) return;
+  try {
+    const data = await apiGet("/manuals");
+    const items = data.manuals || [];
+    if (!items.length) {
+      root.innerHTML = `<div class="manuals-empty">No manuals available.</div>`;
+      return;
+    }
+    root.innerHTML = items.map(m => {
+      const mb = m.size ? (m.size / 1024 / 1024).toFixed(1) + " MB · " : "";
+      return `
+        <button class="manual-card" data-manual-title="${escapeHtml(m.title)}">
+          <span class="manual-card-icon"><i class="fa fa-file-pdf"></i></span>
+          <span class="manual-card-body">
+            <span class="manual-card-title">${escapeHtml(m.title)}</span>
+            <span class="manual-card-meta">${mb}PDF</span>
+          </span>
+          <span class="manual-card-go"><i class="fa fa-arrow-right"></i></span>
+        </button>`;
+    }).join("");
+    root.querySelectorAll(".manual-card").forEach(el => {
+      el.addEventListener("click", () => {
+        openInspector("pdf", { title: el.dataset.manualTitle, page: 1 });
+      });
+    });
+  } catch (e) {
+    root.innerHTML = `<div class="manuals-empty">Failed to load manuals.</div>`;
+  }
+}
+
+function openTelemetryWindow(caseObj) {
+  const t = caseObj?.response?.telemetry;
+  if (!t || !(t.columns || []).length) { toast("No telemetry to display"); return; }
+  const issue = caseObj?.response?.current_issue || {};
+  const label = issue.failure_mode_name
+    ? issue.failure_mode_name + (issue.component_name ? " · " + issue.component_name : "")
+    : "Correlated signals";
+  const payload = {
+    columns: t.columns || [],
+    signals: t.signals || {},
+    stats: t.stats || {},
+    colors: TELEMETRY_COLORS,
+    label,
+  };
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<title>Correlated signals — ${label.replace(/[<>&"]/g, "")}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"><\/script>
+<style>
+  body { margin:0; background:#0F172A; color:#E2E8F0; font-family:Onest,system-ui,sans-serif; }
+  header { padding:14px 18px; border-bottom:1px solid #1E293B; }
+  header h1 { margin:0; font-size:14px; font-weight:600; color:#94A3B8; letter-spacing:.08em; text-transform:uppercase; }
+  header p { margin:4px 0 0; font-size:13px; color:#E2E8F0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:14px; padding:16px; }
+  .card { background:#0B1220; border:1px solid #1E293B; border-radius:10px; padding:12px; }
+  .head { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:12px; color:#CBD5E1; }
+  .dot { width:8px; height:8px; border-radius:50%; }
+  .wrap { position:relative; height:200px; }
+  .stats { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; font-size:11px; color:#94A3B8; }
+  .stat { background:#0F172A; padding:3px 8px; border-radius:4px; }
+  .stat b { color:#E2E8F0; margin-left:4px; }
+</style>
+</head><body>
+<header>
+  <h1>Correlated signals</h1>
+  <p>${label.replace(/[<>&"]/g, "")}</p>
+</header>
+<div class="grid" id="grid"></div>
+<script>
+const D = ${JSON.stringify(payload)};
+const arrows = { rising:"▲", falling:"▼", stable:"▶" };
+const grid = document.getElementById("grid");
+D.columns.forEach((col, i) => {
+  const color = D.colors[i % D.colors.length];
+  const series = (D.signals[col] || []);
+  const stats = D.stats[col];
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML =
+    '<div class="head"><span class="dot" style="background:' + color.line + '"></span>' +
+    '<span>' + col.replace(/_/g, " ") + '</span></div>' +
+    (series.length ? '<div class="wrap"><canvas></canvas></div>' : '<div style="color:#64748B;font-size:12px">No samples in window.</div>') +
+    '<div class="stats"></div>';
+  grid.appendChild(card);
+  if (series.length) {
+    const canvas = card.querySelector("canvas");
+    new Chart(canvas, {
+      type: "line",
+      data: { labels: series.map(d=>d.t), datasets:[{
+        data: series.map(d=>d.v), borderColor: color.line, backgroundColor: color.fill,
+        fill:true, pointRadius:0, pointHoverRadius:4, borderWidth:1.5, tension:0.25
+      }]},
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{mode:"index", intersect:false},
+        plugins:{ legend:{display:false},
+          tooltip:{ backgroundColor:"#0F172A", borderColor:"#334155", borderWidth:1,
+            titleColor:"#94A3B8", bodyColor:"#E2E8F0",
+            callbacks:{ label: ctx => Number(ctx.parsed.y).toFixed(4) } } },
+        scales:{
+          x:{ type:"time", time:{tooltipFormat:"yyyy-MM-dd HH:mm"},
+              ticks:{color:"#94A3B8", font:{size:9}, maxTicksLimit:6, maxRotation:0},
+              grid:{color:"#1E293B"} },
+          y:{ ticks:{color:"#94A3B8", font:{size:10}}, grid:{color:"#1E293B"} }
+        }
+      }
+    });
+  }
+  if (stats) {
+    const trend = stats.trend || "stable";
+    card.querySelector(".stats").innerHTML =
+      [["Mean",stats.mean],["Std",stats.std],["Min",stats.min],["Max",stats.max],["Last",stats.last]]
+        .map(([l,v])=>'<span class="stat">'+l+'<b>'+v+'</b></span>').join("") +
+      '<span class="stat">Trend<b>'+(arrows[trend]||"?")+' '+trend+'</b></span>';
+  }
 });
 <\/script>
 </body></html>`;

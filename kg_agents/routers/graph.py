@@ -1,13 +1,42 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
 
+from kg_agents.config import DATA_DIR, DEFAULT_MANUALS_DIR
 from kg_agents.engine.log_loader import load_log_store
 from kg_agents.engine.log_search import search_logs
 from kg_agents.services import instance_store
 
 router = APIRouter(prefix="/v1/kg-agents", tags=["graph"])
+
+
+def _manuals_dir() -> Path:
+    root = DATA_DIR / "manuals"
+    return root if root.exists() else DEFAULT_MANUALS_DIR
+
+
+@router.get("/manuals")
+def list_manuals():
+    """List PDF manuals available under the static /manuals mount."""
+    d = _manuals_dir()
+    if not d.exists():
+        return {"manuals": []}
+    items = []
+    for p in sorted(d.glob("*.pdf"), key=lambda x: x.name.lower()):
+        try:
+            size = p.stat().st_size
+        except OSError:
+            size = 0
+        items.append({
+            "title": p.stem,
+            "filename": p.name,
+            "size": size,
+            "url": f"/manuals/{p.name}",
+        })
+    return {"manuals": items}
 
 # Node type colors aligned with the platform color system (colors.js)
 NODE_TYPE_COLORS: dict[str, str] = {
