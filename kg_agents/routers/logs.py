@@ -95,7 +95,8 @@ async def log_detail(instance_id: str, log_id: str) -> LogRecord:
 )
 async def list_logs(
     instance_id: str,
-    q: str | None = Query(None, description="Free-text substring filter on title+body+action_taken"),
+    q: str | None = Query(None, description="Free-text query — semantic by default (hybrid embedding+TF-IDF); set semantic=false for literal substring matching."),
+    semantic: bool = Query(True, description="When q is set: true (default) routes through the hybrid retrieval pipeline; false uses substring matching."),
     event_category: str | None = Query(None),
     maintenance_type: str | None = Query(None),
     status: str | None = Query(None),
@@ -108,11 +109,15 @@ async def list_logs(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> LogListResponse:
-    """Structured listing with filters.
+    """Structured listing with filters and (by default) semantic free-text.
 
-    Pure structured filtering (no embeddings, no rerank). Use POST /log-search
-    when the user intent is semantic similarity rather than literal filter
-    matching.
+    When ``q`` is provided, the free-text side runs the same hybrid retrieval
+    used by POST /log-search (dense + signature-dense + TF-IDF + RRF, no LLM
+    rerank to keep latency bounded for a listing). Pass ``semantic=false`` for
+    legacy literal-substring behavior. Structured filters (``event_category``,
+    ``status``, dates, severity, …) are always applied as hard predicates.
+    Results are returned in score order when ``q`` is semantic, otherwise in
+    descending occurred_at order.
     """
     _ensure_instance(instance_id)
     store = load_log_store(instance_id)
@@ -123,7 +128,7 @@ async def list_logs(
 
     rows = store.rows
 
-    def passes(row: dict) -> bool:
+    def passes_structured(row: dict) -> bool:
         if event_category and row.get("event_category") != event_category:
             return False
         if maintenance_type and row.get("maintenance_type") != maintenance_type:
@@ -142,20 +147,70 @@ async def list_logs(
             return False
         if date_to and (row.get("occurred_at") or "") > date_to:
             return False
-        if q:
-            haystack = " ".join(
-                str(row.get(k) or "") for k in (
-                    "title", "body", "action_taken", "semantic_text",
-                    "work_order_id", "error_code", "alarm_code",
-                    "component_name_raw", "event_name",
-                )
-            ).lower()
-            if q.lower() not in haystack:
-                return False
         return True
 
-    filtered = [r for r in rows if passes(r)]
-    filtered.sort(key=lambda r: r.get("occurred_at") or "", reverse=True)
+    if q and semantic:
+        # Hybrid retrieval, intersected with the structured filters above.
+        search_filters = {
+            "event_category": event_category,
+            "maintenance_type": maintenance_type,
+            "status": status,
+            "component_id": component_id,
+            "linked_failure_mode_id": linked_failure_mode_id,
+            "event_signature_id": event_signature_id,
+            "severity_min": severity_min,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+        search_filters = {k: v for k, v in search_filters.items() if v is not None}
+        # Fetch a generous pool so paging beyond the first page still works.
+        result = search_logs(
+            query=q,
+            instance_id=instance_id,
+            filters=search_filters,
+            limit=max(limit + offset, 50),
+            use_llm_rerank=False,
+        )
+        # Collapse signature matches → ordered, deduped log_id list. The
+        # top_match_log inside each match drives ordering; we then append the
+        # other occurrences of the same signature behind it so the listing
+        # still reflects the full recurrence (matches the rest of the UI's
+        # mental model of "rows under this signature").
+        ordered_ids: list[str] = []
+        seen: set[str] = set()
+        for m in result.get("matches") or []:
+            top = (m.get("top_match_log") or {}).get("log_id")
+            if top and top not in seen:
+                ordered_ids.append(top)
+                seen.add(top)
+            for lid in m.get("all_log_ids") or []:
+                if lid and lid not in seen:
+                    ordered_ids.append(lid)
+                    seen.add(lid)
+        filtered = [
+            store.rows_by_id[lid]
+            for lid in ordered_ids
+            if lid in store.rows_by_id and passes_structured(store.rows_by_id[lid])
+        ]
+    else:
+        def passes(row: dict) -> bool:
+            if not passes_structured(row):
+                return False
+            if q:
+                haystack = " ".join(
+                    str(row.get(k) or "") for k in (
+                        "title", "body", "action_taken", "semantic_text",
+                        "work_order_id", "error_code", "alarm_code",
+                        "component_name_raw", "event_name",
+                    )
+                ).lower()
+                if q.lower() not in haystack:
+                    return False
+            return True
+
+        filtered = [r for r in rows if passes(r)]
+        filtered.sort(key=lambda r: r.get("occurred_at") or "", reverse=True)
+
     total = len(filtered)
     page = filtered[offset : offset + limit]
 

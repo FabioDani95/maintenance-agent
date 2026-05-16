@@ -2,12 +2,15 @@
 
 Combines:
   1. Dense search over per-occurrence embeddings (text-embedding-3-large).
-  2. Sparse TF-IDF search over title + body + action_taken + semantic_text +
+  2. Dense search over per-signature canonical embeddings, expanded to the
+     most-recent occurrences of each top signature. This surfaces recurring
+     patterns even when the individual row text is sparse or noisy.
+  3. Sparse TF-IDF search over title + body + action_taken + semantic_text +
      codes/tags (catches exact tokens like work order ids and error codes that
      dense embeddings tend to wash out).
-  3. Reciprocal Rank Fusion to merge both candidate sets.
-  4. Optional LLM rerank of the top-N fused candidates.
-  5. Aggregation by event_signature_id for the final response.
+  4. Reciprocal Rank Fusion to merge all three candidate sets.
+  5. Optional LLM rerank of the top-N fused candidates.
+  6. Aggregation by event_signature_id for the final response.
 
 Filters are applied to the candidate pool so retrieval never surfaces rows the
 caller wanted excluded.
@@ -37,10 +40,15 @@ logger = logging.getLogger(__name__)
 # and may need to be tweaked independently of KG retrieval thresholds.
 DENSE_TOP_K = 25
 SPARSE_TOP_K = 25
+# How many top signatures to keep from the signature-level dense pass.
+SIG_DENSE_TOP_K = 15
+# How many occurrences per top signature to inject into the candidate pool.
+# Pulls the most recent rows of each strong signature so they can be reranked
+# alongside dense/sparse hits.
+SIG_EXPANSION_PER_SIG = 3
 RRF_K = 60
 RERANK_TOP_N = 12
 DEFAULT_RESULT_LIMIT = 5
-_SIGNATURE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_:-]*$")
 _SOLUTION_QUERY_RE = re.compile(
     r"\b("
     r"solution|fix|fixed|resolve|resolved|repair|repaired|"
@@ -63,10 +71,16 @@ _OPENAI_CLIENT: OpenAI | None = None
 
 
 def is_presentable_signature_id(signature_id: str | None) -> bool:
-    """Return whether a log signature is suitable for summaries/UI labels."""
-    if not signature_id or signature_id == "_unsignatured":
+    """Return whether a log signature should be surfaced in results.
+
+    Filters only the obvious sentinels (empty / `_unsignatured`). The raw
+    signature id may be a free-form phrase or an arbitrary slug — the UI
+    derives display labels from the anchor row's `title`/`event_name`, not
+    from this id, so we don't try to enforce a slug shape here.
+    """
+    if not signature_id:
         return False
-    return bool(_SIGNATURE_ID_PATTERN.fullmatch(signature_id))
+    return signature_id != "_unsignatured"
 
 
 def _is_solution_query(query: str) -> bool:
@@ -259,6 +273,50 @@ def _dense_scores(
         out.append((log_id, score))
     out.sort(key=lambda x: x[1], reverse=True)
     return out[:DENSE_TOP_K]
+
+
+def _signature_dense_scores(
+    query_emb: list[float],
+    store: LogStore,
+    allowed_ids: set[str],
+) -> list[tuple[str, float]]:
+    """Score signatures by cosine(query, signature_canonical_embedding) and
+    expand each top-K signature to its most-recent occurrence ids in the
+    allowed pool. Returns ranked [(log_id, sig_score), …] suitable for RRF.
+
+    The signature embedding is built from the longest semantic_text within the
+    group (see `scripts/embed_logs.py`), so it captures the recurring pattern
+    even when an individual row's text is sparse.
+    """
+    if not store.signature_embeddings:
+        return []
+    qa = np.asarray(query_emb, dtype=np.float32)
+    qn = float(np.linalg.norm(qa))
+    if qn == 0:
+        return []
+    sig_scored: list[tuple[str, float]] = []
+    for sig_id, emb in store.signature_embeddings.items():
+        if not emb:
+            continue
+        ea = np.asarray(emb, dtype=np.float32)
+        en = float(np.linalg.norm(ea))
+        if en == 0:
+            continue
+        sig_scored.append((sig_id, float(np.dot(qa, ea) / (qn * en))))
+    sig_scored.sort(key=lambda x: x[1], reverse=True)
+    expanded: list[tuple[str, float]] = []
+    for sig_id, score in sig_scored[:SIG_DENSE_TOP_K]:
+        rows = store.rows_by_signature.get(sig_id, [])
+        taken = 0
+        for row in rows:  # rows_by_signature is pre-sorted most-recent first
+            lid = row.get("log_id")
+            if not lid or lid not in allowed_ids:
+                continue
+            expanded.append((lid, score))
+            taken += 1
+            if taken >= SIG_EXPANSION_PER_SIG:
+                break
+    return expanded
 
 
 def _sparse_scores(
@@ -504,14 +562,22 @@ def search_logs(
             "diagnostics": diagnostics({"reason": "filters_excluded_all_rows"}),
         }
 
-    query_emb = _embed_query(query) if store.occurrence_embeddings else []
+    query_emb = (
+        _embed_query(query)
+        if (store.occurrence_embeddings or store.signature_embeddings)
+        else []
+    )
     mark("embed_query")
     dense = _dense_scores(query_emb, store, allowed_ids) if query_emb else []
     mark("dense_scores")
+    sig_dense = (
+        _signature_dense_scores(query_emb, store, allowed_ids) if query_emb else []
+    )
+    mark("signature_dense_scores")
     sparse = _sparse_scores(query, store, allowed_ids)
     mark("sparse_scores")
 
-    if not dense and not sparse:
+    if not dense and not sig_dense and not sparse:
         return {
             "query": query,
             "instance_id": instance_id,
@@ -520,7 +586,7 @@ def search_logs(
             "diagnostics": diagnostics({"reason": "no_candidates_from_dense_or_sparse"}),
         }
 
-    fused = _rrf_fuse(dense, sparse)
+    fused = _rrf_fuse(dense, sig_dense, sparse)
     top_fused_ids = [log_id for log_id, _ in fused[:RERANK_TOP_N]]
 
     candidate_rows: list[dict[str, Any]] = []
@@ -567,6 +633,7 @@ def search_logs(
         "query_embedding": query_emb,
         "diagnostics": diagnostics({
             "dense_candidates": len(dense),
+            "signature_dense_candidates": len(sig_dense),
             "sparse_candidates": len(sparse),
             "fused_candidates": len(fused),
             "rerank_used": bool(use_llm_rerank and candidate_rows),

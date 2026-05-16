@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from kg_agents.config import DATA_DIR
+from kg_agents.config import DATA_DIR, OPENAI_EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +152,23 @@ def load_log_store(instance_id: str) -> LogStore | None:
         with emb_path.open("r", encoding="utf-8") as f:
             payload = json.load(f)
         embedding_model = payload.get("model")
-        occurrence_embeddings = payload.get("occurrences", {}) or {}
+        model_mismatch = bool(embedding_model) and embedding_model != OPENAI_EMBEDDING_MODEL
+        if model_mismatch:
+            # Dense search would produce garbage (or crash on a dimension
+            # mismatch) if we mixed a query embedding from one model with
+            # stored vectors from another. Drop the dense side; sparse + LLM
+            # still work. Signature metadata (counts, dates) is kept.
+            logger.warning(
+                "Log embeddings at %s were built with model %r but the current "
+                "OPENAI_EMBEDDING_MODEL is %r — disabling dense log search for "
+                "instance %s. Re-run scripts/embed_logs.py to refresh.",
+                emb_path, embedding_model, OPENAI_EMBEDDING_MODEL, instance_id,
+            )
+        else:
+            occurrence_embeddings = payload.get("occurrences", {}) or {}
         for sig_id, sig_obj in (payload.get("signatures", {}) or {}).items():
-            signature_embeddings[sig_id] = sig_obj.get("embedding", [])
+            if not model_mismatch:
+                signature_embeddings[sig_id] = sig_obj.get("embedding", [])
             signature_meta[sig_id] = {
                 k: v for k, v in sig_obj.items() if k != "embedding"
             }
