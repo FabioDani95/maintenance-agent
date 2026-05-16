@@ -1383,7 +1383,11 @@ body.inspector-collapsed .inspector { padding: 0; }
 }
 
 /* ============== Manuals list (inspector) ============== */
-.manuals-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.manuals-list {
+  display: flex; flex-direction: column; gap: 8px;
+  /* top padding clears the floating .insp-head (same trick used elsewhere) */
+  padding: 52px 16px 18px;
+}
 .manuals-loading, .manuals-empty {
   padding: 16px; color: var(--slate-500, #64748B); font-size: 13px; text-align: center;
 }

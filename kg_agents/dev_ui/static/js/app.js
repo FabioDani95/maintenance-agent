@@ -1337,7 +1337,7 @@ function setupInspector() {
     } else if (InspState.kind === "telemetry") {
       openTelemetryWindow(InspState.payload?.caseObj);
     } else if (InspState.kind === "manuals") {
-      // No external view for the manuals list itself
+      openManualsWindow();
     }
   });
 
@@ -1413,7 +1413,7 @@ function openInspector(kind, payload) {
     loadLogNavigator(c);
 
   } else if (kind === "manuals") {
-    extBtn.hidden = true;
+    extBtn.hidden = false;
     crumb.innerHTML = `
       <span class="insp-icon"><i class="fa fa-book"></i></span>
       <span class="insp-kind">MANUALS</span>
@@ -2089,11 +2089,16 @@ new vis.Network(document.getElementById("kg"),{nodes,edges},{
 async function loadManualsList() {
   const root = $("#manuals-list");
   if (!root) return;
+  if (!State.instanceId) {
+    root.innerHTML = `<div class="manuals-empty">Select an asset to see its manuals.</div>`;
+    return;
+  }
   try {
-    const data = await apiGet("/manuals");
+    const data = await apiGet(`/instances/${State.instanceId}/manuals`);
     const items = data.manuals || [];
+    State._lastManuals = items;
     if (!items.length) {
-      root.innerHTML = `<div class="manuals-empty">No manuals available.</div>`;
+      root.innerHTML = `<div class="manuals-empty">No manuals linked to this asset.</div>`;
       return;
     }
     root.innerHTML = items.map(m => {
@@ -2116,6 +2121,53 @@ async function loadManualsList() {
   } catch (e) {
     root.innerHTML = `<div class="manuals-empty">Failed to load manuals.</div>`;
   }
+}
+
+function openManualsWindow() {
+  const items = State._lastManuals || [];
+  if (!items.length) { toast("No manuals to display"); return; }
+  const rows = items.map(m => {
+    const mb = m.size ? (m.size / 1024 / 1024).toFixed(1) + " MB · " : "";
+    const url = "/manuals/" + encodeURIComponent(m.filename || (m.title + ".pdf"));
+    const title = (m.title || "").replace(/[<>&"]/g, "");
+    return `<a class="card" href="${url}" target="_blank" rel="noopener">
+      <span class="ic"><i class="fa fa-file-pdf"></i></span>
+      <span class="body"><span class="t">${title}</span><span class="m">${mb}PDF</span></span>
+      <span class="go">›</span>
+    </a>`;
+  }).join("");
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<title>Manuals</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+  body { margin:0; background:#F8FAFC; color:#0F172A; font-family:Onest,system-ui,sans-serif; }
+  header { padding:18px 22px; border-bottom:1px solid #E2E8F0; background:#fff; }
+  header h1 { margin:0; font-size:13px; font-weight:600; color:#64748B; letter-spacing:.08em; text-transform:uppercase; }
+  header p { margin:4px 0 0; font-size:14px; color:#0F172A; }
+  .list { display:flex; flex-direction:column; gap:10px; padding:18px; max-width:760px; }
+  .card { display:flex; align-items:center; gap:12px; padding:14px; background:#fff;
+    border:1px solid #E2E8F0; border-radius:10px; text-decoration:none; color:inherit;
+    transition:border-color .12s, background .12s; }
+  .card:hover { border-color:#3B82F6; background:#EFF6FF; }
+  .ic { width:38px; height:38px; flex:0 0 38px; display:flex; align-items:center; justify-content:center;
+    background:#FEE2E2; color:#B91C1C; border-radius:6px; font-size:16px; }
+  .body { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .t { font-size:14px; font-weight:600; }
+  .m { font-size:11px; color:#64748B; }
+  .go { color:#94A3B8; font-size:18px; }
+</style>
+</head><body>
+<header>
+  <h1>Manuals</h1>
+  <p>Reference library for this asset</p>
+</header>
+<div class="list">${rows}</div>
+</body></html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, "_blank", "noopener");
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function openTelemetryWindow(caseObj) {

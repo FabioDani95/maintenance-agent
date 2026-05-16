@@ -18,14 +18,57 @@ def _manuals_dir() -> Path:
     return root if root.exists() else DEFAULT_MANUALS_DIR
 
 
-@router.get("/manuals")
-def list_manuals():
-    """List PDF manuals available under the static /manuals mount."""
+def _instance_manual_titles(instance_id: str) -> set[str] | None:
+    """Collect the set of source_title values referenced by an instance's KG.
+
+    Returns None when the instance ontology can't be read — callers may then
+    fall back to listing every available PDF.
+    """
+    try:
+        path = instance_store.get_ontology_path(instance_id)
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    titles: set[str] = set()
+    nodes = data.get("nodes", {}) or {}
+    # CorrectiveAction is the primary carrier of source_title, but a few
+    # ontologies also annotate FailureMode / Symptom — be permissive.
+    for node_list in nodes.values():
+        if not isinstance(node_list, list):
+            continue
+        for node in node_list:
+            if not isinstance(node, dict):
+                continue
+            st = node.get("source_title")
+            if isinstance(st, str) and st.strip():
+                titles.add(st.strip())
+    return titles
+
+
+@router.get("/instances/{instance_id}/manuals")
+def list_instance_manuals(instance_id: str):
+    """List PDF manuals scoped to a specific asset/instance.
+
+    Files live under the shared /manuals static mount; this endpoint filters
+    them down to the subset whose stem (filename without extension) matches a
+    `source_title` referenced anywhere in the instance's ontology.
+    """
+    if not instance_store.get_instance(instance_id):
+        raise HTTPException(status_code=404, detail="Instance not found")
+
     d = _manuals_dir()
     if not d.exists():
         return {"manuals": []}
-    items = []
+
+    titles = _instance_manual_titles(instance_id)
+    items: list[dict] = []
     for p in sorted(d.glob("*.pdf"), key=lambda x: x.name.lower()):
+        # When we have a title filter, keep only matching PDFs. If the ontology
+        # couldn't be read at all (titles is None), fall through and list
+        # everything so the UI never silently goes empty.
+        if titles is not None and p.stem not in titles:
+            continue
         try:
             size = p.stat().st_size
         except OSError:
