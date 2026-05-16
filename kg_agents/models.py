@@ -213,6 +213,18 @@ class NextIssueRequest(BaseModel):
     model: str | None = None
 
 
+class RecommendRequest(BaseModel):
+    session_id: str
+
+
+class RecommendResponse(BaseModel):
+    instance_id: str
+    session_id: str
+    recommendation_markdown: str
+    model: str
+    timing_s: float
+
+
 class ResetRequest(BaseModel):
     session_id: str | None = None
 

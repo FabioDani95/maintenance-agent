@@ -568,11 +568,6 @@ function buildCase(c) {
         <div class="case-kind-row">
           <span>${kindMeta.label}</span>
           ${confLabel ? `<span class="case-conf ${confClass}">${confLabel}</span>` : ""}
-          ${c.kind === "diagnose" ? `
-            <div class="mode-toggle" data-mode-toggle>
-              <button class="mt-btn active" data-mode="fast"><i class="fa fa-bolt"></i> Fast</button>
-              <button class="mt-btn" data-mode="non-fast"><i class="fa fa-route"></i> Guided</button>
-            </div>` : ""}
           <span style="margin-left:auto;color:var(--slate-400);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0">${c.ts}</span>
         </div>
         <div class="case-question">${escapeHtml(c.question)}</div>
@@ -700,15 +695,68 @@ function buildDiagnoseBody(c) {
            <summary><i class="fa fa-chevron-right"></i> ${actions.length - 1} alternative action${actions.length - 1 === 1 ? "" : "s"} to try</summary>
            <div class="alt-actions-list">${actions.slice(1).map(a => renderActionCard(a, false)).join("")}</div>
          </details>` : "";
+    const recommendBtn = `
+      <div class="recommend-cta">
+        <button class="btn-recommend" data-act="recommend"
+          title="Read the manual evidence and the past cases together and tell me where to start and why.">
+          <i class="fa fa-scale-balanced"></i> Reason this through
+        </button>
+        <span class="recommend-cta-hint">manual + past cases, opinionated · uses a larger model</span>
+      </div>`;
     actionsBlock = `
       <div class="diag-section action-section">
         <div class="diag-section-label"><i class="fa fa-screwdriver-wrench"></i> Try this first</div>
         ${primary}
         ${altsHtml}
+        ${recommendBtn}
       </div>`;
   }
 
-  return causeBlock + pastBox + actionsBlock;
+  // Pre-rendered recommendation block (if already loaded earlier this session)
+  const recBlock = c.recommendation
+    ? buildRecommendationBlock(c.recommendation)
+    : "";
+
+  return causeBlock + recBlock + pastBox + actionsBlock;
+}
+
+function buildRecommendationBlock(rec) {
+  if (!rec || !rec.recommendation_markdown) return "";
+  const meta = `${escapeHtml(rec.model || "")} · ${rec.timing_s != null ? rec.timing_s.toFixed(1) + "s" : ""}`;
+  return `
+    <div class="diag-section recommend-section">
+      <div class="diag-section-label"><i class="fa fa-scale-balanced"></i> Recommendation</div>
+      <div class="recommend-body markdown-body">${renderMarkdown(rec.recommendation_markdown)}</div>
+      <div class="recommend-meta">Reasoned over manual + past cases · ${meta}</div>
+    </div>`;
+}
+
+function renderRecommendation(article, c) {
+  // Insert (or replace) the recommendation section right after the cause block
+  const body = article.querySelector(".case-body");
+  if (!body) return;
+  const existing = body.querySelector(".recommend-section");
+  const html = buildRecommendationBlock(c.recommendation);
+  if (!html) return;
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    const cause = body.querySelector(".cause-section");
+    if (cause) {
+      cause.insertAdjacentHTML("afterend", html);
+    } else {
+      body.insertAdjacentHTML("afterbegin", html);
+    }
+  }
+  // Disable / relabel the CTA so it's clear the recommendation is loaded
+  const btn = body.querySelector(".btn-recommend");
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-check"></i> Recommendation loaded';
+    btn.classList.add("loaded");
+  }
+  const sec = body.querySelector(".recommend-section");
+  if (sec) sec.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 /* ------------------------------------------------------------------
@@ -931,16 +979,31 @@ function wireCase(article, c) {
   };
 
   article.addEventListener("click", async e => {
-    // Mode toggle
-    const mt = e.target.closest(".mt-btn");
-    if (mt) {
-      const toggle = mt.closest("[data-mode-toggle]");
-      toggle.querySelectorAll(".mt-btn").forEach(b => b.classList.remove("active"));
-      mt.classList.add("active");
-      c.mode = mt.dataset.mode;
-      toast(mt.dataset.mode === "fast"
-        ? "Fast mode — one-shot recommendation"
-        : "Guided mode — step-by-step questions");
+    // "Reason this through" — opinionated recommendation on demand
+    const rec = e.target.closest("[data-act='recommend']");
+    if (rec) {
+      e.stopPropagation();
+      if (c.recommendation) {
+        // Already loaded; just scroll to it
+        const existing = article.querySelector(".recommend-section");
+        if (existing) existing.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (!c.sessionId) { toast("Session not ready yet"); return; }
+      rec.disabled = true;
+      const origHtml = rec.innerHTML;
+      rec.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Reasoning…';
+      try {
+        const resp = await apiPost(`/instances/${State.instanceId}/recommend`, {
+          session_id: c.sessionId,
+        });
+        c.recommendation = resp;
+        renderRecommendation(article, c);
+      } catch (err) {
+        toast("Failed to generate recommendation: " + err.message);
+        rec.disabled = false;
+        rec.innerHTML = origHtml;
+      }
       return;
     }
 
@@ -1157,7 +1220,6 @@ async function handleNextCause(c, article) {
   try {
     const resp = await apiPost(`/instances/${State.instanceId}/next-issue`, {
       session_id: c.sessionId,
-      mode: c.mode || "fast",
     });
     c.response = resp;
     c.outcome = null; // fresh cause → fresh feedback
@@ -1247,7 +1309,7 @@ async function onSend(continueSessionId = null) {
     ts,
     sessionId: continueSessionId || null,
     response: null,
-    mode: "fast",
+    recommendation: null,
     outcome: null,
   };
 
@@ -1263,7 +1325,6 @@ async function onSend(continueSessionId = null) {
     const body = {
       message,
       session_id: continueSessionId || undefined,
-      mode: caseObj.mode,
       behavior_mode: kind === "past" ? "search_past_events" : "solve_current_problem",
     };
     const resp = await apiPost(`/instances/${State.instanceId}/chat`, body);

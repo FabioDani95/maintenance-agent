@@ -83,6 +83,8 @@ from kg_agents.models import (
     PastCasesSummary,
     PathStatsResponse,
     ProductInfoResponse,
+    RecommendRequest,
+    RecommendResponse,
     ResetRequest,
     StatusResponse,
 )
@@ -169,16 +171,16 @@ def _get_session(instance_id: str, session_id: str) -> dict:
 
 
 def _resolve_chat_mode(req: ChatRequest | NextIssueRequest) -> str:
-    if req.mode in {"fast", "non-fast"}:
-        return req.mode
-    legacy_model = (req.model or "").strip().lower()
-    if legacy_model in {"non-fast", "normal", "deep", "thorough", "gpt-5-mini", "gpt-5.4", "gpt-5"}:
-        return "non-fast"
+    # The Fast/Guided split has been retired: the default flow now does what
+    # Fast did (fully grounded answer with past-cases narrative) and the
+    # opinionated reconciliation that Guided used to perform is exposed as an
+    # on-demand /recommend endpoint instead. We still return "fast" here so
+    # downstream telemetry / chat logs keep a stable label.
     return "fast"
 
 
 def _chat_model_for_mode(mode: str) -> str:
-    return OPENAI_CHAT_MODEL if mode == "fast" else OPENAI_NON_FAST_CHAT_MODEL
+    return OPENAI_CHAT_MODEL
 
 
 def _load_conversation_memory(
@@ -888,33 +890,21 @@ async def chat(instance_id: str, req: ChatRequest):
 
     query_emb: list[float] | None = None
     memory_context = routing_context(memory, message)
-    if mode == "fast":
-        fast_intent_started = perf_counter()
-        intent_result = classify_intent_fast(message, memory_context=memory_context)
-        timer.timings["intent_fast_path_s"] = round(perf_counter() - fast_intent_started, 3)
-        if intent_result is not None:
-            intent_source = str(intent_result.get("source") or "deterministic_fast_path")
-            timer.timings["intent_classifier_s"] = 0.0
-            timer.timings["query_embedding_s"] = 0.0
-            timer.mark("intent_fast_path")
-        else:
-            intent_fallback_used = True
-            (intent_result, intent_classifier_s), (query_emb, query_embedding_s) = await asyncio.gather(
-                asyncio.to_thread(_timed_call, classify_intent, message, instance_id, index, memory_context),
-                asyncio.to_thread(_timed_call, get_query_embedding, message),
-            )
-            intent_source = str(intent_result.get("source") or "llm_classifier")
-            timer.timings["intent_classifier_s"] = intent_classifier_s
-            timer.timings["query_embedding_s"] = query_embedding_s
-            timer.mark("intent_and_query_embedding")
+    fast_intent_started = perf_counter()
+    intent_result = classify_intent_fast(message, memory_context=memory_context)
+    timer.timings["intent_fast_path_s"] = round(perf_counter() - fast_intent_started, 3)
+    if intent_result is not None:
+        intent_source = str(intent_result.get("source") or "deterministic_fast_path")
+        timer.timings["intent_classifier_s"] = 0.0
+        timer.timings["query_embedding_s"] = 0.0
+        timer.mark("intent_fast_path")
     else:
-        timer.timings["intent_fast_path_s"] = 0.0
+        intent_fallback_used = True
         (intent_result, intent_classifier_s), (query_emb, query_embedding_s) = await asyncio.gather(
             asyncio.to_thread(_timed_call, classify_intent, message, instance_id, index, memory_context),
             asyncio.to_thread(_timed_call, get_query_embedding, message),
         )
         intent_source = str(intent_result.get("source") or "llm_classifier")
-        intent_fallback_used = True
         timer.timings["intent_classifier_s"] = intent_classifier_s
         timer.timings["query_embedding_s"] = query_embedding_s
         timer.mark("intent_and_query_embedding")
@@ -1041,23 +1031,39 @@ async def chat(instance_id: str, req: ChatRequest):
             intent_fallback_used=intent_fallback_used,
         )
 
-    # Past-cases retrieval runs on every troubleshooting turn (including Fast
-    # mode) so the reply can always carry quantified history. When no logs
-    # exist for the instance the helper returns ``(None, [], _, [])`` and the
-    # downstream rendering simply skips the past-cases block.
-    past_cases_summary, hybrid_evidence, past_timings, past_matches = fetch_past_cases_for_diagnosis(
-        intent_query, instance_id, intent_filters,
-    )
+    # Past-cases retrieval runs on every troubleshooting turn so the reply can
+    # always carry quantified history. When no logs exist for the instance the
+    # helper returns ``(None, [], _, [])`` and the downstream rendering simply
+    # skips the past-cases block.
+    #
+    # Past-cases retrieval (search_logs + LLM card narrative) and the query
+    # embedding are independent of each other and of the KG similarity step
+    # that follows. Run them in parallel: the wall-time of the diagnose call
+    # collapses toward max(past_cases_LLM, embedding) instead of their sum.
+    parallel_started = perf_counter()
+    if query_emb is None:
+        (past_result, past_call_s), (query_emb, query_embedding_s) = await asyncio.gather(
+            asyncio.to_thread(
+                _timed_call,
+                fetch_past_cases_for_diagnosis,
+                intent_query, instance_id, intent_filters,
+            ),
+            asyncio.to_thread(_timed_call, get_query_embedding, message),
+        )
+        timer.timings["query_embedding_s"] = query_embedding_s
+    else:
+        past_result, past_call_s = await asyncio.to_thread(
+            _timed_call,
+            fetch_past_cases_for_diagnosis,
+            intent_query, instance_id, intent_filters,
+        )
+    past_cases_summary, hybrid_evidence, past_timings, past_matches = past_result
     timer.add_nested("past_cases", past_timings)
-    timer.mark("past_cases_search")
+    timer.timings["parallel_block_s"] = round(perf_counter() - parallel_started, 3)
+    timer.mark("past_cases_and_embedding")
     # No separate hybrid bullet appendix: the structured past-resolution block
     # already carries the same information in a cleaner shape, and the
     # past-case box links to the full log navigator for details.
-
-    if query_emb is None:
-        query_emb, query_embedding_s = _timed_call(get_query_embedding, message)
-        timer.timings["query_embedding_s"] = query_embedding_s
-        timer.mark("query_embedding")
 
     symptom_embs = embeddings.get("symptoms", {})
     fm_embs = embeddings.get("failure_modes", {})
@@ -1355,6 +1361,10 @@ async def chat(instance_id: str, req: ChatRequest):
     first_group = ranked[0]["paths"]
     trace = build_trace(first_group, top_symptoms)
     _set_active_issue(session, first_group, trace)
+    # Stash the context the /recommend endpoint needs to reconcile manual
+    # evidence with past events on-demand, without re-running the pipeline.
+    session["_recommend_user_message"] = message
+    session["_recommend_log_evidence"] = list(hybrid_evidence or [])
     total = len(ranked)
     reply = format_answer_single_group(
         first_group,
@@ -1362,25 +1372,10 @@ async def chat(instance_id: str, req: ChatRequest):
         model=chat_model,
         product_meta=product_meta,
     )
-    if mode == "non-fast":
-        try:
-            composed_reply = compose_prioritized_solve_answer(
-                paths=first_group,
-                user_message=message,
-                log_evidence=hybrid_evidence,
-                model=chat_model,
-                product_meta=product_meta,
-            )
-            if composed_reply:
-                reply = composed_reply
-                # The guided answer already folds past-event evidence into the
-                # prioritisation. Keep evidence in the payload, but avoid a
-                # duplicated appendix in the visible reply.
-                hybrid_appendix = ""
-            timer.mark("solve_compose")
-        except Exception:
-            logger.exception("Failed to compose non-fast solve-current answer")
-            timer.mark("solve_compose_failed")
+    # The opinionated reconciliation between manual evidence and past events
+    # used to run inline in the legacy "non-fast" branch. It now lives in the
+    # /recommend endpoint so the default reply stays fast, and the LLM call
+    # only happens when the operator explicitly asks for a recommendation.
     # Always quantify the past history in the reply when we have it. The
     # deterministic block carries occurrence + outcome counts that the LLM
     # narrative does not produce reliably.
@@ -1547,6 +1542,52 @@ async def past_cases_analysis(instance_id: str, req: PastCasesAnalysisRequest):
     )
     used = [str(row.get("log_id") or "") for row in rows if row.get("log_id")]
     return PastCasesAnalysisResponse(analysis_markdown=analysis, log_ids_used=used)
+
+
+@router.post("/instances/{instance_id}/recommend", response_model=RecommendResponse)
+async def recommend(instance_id: str, req: RecommendRequest):
+    """On-demand opinionated recommendation for the current diagnose session.
+
+    Reads the KG paths + past-event evidence stashed on the session by the
+    most recent /chat turn and asks the larger LLM to reconcile them. This
+    used to run inline as the "non-fast" branch; it is now a separate, opt-in
+    call so the default reply stays fast.
+    """
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    session = _sessions.get(_session_key(instance_id, req.session_id))
+    if not session:
+        raise HTTPException(status_code=404, detail="No active diagnosis found for this session")
+
+    group_paths = session.get("current_group_paths") or []
+    if not group_paths:
+        raise HTTPException(status_code=409, detail="No active KG paths in this session")
+
+    user_message = str(session.get("_recommend_user_message") or "")
+    log_evidence = list(session.get("_recommend_log_evidence") or [])
+    product_meta = _product_metadata.get(instance_id, {})
+    model = OPENAI_NON_FAST_CHAT_MODEL
+
+    started = perf_counter()
+    recommendation = await asyncio.to_thread(
+        compose_prioritized_solve_answer,
+        paths=group_paths,
+        user_message=user_message,
+        log_evidence=log_evidence,
+        model=model,
+        product_meta=product_meta,
+    )
+    timing_s = round(perf_counter() - started, 3)
+
+    return RecommendResponse(
+        instance_id=instance_id,
+        session_id=req.session_id,
+        recommendation_markdown=recommendation or "",
+        model=model,
+        timing_s=timing_s,
+    )
 
 
 @router.post("/instances/{instance_id}/log-outcome", response_model=OutcomeLogResponse)
