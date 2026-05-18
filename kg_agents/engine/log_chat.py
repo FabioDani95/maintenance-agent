@@ -8,6 +8,7 @@ retrieved log records.
 from __future__ import annotations
 
 import json
+import os
 import re
 from time import perf_counter
 from typing import Any
@@ -522,13 +523,22 @@ def _llm_compose(
     user_payload: dict[str, Any],
     chat_model: str,
 ) -> str:
-    resp = _get_client().chat.completions.create(
-        model=chat_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-        ],
-    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+    ]
+    try:
+        resp = _get_client().chat.completions.create(
+            model=chat_model,
+            temperature=0,
+            seed=42,
+            messages=messages,
+        )
+    except Exception:
+        resp = _get_client().chat.completions.create(
+            model=chat_model,
+            messages=messages,
+        )
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -742,6 +752,12 @@ def _resolution_from_row(row: dict[str, Any]) -> PastCaseResolution | None:
     )
 
 
+# Minimum cosine similarity for a past-case log row to be surfaced. Below this,
+# matches are noise (the same machine has unrelated incidents). Tuned empirically
+# on IRC5 corpora; override via env if needed.
+PAST_CASES_MIN_SIMILARITY = float(os.environ.get("KG_PAST_CASES_MIN_SIMILARITY", "0.30"))
+
+
 def _rank_log_ids_by_similarity(
     query: str | list[float],
     instance_id: str,
@@ -749,12 +765,14 @@ def _rank_log_ids_by_similarity(
 ) -> list[RankedLogRef]:
     """Return RankedLogRef list for the requested log_ids, sorted by cosine
     similarity to the query desc. log_ids not present in the embedding index
-    are dropped silently."""
+    are dropped silently. Matches below ``PAST_CASES_MIN_SIMILARITY`` are
+    dropped to avoid surfacing low-confidence noise."""
     if not log_ids:
         return []
     scores = score_log_ids_by_dense_similarity(query, instance_id, log_ids)
+    filtered = [(lid, s) for lid, s in scores.items() if s >= PAST_CASES_MIN_SIMILARITY]
     return sorted(
-        (RankedLogRef(log_id=lid, similarity=round(float(score), 4)) for lid, score in scores.items()),
+        (RankedLogRef(log_id=lid, similarity=round(float(score), 4)) for lid, score in filtered),
         key=lambda r: r.similarity,
         reverse=True,
     )
@@ -809,13 +827,22 @@ def compose_past_cases_card_narrative(
         "share a clear pattern, say so honestly in one sentence."
     )
     try:
-        resp = _get_client().chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-        )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ]
+        try:
+            resp = _get_client().chat.completions.create(
+                model=model,
+                temperature=0,
+                seed=42,
+                messages=messages,
+            )
+        except Exception:
+            resp = _get_client().chat.completions.create(
+                model=model,
+                messages=messages,
+            )
         text = (resp.choices[0].message.content or "").strip()
     except Exception:
         return ""
@@ -859,13 +886,22 @@ def compose_past_cases_expanded_analysis(
         "call them past incidents."
     )
     try:
-        resp = _get_client().chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-        )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ]
+        try:
+            resp = _get_client().chat.completions.create(
+                model=model,
+                temperature=0,
+                seed=42,
+                messages=messages,
+            )
+        except Exception:
+            resp = _get_client().chat.completions.create(
+                model=model,
+                messages=messages,
+            )
         return (resp.choices[0].message.content or "").strip()
     except Exception:
         return ""
@@ -1091,6 +1127,7 @@ def fetch_past_cases_for_diagnosis(
     filters: dict[str, Any],
     *,
     limit: int = 3,
+    include_narrative: bool = False,
 ) -> tuple[PastCasesSummary | None, list[dict[str, Any]], dict[str, float], list[dict[str, Any]]]:
     """Unified past-cases fetch for the troubleshooting flow.
 
@@ -1127,12 +1164,14 @@ def fetch_past_cases_for_diagnosis(
         summary.ranked_log_refs = ranked
         summary.basis_log_ids = [ref.log_id for ref in ranked[:PAST_CASES_BASIS_K]]
         timer.mark("similarity")
-        # Card narrative (short). The expanded analysis is generated lazily by
-        # the dedicated endpoint when the inspector opens.
-        basis_rows = basis_rows_from_summary(summary, instance_id)
-        narrative = compose_past_cases_card_narrative(query, basis_rows)
-        if narrative:
-            summary.narrative_summary = narrative
-        timer.mark("card_narrative")
+        if include_narrative:
+            # Kept as an opt-in compatibility path. The normal diagnose flow
+            # does not call the LLM here; expanded analysis is generated by the
+            # dedicated endpoint only when requested.
+            basis_rows = basis_rows_from_summary(summary, instance_id)
+            narrative = compose_past_cases_card_narrative(query, basis_rows)
+            if narrative:
+                summary.narrative_summary = narrative
+            timer.mark("card_narrative")
 
     return (summary, _evidence_items(matches), timer.snapshot(), matches)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,50 @@ _FLOAT_FIELDS = {
     "observed_value",
     "threshold_value",
 }
+_SIGNATURE_RE = re.compile(r"^irc5_[a-z0-9_]{2,75}$")
+
+
+def _is_canonical_signature_id(value: Any) -> bool:
+    return bool(_SIGNATURE_RE.match(str(value or "").strip()))
+
+
+def _canonical_signature_id(row: dict[str, Any]) -> str:
+    """Return a stable event signature id for grouping and public payloads.
+
+    Some seeded CSV rows have shifted columns from unescaped commas, so the
+    `event_signature_id` cell can contain semantic prose while the canonical
+    signature landed in a neighbouring link field. Normalize at load time so
+    API clients only see stable ids.
+    """
+    for key in ("event_signature_id", "linked_failure_mode_id", "linked_symptom_id"):
+        candidate = str(row.get(key) or "").strip()
+        if _is_canonical_signature_id(candidate):
+            return candidate
+
+    event_name = str(row.get("event_name") or "").strip().lower()
+    fallback = f"irc5_{event_name}" if event_name else ""
+    if _is_canonical_signature_id(fallback):
+        return fallback
+
+    return "_unsignatured"
+
+
+def _normalize_log_row(row: dict[str, Any]) -> dict[str, Any]:
+    original_signature = row.get("event_signature_id")
+    normalized_signature = _canonical_signature_id(row)
+    if normalized_signature != "_unsignatured":
+        row["event_signature_id"] = normalized_signature
+    elif not _is_canonical_signature_id(original_signature):
+        row["event_signature_id"] = None
+    if original_signature and original_signature != row.get("event_signature_id"):
+        row["_raw_event_signature_id"] = original_signature
+    linked_fm = str(row.get("linked_failure_mode_id") or "").strip()
+    if linked_fm and not linked_fm.startswith("fm_"):
+        row["linked_failure_mode_id"] = None
+    linked_symptom = str(row.get("linked_symptom_id") or "").strip()
+    if linked_symptom and not linked_symptom.startswith("sym_"):
+        row["linked_symptom_id"] = None
+    return row
 
 
 def _coerce(row: dict[str, str]) -> dict[str, Any]:
@@ -132,7 +177,7 @@ def load_log_store(instance_id: str) -> LogStore | None:
     rows: list[dict[str, Any]] = []
     with csv_path.open("r", encoding="utf-8", errors="replace") as f:
         for raw in csv.DictReader(f):
-            rows.append(_coerce({k: v for k, v in raw.items() if k is not None}))
+            rows.append(_normalize_log_row(_coerce({k: v for k, v in raw.items() if k is not None})))
 
     rows_by_id = {r["log_id"]: r for r in rows if r.get("log_id")}
     rows_by_signature: dict[str, list[dict[str, Any]]] = {}
@@ -167,11 +212,20 @@ def load_log_store(instance_id: str) -> LogStore | None:
         else:
             occurrence_embeddings = payload.get("occurrences", {}) or {}
         for sig_id, sig_obj in (payload.get("signatures", {}) or {}).items():
+            normalized_sig_id = _canonical_signature_id({
+                "event_signature_id": sig_id,
+                "linked_failure_mode_id": sig_obj.get("linked_failure_mode_id"),
+                "linked_symptom_id": sig_obj.get("linked_symptom_id"),
+                "event_name": "",
+            })
+            if normalized_sig_id == "_unsignatured":
+                continue
             if not model_mismatch:
-                signature_embeddings[sig_id] = sig_obj.get("embedding", [])
-            signature_meta[sig_id] = {
+                signature_embeddings.setdefault(normalized_sig_id, sig_obj.get("embedding", []))
+            signature_meta[normalized_sig_id] = {
                 k: v for k, v in sig_obj.items() if k != "embedding"
             }
+            signature_meta[normalized_sig_id]["event_signature_id"] = normalized_sig_id
     else:
         logger.warning(
             "Log embeddings missing at %s — dense log search will return no matches",

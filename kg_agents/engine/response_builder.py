@@ -278,10 +278,9 @@ def _default_solve_decision(context: dict[str, Any]) -> dict[str, Any]:
         "priority_action_id": first.get("action_id") or "",
         "priority": action,
         "priority_reason": "It is the first corrective action returned by the KG/manual path for the matched issue.",
-        "report_back": [
-            "Whether the prioritized action changed the symptom.",
-            "The current observed value or alarm/error text after the action.",
-            "Any new log entry or work order created during the check.",
+        "evidence_notes": [
+            f"Manual/KG evidence points to **{failure}**.",
+            "Past-event evidence is supporting context only; the first action remains grounded in the manual path.",
         ],
     }
 
@@ -311,8 +310,11 @@ def _llm_solve_decision(context: dict[str, Any], model: str) -> dict[str, Any]:
         "\"priority_action_id\": \"one of the provided action ids, or empty string\", "
         "\"priority\": \"one short sentence naming what to do first\", "
         "\"priority_reason\": \"one short grounded rationale\", "
-        "\"report_back\": [\"2-4 concrete observations the technician should return\"]"
+        "\"evidence_notes\": [\"2-4 concise facts that support the recommendation\"]"
         "}\n\n"
+        "Do not ask the user questions. Do not tell the user to report back. "
+        "Give a passive expert recommendation: what to do first, why, and the "
+        "evidence behind it.\n\n"
         f"Valid action ids: {action_ids}"
     )
     resp = _get_client().chat.completions.create(
@@ -337,9 +339,9 @@ def _llm_solve_decision(context: dict[str, Any], model: str) -> dict[str, Any]:
     priority_reason = str(parsed.get("priority_reason") or "").strip()
     if priority_reason:
         decision["priority_reason"] = priority_reason
-    report_back = _coerce_list(parsed.get("report_back"), 4)
-    if report_back:
-        decision["report_back"] = report_back
+    evidence_notes = _coerce_list(parsed.get("evidence_notes"), 4)
+    if evidence_notes:
+        decision["evidence_notes"] = evidence_notes
     return decision
 
 
@@ -361,19 +363,19 @@ def _render_prioritized_solve_answer(context: dict[str, Any], decision: dict[str
     logs = context.get("past_event_evidence") or []
     ordered_actions = _order_actions(kg_items, str(decision.get("priority_action_id") or ""))
 
-    lines: list[str] = ["**Assessment**"]
+    lines: list[str] = ["**Recommendation**"]
     for bullet in _coerce_list(decision.get("assessment"), 3):
         lines.append(f"- {bullet}")
 
-    lines.extend(["", "**Priority**"])
+    lines.extend(["", "**Do first**"])
     priority = str(decision.get("priority") or "").strip()
     reason = str(decision.get("priority_reason") or "").strip()
     if priority:
-        lines.append(f"- **First:** {priority}")
+        lines.append(f"- {priority}")
     if reason:
-        lines.append(f"- **Why:** {reason}")
+        lines.extend(["", "**Why**", f"- {reason}"])
 
-    lines.extend(["", "**Action Plan**"])
+    lines.extend(["", "**Grounded action path**"])
     if ordered_actions:
         for idx, action in enumerate(ordered_actions, start=1):
             action_name = action.get("action_name") or action.get("action_id") or "Manual corrective action"
@@ -395,7 +397,7 @@ def _render_prioritized_solve_answer(context: dict[str, Any], decision: dict[str
         top = logs[0]
         top_match = top.get("top_match") or {}
         if top_match.get("action_taken") or top_match.get("outcome"):
-            lines.append(f"{len(ordered_actions) + 1}. **Compare with the closest past event**")
+            lines.append(f"{len(ordered_actions) + 1}. **Use the closest past event as supporting context**")
             if top_match.get("title"):
                 lines.append(f"   - Event: {top_match['title']}")
             if top_match.get("action_taken"):
@@ -406,7 +408,7 @@ def _render_prioritized_solve_answer(context: dict[str, Any], decision: dict[str
                 parts = [str(part) for part in (top_match.get("date"), top_match.get("work_order_id")) if part]
                 lines.append(f"   - Reference: {' / '.join(parts)}")
 
-    lines.extend(["", "**Evidence Used**", "- **Manual/KG:**"])
+    lines.extend(["", "**Evidence**", "- **Manual/KG:**"])
     if kg_items:
         seen_citations: set[str] = set()
         for item in kg_items:
@@ -424,9 +426,7 @@ def _render_prioritized_solve_answer(context: dict[str, Any], decision: dict[str
         for item in logs:
             top_match = item.get("top_match") or {}
             matched_count = int(item.get("matched_occurrence_count") or 0)
-            bits = [
-                f"`{item.get('event_signature_id')}`",
-            ]
+            bits = []
             if matched_count:
                 bits.append(
                     f"{matched_count} retrieved match"
@@ -440,12 +440,16 @@ def _render_prioritized_solve_answer(context: dict[str, Any], decision: dict[str
                 bits.append(str(top_match["work_order_id"]))
             if top_match.get("title"):
                 bits.append(str(top_match["title"]))
+            if not bits:
+                bits.append("closest retrieved past event")
             lines.append("  - " + " - ".join(bits))
     else:
         lines.append("  - No similar past event evidence retrieved.")
 
-    lines.extend(["", "**Report Back**"])
-    for item in _coerce_list(decision.get("report_back"), 4):
+    notes = _coerce_list(decision.get("evidence_notes"), 4)
+    if notes:
+        lines.extend(["", "**Notes**"])
+    for item in notes:
         lines.append(f"- {item}")
 
     return "\n".join(lines)

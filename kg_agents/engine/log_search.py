@@ -57,6 +57,7 @@ _SOLUTION_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _RECENCY_QUERY_RE = re.compile(r"\b(last\s+time|latest|most\s+recent)\b", re.IGNORECASE)
+_PRESENTABLE_SIGNATURE_RE = re.compile(r"^irc5_[a-z0-9_]{2,75}$")
 
 
 @dataclass
@@ -73,14 +74,11 @@ _OPENAI_CLIENT: OpenAI | None = None
 def is_presentable_signature_id(signature_id: str | None) -> bool:
     """Return whether a log signature should be surfaced in results.
 
-    Filters only the obvious sentinels (empty / `_unsignatured`). The raw
-    signature id may be a free-form phrase or an arbitrary slug — the UI
-    derives display labels from the anchor row's `title`/`event_name`, not
-    from this id, so we don't try to enforce a slug shape here.
+    Public response payloads use stable machine-readable ids. Free-form prose
+    signatures are rejected here; `log_loader` normalizes recoverable dirty
+    rows before search sees them.
     """
-    if not signature_id:
-        return False
-    return signature_id != "_unsignatured"
+    return bool(signature_id and _PRESENTABLE_SIGNATURE_RE.match(signature_id))
 
 
 def _is_solution_query(query: str) -> bool:

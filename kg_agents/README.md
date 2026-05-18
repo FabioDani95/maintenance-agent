@@ -161,14 +161,16 @@ Node and relationship counts for the default instance follow the checked-in `irc
 | POST | `/v1/kg-agents/instances/{instance_id}/chat` | Send a message and get a diagnosis |
 | POST | `/v1/kg-agents/instances/{instance_id}/next-issue` | Return the next ranked possible cause |
 | POST | `/v1/kg-agents/instances/{instance_id}/reset` | Reset the chat session |
+| POST | `/v1/kg-agents/instances/{instance_id}/recommend` | On-demand expert recommendation for the active diagnosis |
 | POST | `/v1/kg-agents/instances/{instance_id}/log-outcome` | Record the result of a selected corrective action for intervention analytics |
-| POST | `/v1/kg-agents/instances/{instance_id}/past-cases-analysis` | LLM-composed expanded analysis derived from a past-cases search (lazy, stateless) |
+| POST | `/v1/kg-agents/instances/{instance_id}/past-cases-analysis` | On-demand similar past-cases search + expanded LLM analysis |
 | GET | `/v1/kg-agents/instances/{instance_id}/path-stats` | Return historical outcome stats for a path, failure mode, or action |
 | GET | `/v1/kg-agents/instances/{instance_id}/product-info` | Product metadata and suggested symptoms |
 | POST | `/v1/kg-agents/instances/{instance_id}/reload` | Evict in-memory caches for ontology, embeddings, telemetry, and logs |
 | GET | `/v1/kg-agents/instances/{instance_id}/status` | Ontology status and counts |
 | GET | `/v1/kg-agents/instances/{instance_id}/chat-sessions` | List persisted chat sessions for an instance |
 | GET | `/v1/kg-agents/instances/{instance_id}/chat-sessions/{session_id}` | Return persisted messages for one session |
+| DELETE | `/v1/kg-agents/instances/{instance_id}/chat-sessions/{session_id}` | Delete one persisted chat session |
 
 ### Graph
 
@@ -266,7 +268,7 @@ Response body:
 }
 ```
 
-`LogRecord` contains the canonical CSV fields: `log_id`, source fields, timestamps, `instance_id`, asset/device/equipment fields, event category/status/severity, component and code fields, observed/threshold values, `work_order_id`, `title`, `body`, `action_taken`, `outcome`, duration fields, `semantic_text`, `event_signature_id`, KG link ids, `quality_flags`, and `attributes_json`.
+`LogRecord` contains the canonical CSV fields: `log_id`, source fields, timestamps, `instance_id`, asset/device/equipment fields, event category/status/severity, component and code fields, observed/threshold values, `work_order_id`, `title`, `body`, `action_taken`, `outcome`, duration fields, `semantic_text`, `event_signature_id`, KG link ids, `quality_flags`, and `attributes_json`. The API normalizes `event_signature_id` before returning records or search matches; public signature ids are stable slug-style values such as `irc5_drive_motor_overtemperature`, never free-form log prose.
 
 ### Chat Response Contract
 
@@ -283,7 +285,7 @@ Response body:
 
 Accepted `behavior_mode` values:
 
-- `solve_current_problem` — run the troubleshooting flow. This is KG-first diagnosis and may still attach retrieved historical log evidence in `log_evidence`.
+- `solve_current_problem` — run the troubleshooting flow. This is KG-first diagnosis and does not run similar-log historical analysis by default.
 - `search_past_events` — run the past-events/log-search flow. This returns history, analytics, or work-order style answers and does not promote the request into a current diagnosis.
 
 If `behavior_mode` is omitted, the backend keeps the legacy behavior and uses intent routing to choose the product mode. If it is present, it is treated as the user's explicit UI choice and takes precedence over intent routing for the coarse product mode. The intent classifier still runs as an implementation detail to classify subtypes such as log history, analytics, work-order lookup, hybrid evidence, and follow-up context.
@@ -294,17 +296,24 @@ In `search_past_events`, chat questions may include natural English date scopes.
 
 - `intent`: one of `troubleshooting_current`, `log_history_search`, `log_analytics`, `work_order_lookup`, `hybrid_diagnosis_with_history`
 - `behavior_mode`: one of `solve_current_problem`, `search_past_events`
-- `log_evidence`: compact list of retrieved log matches used for the answer
-- `past_cases_summary`: structured per-pattern history aggregate attached on troubleshooting answers (see below)
-- `metrics.log_filters`: structured filters used by log/history answers, when applicable (for troubleshooting answers, `event_signature_id` is set to the top matched signature so clients can deep-link into `/logs?event_signature_id=…`)
+- `log_evidence`: compact list of retrieved log matches used for log/history answers, hybrid diagnosis-with-history answers, logs-only fallbacks, or on-demand recommendation
+- `past_cases_summary`: structured per-pattern history aggregate only when history is explicitly requested or when the KG flow falls back to logs (see below)
+- `metrics.log_filters`: structured filters used by log/history answers, when applicable
 - `metrics.log_summary`: aggregate summary used by log analytics answers, when applicable
 - `timings`: per-stage latency map for observability
 
-Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `behavior_mode`, `intent`, `log_evidence`, and `past_cases_summary` to decide whether to render a diagnosis card, a past-events card, and/or a troubleshooting evidence panel.
+Existing clients that only read `reply`, `session_id`, `highlight`, `current_issue`, or `telemetry` can keep doing so. Log-aware clients should use `behavior_mode`, `intent`, `log_evidence`, and `past_cases_summary` to decide whether to render a diagnosis card, a past-events card, and/or a troubleshooting evidence panel. For a normal `solve_current_problem` answer, absence of `past_cases_summary` is expected and means the backend kept the response on the fast KG path.
 
 #### Past-cases enrichment for troubleshooting
 
-The `troubleshooting_current` flow runs a semantic log search (`text-embedding-3-large`) on every turn when the instance has a logs CSV — including Fast mode. On top of the raw retrieval, the backend ranks every matched log row by cosine similarity to the user query, picks the top K (default `PAST_CASES_BASIS_K = 5`) as the *basis logs*, and asks an LLM (Fast: `gpt-5-nano`) to compose a 2–4 sentence **narrative summary** grounded on those rows. The structured aggregate ships back on `past_cases_summary`:
+The default `troubleshooting_current` flow is now KG-first and fast: it does not run the similar-log historical search and does not call an LLM for a past-cases narrative. Similar-log history is produced only in these cases:
+
+- the user explicitly asks for history in the same message (`hybrid_diagnosis_with_history`)
+- the KG flow cannot produce a confident/manual-backed answer and uses a logs-only fallback
+- a client calls `/recommend` for deeper expert reasoning on the active diagnosis
+- a client calls `/past-cases-analysis` directly
+
+When past cases are fetched, the backend ranks matched log rows by cosine similarity to the user query and returns a structured aggregate on `past_cases_summary`:
 
 ```json
 {
@@ -327,7 +336,7 @@ The `troubleshooting_current` flow runs a semantic log search (`text-embedding-3
   },
   "sample_resolutions": [],
   "top_log_id": "log_irc5_0007",
-  "narrative_summary": "These motor overtemperature events were typically driven by a clogged air filter or a slowed cooling fan and were resolved by cleaning intakes and running a cool-down cycle. One escalation involved bearing wear and required a full motor inspection.",
+  "narrative_summary": "",
   "basis_log_ids": ["log_irc5_0007", "log_irc5_0008", "log_irc5_0012"],
   "ranked_log_refs": [
     { "log_id": "log_irc5_0007", "similarity": 0.62 },
@@ -344,16 +353,32 @@ Outcome bucketing (stable for clients, applied server-side):
 - `escalated` ← contains "escalat"
 - otherwise → `unknown_outcome_count`
 
-Front-ends render a single clickable past-case box per case with occurrence count, outcome counts, last seen, and the `narrative_summary` (falling back to the deterministic `most_used_resolution.action_taken` one-liner only when the narrative is empty — for older payloads or LLM failures). The reply text follows the same precedence: prefer `narrative_summary`, fall back to "Most-used fix: …". Clicking the box opens the log navigator (see below); the navigator uses `ranked_log_refs` to order rows by similarity and `basis_log_ids` to flag the K rows that grounded the narrative.
+`narrative_summary` is intentionally empty on the normal fast path. Clients that want a deeper prose analysis should call `/past-cases-analysis` and render `analysis_markdown`. When `basis_log_ids` and `ranked_log_refs` are present, clients can order rows by similarity and highlight the rows used as the analysis basis.
 
 #### Lazy expanded analysis
 
-`POST /v1/kg-agents/instances/{instance_id}/past-cases-analysis` returns a longer markdown analysis derived from the basis logs. The endpoint is stateless — clients pass `{query, log_ids}` taken from the originating chat response — so the LLM cost is only paid when the operator actually opens the navigator.
+`POST /v1/kg-agents/instances/{instance_id}/past-cases-analysis` returns a longer markdown analysis derived from similar past incidents. This is the endpoint external clients should call when the operator explicitly asks for historical analysis. The normal chat diagnosis does not pay this cost.
+
+Clients can use it in two ways:
+
+- pass `{query, log_ids}` when a previous response already provided basis logs
+- pass `{query}` only; the endpoint will run the similar-past-cases search, return `past_cases_summary` / `log_evidence`, and then compose `analysis_markdown`
 
 Request:
 
 ```json
-{ "session_id": "optional", "query": "Bearings damaged or worn", "log_ids": ["log_irc5_0061", "log_irc5_0184"] }
+{
+  "session_id": "optional",
+  "query": "Drive motor overheating at 88C",
+  "log_ids": [],
+  "date_from": null,
+  "date_to": null,
+  "maintenance_type": null,
+  "event_category": null,
+  "status": null,
+  "severity_min": null,
+  "limit": 3
+}
 ```
 
 Response:
@@ -361,11 +386,42 @@ Response:
 ```json
 {
   "analysis_markdown": "**What tends to happen** …\n\n**What worked** …\n\n**Suggested next steps**\n1. …",
-  "log_ids_used": ["log_irc5_0061", "log_irc5_0184"]
+  "log_ids_used": ["log_irc5_0208", "log_irc5_0143"],
+  "past_cases_summary": {
+    "top_event_signature_id": "irc5_drive_motor_overtemperature",
+    "occurrence_count": 33,
+    "basis_log_ids": ["log_irc5_0208", "log_irc5_0143"]
+  },
+  "log_evidence": [
+    { "event_signature_id": "irc5_drive_motor_overtemperature", "occurrence_count": 33 }
+  ],
+  "timings": { "search_total_s": 0.537, "analysis_compose_s": 33.493 }
 }
 ```
 
 The composer (`compose_past_cases_expanded_analysis`) prompts the LLM to produce three labelled sections — *What tends to happen*, *What worked*, *Suggested next steps* — and to cite every concrete claim with `[log_id]` so the UI can deep-link a citation back to the row that backs it.
+
+#### On-demand recommendation
+
+`POST /v1/kg-agents/instances/{instance_id}/recommend` returns an expert recommendation for the active diagnosis session. It reads the current KG/manual path from session state and, if no log evidence was already attached, fetches similar past cases on demand before composing the recommendation. It does not ask the operator follow-up questions; the response is action-oriented markdown with `Recommendation`, `Do first`, `Why`, `Grounded action path`, and `Evidence` sections.
+
+Request:
+
+```json
+{ "session_id": "active-chat-session-id" }
+```
+
+Response:
+
+```json
+{
+  "instance_id": "irc5-default-instance",
+  "session_id": "active-chat-session-id",
+  "recommendation_markdown": "**Recommendation** …",
+  "model": "gpt-5-mini",
+  "timing_s": 8.271
+}
+```
 
 #### Logs-only fallback (low-KG-confidence path)
 
@@ -424,7 +480,7 @@ User message
   -> deterministic fast-path intent router
   -> optional LLM intent classifier fallback only for ambiguous cases
   -> optional request `behavior_mode` override from the UI/external client:
-       * solve_current_problem -> keep the flow in troubleshooting mode, while still attaching log evidence when available
+       * solve_current_problem -> keep the flow in fast KG troubleshooting mode
        * search_past_events    -> keep the flow in log/history mode
   -> intent branch:
        * log_history_search       -> hybrid log retrieval + Fast template, or LLM-composed reply in Guided mode
@@ -443,7 +499,7 @@ User message
        -> deterministic grounded answer
        -> trace payload for graph highlighting
        -> optional telemetry payload
-  -> intent tag + log evidence list attached to every response
+  -> intent tag attached to every response; log evidence attached only when a log/history branch actually ran
 ```
 
 Current behavior:
@@ -456,6 +512,7 @@ Current behavior:
 - if the clarification answer is unrelated or nonsensical, the API rejects it and repeats the same clarification instead of treating it as a new diagnosis
 - response formatting is deterministic
 - returned facts come from the ontology and linked telemetry/manual metadata
+- similar-log historical analysis is lazy: it runs for explicit history, logs-only fallback, `/recommend`, or `/past-cases-analysis`, not for every fast diagnosis
 - telemetry is resolved per instance when a telemetry CSV is present under `kg_agents/data/instances/<instance_id>/telemetry/`
 - every chat response includes a `timings` map with per-stage latency, for example `setup_s`, `intent_fast_path_s`, `log_history_search_total_s`, `kg_similarity_s`, `response_build_s`, and `total_s`
 
@@ -546,8 +603,8 @@ The dev UI at `/dev-ui` renders log responses inline:
 - An **intent badge** above the assistant message identifies non-default routing (Historical lookup, Log analytics, Work order, Diagnosis + history).
 - An expandable **Evidence panel** under each message shows the retrieved log occurrences with severity pill, date, work order id, body excerpt, action_taken, and outcome.
 - When the diagnosis surfaces a failure mode that has `related_measurements`, the cause card shows a **Correlated signals** chip (count of available signals). Clicking it opens the Inspector with a stacked set of Chart.js time-series — one per measurement column resolved from the instance's telemetry CSV — annotated with mean/std/min/max/last/trend. The chip is hidden when no telemetry payload is attached to the response.
-- The **PAST SIMILAR INCIDENTS** card under the diagnosis renders the LLM `narrative_summary` (2–4 sentences) instead of the legacy "Most-used fix: …" one-liner. The card is clickable; the underlying counts (`occurrence_count`, `resolved_count`, last seen) stay visible at the top.
-- Clicking the past-incidents card opens the **Log Navigator** in the Inspector with three blocks: (1) scope / rows-in-scope / top recurring case cards; (2) a violet **AI ANALYSIS OF SIMILAR PAST CASES** section that lazy-fetches `POST /past-cases-analysis` and renders the three-section markdown (*What tends to happen*, *What worked*, *Suggested next steps*) — every `[log_id]` citation is a clickable chip that scrolls to and flashes the corresponding table row; (3) a result table ordered by **per-row cosine similarity** to the original query (not by date), with a first **Match** column showing `XX%` similarity, the top-K rows tagged with a **basis** chip and highlighted (lavender background). The legacy single "Selected log" detail panel is gone — operators act on rows via the per-row "Diagnose this" stethoscope button or the citation links.
+- The **PAST SIMILAR INCIDENTS** card is rendered only when the backend response includes `past_cases_summary` (explicit history, hybrid diagnosis-with-history, or logs-only fallback). Normal fast diagnoses do not include this field.
+- Clicking the past-incidents card opens the **Log Navigator** in the Inspector with three blocks: (1) scope / rows-in-scope / top recurring case cards; (2) an **AI ANALYSIS OF SIMILAR PAST CASES** section that lazy-fetches `POST /past-cases-analysis` and renders the three-section markdown (*What tends to happen*, *What worked*, *Suggested next steps*) — every `[log_id]` citation is a clickable chip that scrolls to and flashes the corresponding table row; (3) a result table ordered by **per-row cosine similarity** to the original query (not by date), with a first **Match** column showing `XX%` similarity, the top-K rows tagged with a **basis** chip and highlighted. The legacy single "Selected log" detail panel is gone — operators act on rows via the per-row "Diagnose this" stethoscope button or the citation links.
 - The graph panel exposes a small **Show logs** toolbar (toggle + query input). When chat returns evidence, the overlay query is auto-prefilled with the user's question; if the toggle is on, the graph reloads to surface `LogEvent` diamond nodes (teal `#14B8A6`) wired to the relevant `asset_*`, `comp_*`, and `fm_*` nodes via three virtual edge types.
 
 ### Chat ranking notes

@@ -180,11 +180,21 @@ class PastCasesAnalysisRequest(BaseModel):
     session_id: str | None = None
     query: str
     log_ids: list[str] = Field(default_factory=list)
+    date_from: str | None = None
+    date_to: str | None = None
+    maintenance_type: str | None = None
+    event_category: str | None = None
+    status: str | None = None
+    severity_min: int | None = None
+    limit: int = 3
 
 
 class PastCasesAnalysisResponse(BaseModel):
     analysis_markdown: str
     log_ids_used: list[str] = Field(default_factory=list)
+    past_cases_summary: PastCasesSummary | None = None
+    log_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    timings: dict[str, float] = Field(default_factory=dict)
 
 
 class ChatResponse(BaseModel):

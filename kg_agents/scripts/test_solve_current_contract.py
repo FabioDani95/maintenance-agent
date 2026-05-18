@@ -1,9 +1,10 @@
 """Contract checks for the solve-current-problem chat behaviour.
 
-This is intentionally not a wording snapshot test. The non-fast branch may use
-an LLM to choose rationale text, but the neurosymbolic contract must remain
-stable: same problem class -> same KG issue/action, same evidence structure,
-same manual citation, and no unsupported "previous context" framing.
+This is intentionally not a wording snapshot test. The solve-current chat path
+must remain stable: same problem class -> same KG issue/action, same manual
+citation, no unsupported "previous context" framing, and no automatic
+historical-log attachment in the fast diagnosis. The old inline non-fast
+answer has been replaced by the on-demand /recommend endpoint.
 
 Usage:
     python -m kg_agents.scripts.test_solve_current_contract
@@ -41,6 +42,15 @@ def _post_chat(client: TestClient, message: str, mode: str, run_idx: int) -> dic
             "mode": mode,
             "session_id": f"solve-contract-{run_idx}-{uuid.uuid4()}",
         },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _post_recommend(client: TestClient, session_id: str) -> dict:
+    response = client.post(
+        f"/v1/kg-agents/instances/{INSTANCE}/recommend",
+        json={"session_id": session_id},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -84,13 +94,15 @@ def run(mode: str, runs: int) -> int:
                 failures.append(f"missing manual citation for {message!r}")
 
             if mode == "non-fast":
-                for section in ("**Assessment**", "**Priority**", "**Action Plan**", "**Evidence Used**", "**Report Back**"):
-                    if section not in reply:
-                        failures.append(f"missing {section} for {message!r}")
-                if contract[3] != EXPECTED_LOG_SIGNATURE:
-                    failures.append(f"wrong top log signature for {message!r}: {contract[3]}")
-                if "15 occurrences" in reply or "15 occurrence" in reply:
-                    failures.append(f"reply exposes signature-total count as query evidence for {message!r}")
+                rec = _post_recommend(client, data.get("session_id") or "")
+                recommendation = rec.get("recommendation_markdown") or ""
+                for section in ("**Recommendation**", "**Do first**", "**Grounded action path**", "**Evidence**"):
+                    if section not in recommendation:
+                        failures.append(f"missing {section} in /recommend for {message!r}")
+                if "**Report Back**" in recommendation:
+                    failures.append(f"/recommend asks for report-back in {message!r}")
+                if "previous context" in recommendation.lower():
+                    failures.append(f"/recommend implies previous context for {message!r}")
 
     unique_contracts = set(observed)
     if len(unique_contracts) != 1 and mode == "fast":

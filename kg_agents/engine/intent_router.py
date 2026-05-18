@@ -299,9 +299,17 @@ def _fast_filters(text: str) -> dict[str, Any]:
         filters["date_from"] = _shift_months(today, -int(m.group(1))).isoformat()
     elif m := re.search(r"\b(?:last|past)\s+(\d+)\s+years?\b", text):
         filters["date_from"] = date(today.year - int(m.group(1)), today.month, today.day).isoformat()
-    elif re.search(r"\b(last|past)\s+30\s+days?\b", text):
-        filters["date_from"] = (today - timedelta(days=30)).isoformat()
-    elif re.search(r"\b(last|past)\s+7\s+days?\b", text) or re.search(r"\blast week\b", text):
+    elif re.search(r"\byesterday\b", text):
+        yest = today - timedelta(days=1)
+        filters["date_from"] = yest.isoformat()
+        filters["date_to"] = today.isoformat()
+    elif re.search(r"\btoday\b", text):
+        filters["date_from"] = today.isoformat()
+    elif m := re.search(r"\b(?:last|past)\s+(\d+)\s+weeks?\b", text):
+        filters["date_from"] = (today - timedelta(weeks=int(m.group(1)))).isoformat()
+    elif m := re.search(r"\b(?:last|past)\s+(\d+)\s+days?\b", text):
+        filters["date_from"] = (today - timedelta(days=int(m.group(1)))).isoformat()
+    elif re.search(r"\blast week\b|\bpast week\b", text):
         filters["date_from"] = (today - timedelta(days=7)).isoformat()
 
     if "fatal" in text:
@@ -397,15 +405,18 @@ def classify_intent_fast(
     if _WORK_ORDER_RE.search(message):
         return _base_result("work_order_lookup", message, "work order id detected")
 
-    filters = _fast_filters(text)
-    if _has_temporal_language(text) and not _has_date_filter(filters):
-        return None
-
     has_history = any(pattern in text for pattern in _HISTORY_PATTERNS)
     has_analytics = any(pattern in text for pattern in _ANALYTICS_PATTERNS)
     has_current_diagnosis = any(pattern in text for pattern in _CURRENT_DIAGNOSIS_PATTERNS)
     has_solution_history = _has_solution_history_signal(text)
     has_anchor = _has_clear_anchor(text, message)
+    filters = _fast_filters(text)
+    simple_history_reference = has_history and re.search(
+        r"\b(before|happened before|seen before|last time|previous(?:ly)?)\b",
+        text,
+    )
+    if _has_temporal_language(text) and not _has_date_filter(filters) and not simple_history_reference:
+        return None
 
     # Mixed history + analytics wording with no concrete machine/component
     # anchor is exactly where the string router is most likely to guess wrong.
@@ -446,17 +457,18 @@ def classify_intent_fast(
     if has_history:
         return _base_result("log_history_search", message, "history wording detected")
 
-    # Phrases like "recover the solution" are intentionally routed through the
-    # LLM classifier. They can mean "find how it was fixed before" or "solve my
-    # current issue"; the string router does not have enough context to decide.
     if has_solution_history:
-        return None
+        return _base_result("log_history_search", message, "solution-history wording detected")
 
-    # Ambiguous anchored maintenance questions are cheap enough to classify
-    # with the router LLM in fast mode. Keep deterministic defaulting only for
-    # messages without a clear technical anchor.
+    if has_current_diagnosis:
+        return _base_result("troubleshooting_current", message, "current diagnostic wording detected")
+
+    # A technical anchor with no history / analytics wording is a current
+    # troubleshooting request by default. Avoid putting obvious diagnose turns
+    # through the router LLM; that latency belongs only to genuinely ambiguous
+    # messages.
     if has_anchor:
-        return None
+        return _base_result("troubleshooting_current", message, "anchored troubleshooting route")
 
     return _base_result("troubleshooting_current", message, "default troubleshooting route")
 

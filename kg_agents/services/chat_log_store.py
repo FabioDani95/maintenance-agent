@@ -244,3 +244,22 @@ def delete_conversation_memory(instance_id: str, session_id: str) -> None:
             )
     except sqlite3.OperationalError:
         init_chat_log_db()
+
+
+def delete_session(instance_id: str, session_id: str) -> int:
+    """Delete all chat logs + memory for a session. Returns rows deleted from chat_logs."""
+    deleted = 0
+    try:
+        with _connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM chat_logs WHERE instance_id = ? AND session_id = ?",
+                (instance_id, session_id),
+            )
+            deleted = cur.rowcount or 0
+            conn.execute(
+                "DELETE FROM chat_memory WHERE instance_id = ? AND session_id = ?",
+                (instance_id, session_id),
+            )
+    except sqlite3.OperationalError:
+        init_chat_log_db()
+    return deleted

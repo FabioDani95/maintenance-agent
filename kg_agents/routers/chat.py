@@ -40,6 +40,7 @@ from kg_agents.engine.log_chat import (
     _logs_only_reply,
     _past_resolution_template,
     basis_rows_from_log_ids,
+    basis_rows_from_summary,
     compose_past_cases_expanded_analysis,
     fetch_past_cases_for_diagnosis,
     handle_log_analytics,
@@ -1031,39 +1032,62 @@ async def chat(instance_id: str, req: ChatRequest):
             intent_fallback_used=intent_fallback_used,
         )
 
-    # Past-cases retrieval runs on every troubleshooting turn so the reply can
-    # always carry quantified history. When no logs exist for the instance the
-    # helper returns ``(None, [], _, [])`` and the downstream rendering simply
-    # skips the past-cases block.
-    #
-    # Past-cases retrieval (search_logs + LLM card narrative) and the query
-    # embedding are independent of each other and of the KG similarity step
-    # that follows. Run them in parallel: the wall-time of the diagnose call
-    # collapses toward max(past_cases_LLM, embedding) instead of their sum.
-    parallel_started = perf_counter()
-    if query_emb is None:
-        (past_result, past_call_s), (query_emb, query_embedding_s) = await asyncio.gather(
-            asyncio.to_thread(
-                _timed_call,
-                fetch_past_cases_for_diagnosis,
-                intent_query, instance_id, intent_filters,
-            ),
-            asyncio.to_thread(_timed_call, get_query_embedding, message),
-        )
-        timer.timings["query_embedding_s"] = query_embedding_s
-    else:
-        past_result, past_call_s = await asyncio.to_thread(
+    past_cases_summary: PastCasesSummary | None = None
+    hybrid_evidence: list[dict] = []
+    past_matches: list[dict] = []
+
+    async def _ensure_past_cases(stage: str) -> None:
+        nonlocal past_cases_summary, hybrid_evidence, past_matches
+        if past_cases_summary is not None or past_matches:
+            return
+        past_result, _past_call_s = await asyncio.to_thread(
             _timed_call,
             fetch_past_cases_for_diagnosis,
-            intent_query, instance_id, intent_filters,
+            intent_query,
+            instance_id,
+            intent_filters,
         )
-    past_cases_summary, hybrid_evidence, past_timings, past_matches = past_result
-    timer.add_nested("past_cases", past_timings)
-    timer.timings["parallel_block_s"] = round(perf_counter() - parallel_started, 3)
-    timer.mark("past_cases_and_embedding")
-    # No separate hybrid bullet appendix: the structured past-resolution block
-    # already carries the same information in a cleaner shape, and the
-    # past-case box links to the full log navigator for details.
+        past_cases_summary, hybrid_evidence, past_timings, past_matches = past_result
+        timer.add_nested(f"{stage}_past_cases", past_timings)
+
+    # The normal solve-current path is KG-first and does not run historical log
+    # analysis. History is fetched only when the user explicitly asks for it
+    # (hybrid intent), when KG confidence is too low and we need a logs-only
+    # fallback, or when /recommend asks for deeper reasoning on demand.
+    if intent == "hybrid_diagnosis_with_history":
+        parallel_started = perf_counter()
+        if query_emb is None:
+            (past_result, _past_call_s), (query_emb, query_embedding_s) = await asyncio.gather(
+                asyncio.to_thread(
+                    _timed_call,
+                    fetch_past_cases_for_diagnosis,
+                    intent_query,
+                    instance_id,
+                    intent_filters,
+                ),
+                asyncio.to_thread(_timed_call, get_query_embedding, message),
+            )
+            timer.timings["query_embedding_s"] = query_embedding_s
+        else:
+            past_result, _past_call_s = await asyncio.to_thread(
+                _timed_call,
+                fetch_past_cases_for_diagnosis,
+                intent_query,
+                instance_id,
+                intent_filters,
+            )
+        past_cases_summary, hybrid_evidence, past_timings, past_matches = past_result
+        timer.add_nested("past_cases", past_timings)
+        timer.timings["parallel_block_s"] = round(perf_counter() - parallel_started, 3)
+        timer.mark("past_cases_and_embedding")
+    elif query_emb is None:
+        query_emb, query_embedding_s = await asyncio.to_thread(
+            _timed_call,
+            get_query_embedding,
+            message,
+        )
+        timer.timings["query_embedding_s"] = query_embedding_s
+        timer.mark("query_embedding")
 
     symptom_embs = embeddings.get("symptoms", {})
     fm_embs = embeddings.get("failure_modes", {})
@@ -1085,6 +1109,7 @@ async def chat(instance_id: str, req: ChatRequest):
         timer.mark("domain_check")
         if relevance == "not_relevant":
             _set_active_issue(session, [], {})
+            await _ensure_past_cases("fallback")
             logs_only = _build_logs_only_response(
                 instance_id=instance_id,
                 session_id=session_id,
@@ -1121,6 +1146,7 @@ async def chat(instance_id: str, req: ChatRequest):
             )
         if relevance == "unclear":
             _set_active_issue(session, [], {})
+            await _ensure_past_cases("fallback")
             logs_only = _build_logs_only_response(
                 instance_id=instance_id,
                 session_id=session_id,
@@ -1158,6 +1184,7 @@ async def chat(instance_id: str, req: ChatRequest):
 
     if not top_symptoms and not top_failure_modes:
         _set_active_issue(session, [], {})
+        await _ensure_past_cases("fallback")
         logs_only = _build_logs_only_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -1212,6 +1239,7 @@ async def chat(instance_id: str, req: ChatRequest):
 
     if not paths:
         _set_active_issue(session, [], {})
+        await _ensure_past_cases("fallback")
         logs_only = _build_logs_only_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -1253,6 +1281,7 @@ async def chat(instance_id: str, req: ChatRequest):
     timer.mark("rerank_alignment")
     if not ranked:
         _set_active_issue(session, [], {})
+        await _ensure_past_cases("fallback")
         logs_only = _build_logs_only_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -1523,10 +1552,10 @@ async def reset_session(instance_id: str, req: ResetRequest):
 )
 async def past_cases_analysis(instance_id: str, req: PastCasesAnalysisRequest):
     """Lazy-fetched markdown analysis derived from the top-K basis logs of a
-    past-cases search. Called when the operator opens the log navigator from
-    the past-cases card. The body carries the same ``query`` + ``log_ids``
-    that were sent back to the client on the originating chat response, so
-    the endpoint is stateless and the LLM cost is only paid on demand."""
+    past-cases search. Clients may pass explicit ``log_ids`` from a previous
+    chat response, or pass only ``query`` and let this endpoint retrieve the
+    basis logs on demand. The LLM cost is paid only here, not during the normal
+    solve-current chat path."""
     inst = instance_store.get_instance(instance_id)
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
@@ -1534,14 +1563,53 @@ async def past_cases_analysis(instance_id: str, req: PastCasesAnalysisRequest):
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
     log_ids = [lid for lid in (req.log_ids or []) if isinstance(lid, str) and lid]
-    rows = basis_rows_from_log_ids(log_ids, instance_id)
+    summary: PastCasesSummary | None = None
+    evidence: list[dict] = []
+    timings: dict[str, float] = {}
+    if log_ids:
+        rows = basis_rows_from_log_ids(log_ids, instance_id)
+    else:
+        filters = {
+            key: value for key, value in {
+                "date_from": req.date_from,
+                "date_to": req.date_to,
+                "maintenance_type": req.maintenance_type,
+                "event_category": req.event_category,
+                "status": req.status,
+                "severity_min": req.severity_min,
+            }.items()
+            if value not in (None, "")
+        }
+        limit = max(1, min(int(req.limit or 3), 8))
+        summary, evidence, timings, _matches = await asyncio.to_thread(
+            fetch_past_cases_for_diagnosis,
+            query,
+            instance_id,
+            filters,
+            limit=limit,
+        )
+        rows = basis_rows_from_summary(summary, instance_id)
     if not rows:
-        return PastCasesAnalysisResponse(analysis_markdown="", log_ids_used=[])
+        return PastCasesAnalysisResponse(
+            analysis_markdown="",
+            log_ids_used=[],
+            past_cases_summary=summary,
+            log_evidence=evidence,
+            timings=timings,
+        )
+    started = perf_counter()
     analysis = await asyncio.to_thread(
         compose_past_cases_expanded_analysis, query, rows, OPENAI_CHAT_MODEL,
     )
+    timings = {**timings, "analysis_compose_s": round(perf_counter() - started, 3)}
     used = [str(row.get("log_id") or "") for row in rows if row.get("log_id")]
-    return PastCasesAnalysisResponse(analysis_markdown=analysis, log_ids_used=used)
+    return PastCasesAnalysisResponse(
+        analysis_markdown=analysis,
+        log_ids_used=used,
+        past_cases_summary=summary,
+        log_evidence=evidence,
+        timings=timings,
+    )
 
 
 @router.post("/instances/{instance_id}/recommend", response_model=RecommendResponse)
@@ -1571,6 +1639,19 @@ async def recommend(instance_id: str, req: RecommendRequest):
     model = OPENAI_NON_FAST_CHAT_MODEL
 
     started = perf_counter()
+    if not log_evidence and user_message:
+        try:
+            past_result = await asyncio.to_thread(
+                fetch_past_cases_for_diagnosis,
+                user_message,
+                instance_id,
+                {},
+            )
+            _past_summary, fetched_evidence, _past_timings, _past_matches = past_result
+            log_evidence = fetched_evidence
+            session["_recommend_log_evidence"] = list(log_evidence)
+        except Exception:
+            logger.exception("Failed to fetch on-demand past cases for recommendation")
     recommendation = await asyncio.to_thread(
         compose_prioritized_solve_answer,
         paths=group_paths,
@@ -1743,3 +1824,12 @@ async def get_chat_session_messages(instance_id: str, session_id: str):
         raise HTTPException(status_code=404, detail="Instance not found")
     messages = chat_log_store.get_session_messages(instance_id, session_id)
     return ChatSessionMessagesResponse(messages=messages)
+
+
+@router.delete("/instances/{instance_id}/chat-sessions/{session_id}", status_code=204)
+async def delete_chat_session(instance_id: str, session_id: str):
+    inst = instance_store.get_instance(instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    chat_log_store.delete_session(instance_id, session_id)
+    return None
