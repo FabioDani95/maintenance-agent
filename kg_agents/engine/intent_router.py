@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from openai import OpenAI
+import openai.resources  # noqa: F401  # eager import: avoid Py3.14 deadlock under concurrent first access
 
 from kg_agents.config import OPENAI_API_KEY, OPENAI_ROUTER_MODEL
 

@@ -522,7 +522,7 @@ Historical responses should include evidence. In Fast mode the response is rende
 - Best matching pattern: `irc5_communications_ethernet_packet_loss`
 - Most relevant work order: `WO-IRC5-1001`
 
-**Best Match**
+**Best Match Event**
 - Date: 2026-04-12
 - Severity: ERROR
 - Status: open

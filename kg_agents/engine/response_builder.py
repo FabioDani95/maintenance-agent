@@ -266,8 +266,8 @@ def _default_solve_decision(context: dict[str, Any]) -> dict[str, Any]:
         signature = top.get("event_signature_id") or "similar event"
         if count:
             assessment.append(
-                f"Past events provide supporting context: `{signature}` had {count} retrieved match"
-                f"{'es' if count != 1 else ''} for this query."
+                f"Past events provide supporting context: `{signature}` had {count} matching event"
+                f"{'s' if count != 1 else ''} for this query."
             )
         else:
             assessment.append(f"Past events provide supporting context through `{signature}`.")
@@ -429,11 +429,11 @@ def _render_prioritized_solve_answer(context: dict[str, Any], decision: dict[str
             bits = []
             if matched_count:
                 bits.append(
-                    f"{matched_count} retrieved match"
-                    f"{'es' if matched_count != 1 else ''}"
+                    f"{matched_count} matching event"
+                    f"{'s' if matched_count != 1 else ''}"
                 )
             else:
-                bits.append("closest retrieved match")
+                bits.append("closest matching event")
             if top_match.get("date"):
                 bits.append(str(top_match["date"]))
             if top_match.get("work_order_id"):

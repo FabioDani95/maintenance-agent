@@ -130,15 +130,25 @@ def get_sessions(instance_id: str, limit: int = 50) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT
-              session_id,
-              MIN(created_at) AS started_at,
-              MAX(created_at) AS last_message_at,
+              cl.session_id,
+              MIN(cl.created_at) AS started_at,
+              MAX(cl.created_at) AS last_message_at,
               COUNT(*) AS message_count,
-              MIN(CASE WHEN role = 'user' THEN content END) AS first_user_message
-            FROM chat_logs
-            WHERE instance_id = ?
-            GROUP BY session_id
-            ORDER BY MAX(created_at) DESC
+              MIN(CASE WHEN cl.role = 'user' THEN cl.content END) AS first_user_message,
+              (
+                SELECT json_extract(c2.payload_json, '$.behavior_mode')
+                FROM chat_logs c2
+                WHERE c2.instance_id = cl.instance_id
+                  AND c2.session_id = cl.session_id
+                  AND c2.role = 'assistant'
+                  AND c2.payload_json IS NOT NULL
+                ORDER BY c2.created_at DESC
+                LIMIT 1
+              ) AS behavior_mode
+            FROM chat_logs cl
+            WHERE cl.instance_id = ?
+            GROUP BY cl.session_id
+            ORDER BY MAX(cl.created_at) DESC
             LIMIT ?
             """,
             (instance_id, max(1, limit)),
@@ -150,6 +160,7 @@ def get_sessions(instance_id: str, limit: int = 50) -> list[dict[str, Any]]:
             "last_message_at": row["last_message_at"],
             "message_count": int(row["message_count"]),
             "first_user_message": row["first_user_message"] or "",
+            "behavior_mode": row["behavior_mode"],
         }
         for row in rows
     ]

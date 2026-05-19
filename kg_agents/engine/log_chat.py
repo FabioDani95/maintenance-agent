@@ -249,12 +249,10 @@ def _literal_count_matches(
 
 
 def _history_template(query: str, matches: list[dict[str, Any]]) -> str:
-    total = sum(int(m.get("occurrence_count") or 0) for m in matches)
     top_match = matches[0].get("top_match_log") or {}
     answer_label = "Most Relevant Fix" if _is_solution_question(query) else "Best Match"
     lines = [
         "**Snapshot**",
-        f"- Matching occurrences: **{total}**",
         f"- Best matching pattern: `{_fmt(matches[0].get('event_signature_id'))}`",
         f"- Most relevant work order: `{_fmt(top_match.get('work_order_id'))}`",
         "",
@@ -282,7 +280,7 @@ def _history_template(query: str, matches: list[dict[str, Any]]) -> str:
             top = match.get("top_match_log") or {}
             count = int(match.get("occurrence_count") or 0)
             lines.append(
-                f"- `{_fmt(match.get('event_signature_id'))}` - {count} occurrence"
+                f"- `{_fmt(match.get('event_signature_id'))}` - {count} event"
                 f"{'s' if count != 1 else ''} - {_date(top.get('occurred_at'))} - {_fmt(top.get('title'))}"
             )
     return "\n".join(lines)
@@ -318,7 +316,7 @@ def _analytics_template(query: str, summary: dict[str, Any], filters: dict[str, 
         for item in top_signatures[:5]:
             lines.append(
                 f"- `{_fmt(item.get('event_signature_id'))}` - "
-                f"{int(item.get('occurrence_count') or 0)} occurrences"
+                f"{int(item.get('occurrence_count') or 0)} events"
             )
 
     if severity:
@@ -329,12 +327,10 @@ def _analytics_template(query: str, summary: dict[str, Any], filters: dict[str, 
 
 
 def _count_template(query: str, matches: list[dict[str, Any]], filters: dict[str, Any]) -> str:
-    total = sum(int(m.get("occurrence_count") or 0) for m in matches)
     lines = [
         "**Snapshot**",
         f"- Scope: {_filter_scope(filters)}",
-        f"- Matching occurrences: **{total}**",
-        f"- Matching patterns: **{len(matches)}**",
+        f"- Patterns matched: **{len(matches)}**",
     ]
     if matches:
         top = matches[0].get("top_match_log") or {}
@@ -348,7 +344,7 @@ def _count_template(query: str, matches: list[dict[str, Any]], filters: dict[str
             recent = match.get("most_recent_log") or {}
             lines.append(
                 f"- `{_fmt(match.get('event_signature_id'))}` - "
-                f"{int(match.get('occurrence_count') or 0)} occurrence"
+                f"{int(match.get('occurrence_count') or 0)} event"
                 f"{'s' if int(match.get('occurrence_count') or 0) != 1 else ''} - "
                 f"last seen {_date(recent.get('occurred_at'))}"
             )
@@ -582,9 +578,9 @@ def handle_log_history_search(
         "user query and the top matching event signatures from the machine's "
         "log database. Answer concisely in markdown:\n"
         "- Lead with a one-line summary (yes/no + count).\n"
-        "- Show the most relevant occurrence with date, severity, work order, "
+        "- Show the most relevant event with date, severity, work order, "
         "and what the technician did and the outcome.\n"
-        "- If there are other relevant occurrences, list them as bullets with "
+        "- If there are other relevant events, list them as bullets with "
         "date and short title.\n"
         "- If a knowledge-graph failure mode is linked, mention it briefly at "
         "the end as supporting context (one sentence). Do not force a "
@@ -1066,7 +1062,7 @@ def _past_resolution_template(summary: PastCasesSummary) -> str:
     """
     if not summary or summary.occurrence_count <= 0:
         return ""
-    parts = [f"**{summary.occurrence_count}** time(s) seen on this machine"]
+    parts = [f"**{summary.occurrence_count}** event(s) seen on this machine"]
     if summary.resolved_count:
         parts.append(f"**{summary.resolved_count}** resolved")
     if summary.not_resolved_count:

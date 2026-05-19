@@ -945,6 +945,17 @@ async def chat(instance_id: str, req: ChatRequest):
             "log_query": intent_query,
             "log_filters": intent_filters,
         }
+        past_result, _past_call_s = await asyncio.to_thread(
+            _timed_call,
+            fetch_past_cases_for_diagnosis,
+            intent_query,
+            instance_id,
+            intent_filters,
+        )
+        past_cases_summary, _past_hybrid_evidence, past_timings, _past_matches = past_result
+        timer.add_nested("past_cases", past_timings)
+        if past_cases_summary is not None:
+            response.past_cases_summary = past_cases_summary
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -983,6 +994,17 @@ async def chat(instance_id: str, req: ChatRequest):
             "log_filters": intent_filters,
             "log_summary": log_summary,
         }
+        past_result, _past_call_s = await asyncio.to_thread(
+            _timed_call,
+            fetch_past_cases_for_diagnosis,
+            intent_query,
+            instance_id,
+            intent_filters,
+        )
+        past_cases_summary, _past_hybrid_evidence, past_timings, _past_matches = past_result
+        timer.add_nested("past_cases", past_timings)
+        if past_cases_summary is not None:
+            response.past_cases_summary = past_cases_summary
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,
@@ -1017,6 +1039,17 @@ async def chat(instance_id: str, req: ChatRequest):
             "log_query": intent_query,
             "log_filters": intent_filters,
         }
+        past_result, _past_call_s = await asyncio.to_thread(
+            _timed_call,
+            fetch_past_cases_for_diagnosis,
+            intent_query,
+            instance_id,
+            intent_filters,
+        )
+        past_cases_summary, _past_hybrid_evidence, past_timings, _past_matches = past_result
+        timer.add_nested("past_cases", past_timings)
+        if past_cases_summary is not None:
+            response.past_cases_summary = past_cases_summary
         return _finish_chat_response(
             instance_id=instance_id,
             session_id=session_id,

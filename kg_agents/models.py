@@ -388,6 +388,7 @@ class ChatSessionSummary(BaseModel):
     last_message_at: str
     message_count: int
     first_user_message: str = ""
+    behavior_mode: Literal["solve_current_problem", "search_past_events"] | None = None
 
 
 class ChatSessionsResponse(BaseModel):

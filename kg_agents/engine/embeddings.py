@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
+import openai.resources  # noqa: F401  # eager import: avoid Py3.14 deadlock under concurrent first access
 
 from kg_agents.config import DEFAULT_EMBEDDINGS_PATH, OPENAI_API_KEY, OPENAI_EMBEDDING_MODEL
 
